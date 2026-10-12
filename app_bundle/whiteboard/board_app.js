@@ -163,8 +163,8 @@ document.addEventListener('DOMContentLoaded', () => {
   function convertMiroToBrainBoard(data) {
     if (!data || !Array.isArray(data.items)) return [];
 
-    // Si ya viene pre-convertido (todos tienen type reconocido y x/y absolutos sin relativeTo)
-    const isAlreadyConverted = data.items.every(it => !it.relativeTo && it.text !== undefined);
+    // Si ya viene pre-convertido (todos tienen coordenadas absolutas x/y o start/end sin relativeTo)
+    const isAlreadyConverted = data.items.length > 0 && data.items.every(it => !it.relativeTo && (it.type === 'connector' || it.type === 'curve' || (typeof it.x === 'number' && typeof it.y === 'number')));
     if (isAlreadyConverted) return data.items;
 
     const cleanText = (html) => {
@@ -174,7 +174,8 @@ document.addEventListener('DOMContentLoaded', () => {
         .replace(/<\/p>/gi, '\n')
         .replace(/<p[^>]*>/gi, '')
         .replace(/<[^>]+>/g, '')
-        .replace(/&#43;/g, '+')
+        .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+        .replace(/&#x([a-f0-9]+);/gi, (_, code) => String.fromCharCode(parseInt(code, 16)))
         .replace(/&amp;/g, '&')
         .replace(/&lt;/g, '<')
         .replace(/&gt;/g, '>')
@@ -261,6 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
         };
       }
       if (it.type === 'text' || it.type === 'table_text') {
+        const hasFill = Boolean((it.style?.fillColor && it.style.fillColor !== 'transparent') || (it.fillColor && it.fillColor !== 'transparent'));
         return {
           id: it.id || 'text_' + Math.random(),
           type: 'text',
@@ -268,9 +270,11 @@ document.addEventListener('DOMContentLoaded', () => {
           y: b.y,
           width: b.width,
           height: b.height,
-          text: cleanText(it.content),
-          fontSize: Math.round(it.style?.fontSize || 16),
-          color: mapColor(it.style?.color || '#1a1a1a')
+          text: it.text !== undefined ? it.text : cleanText(it.content),
+          fontSize: it.fontSize || Math.round(it.style?.fontSize || 16),
+          fillColor: hasFill ? mapColor(it.style?.fillColor || it.fillColor) : null,
+          color: mapColor(it.style?.color || it.color || (hasFill ? '#ffffff' : '#1a1a1a')),
+          textAlign: it.style?.textAlign || it.textAlign || (hasFill ? 'center' : 'left')
         };
       }
       if (it.type === 'code') {
@@ -293,7 +297,8 @@ document.addEventListener('DOMContentLoaded', () => {
           y: b.y,
           width: b.width,
           height: b.height,
-          title: it.title || ''
+          title: it.title || '',
+          fillColor: mapColor(it.style?.fillColor || it.fillColor || '#bbcbd2')
         };
       }
       if (it.type === 'image') {
@@ -319,6 +324,54 @@ document.addEventListener('DOMContentLoaded', () => {
         };
       }
       if (it.type === 'embed' || it.type === 'preview') {
+        const uStr = it.url || it.previewUrl || '';
+        let domain = it.domain || '';
+        let title = it.title || '';
+        try {
+          if (uStr) {
+            const u = new URL(uStr);
+            if (!domain) domain = u.hostname.replace(/^www\./, '').toUpperCase();
+            if (!title) {
+              if (domain.includes('YOUTUBE')) {
+                const match = u.pathname.match(/@([^\/\?]+)/);
+                title = match ? `@${match[1]}` : 'YouTube';
+              } else if (domain.includes('GITHUB')) {
+                const parts = u.pathname.split('/').filter(Boolean);
+                title = parts.length > 0 ? parts.join('/') : 'GitHub';
+              } else {
+                const pathClean = decodeURIComponent(u.pathname.replace(/^\/|\/$/g, ''));
+                if (pathClean) {
+                  const parts = pathClean.split('/');
+                  const t = parts[parts.length - 1].replace(/[-_]/g, ' ');
+                  title = t.charAt(0).toUpperCase() + t.slice(1);
+                } else {
+                  const parts = domain.split('.');
+                  title = parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+                }
+              }
+            }
+          }
+        } catch (e) {}
+
+        let src = it.src || '';
+        if (!src && it.previewUrl) {
+          const m = resEntries.find(re => it.previewUrl.includes(re.name) || (re.filename && it.previewUrl.includes(re.filename)));
+          if (m) src = m.localPath;
+        }
+        if (!src && uStr.includes('youtube.com')) {
+          const yt = resEntries.find(re => re.filename && (re.filename.includes('=s900') || re.filename.includes('default.jpg') || (re.name && re.name.includes('default.jpg'))));
+          if (yt) src = yt.localPath;
+        }
+        if (!src && uStr) {
+          try {
+            const host = new URL(uStr).hostname.replace(/^www\./, '').split('.')[0].toLowerCase();
+            if (host.length > 2) {
+              const dm = resEntries.find(re => (re.name && re.name.toLowerCase().includes(host)) || (re.filename && re.filename.toLowerCase().includes(host)));
+              if (dm) src = dm.localPath;
+            }
+          } catch (err) {}
+        }
+
         return {
           id: it.id || 'embed_' + Math.random(),
           type: 'embed',
@@ -326,8 +379,10 @@ document.addEventListener('DOMContentLoaded', () => {
           y: b.y,
           width: b.width,
           height: b.height,
-          title: it.title || '',
-          url: it.url || it.previewUrl || ''
+          title: title || domain || 'Enlace',
+          domain: domain || 'ENLACE',
+          url: uStr,
+          src
         };
       }
       if (it.type === 'connector' || it.type === 'curve') {
@@ -479,12 +534,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Doble clic para editar texto in-situ
+  // Doble clic para editar texto in-situ o abrir enlaces
   canvasElement.addEventListener('dblclick', (e) => {
     const world = engine.screenToWorld(e.clientX, e.clientY);
     const clicked = engine.getItemAt(world.x, world.y);
-    if (clicked && (clicked.type === 'sticky_note' || clicked.type === 'shape' || clicked.type === 'text' || clicked.type === 'frame')) {
-      openInlineEditor(clicked);
+    if (clicked) {
+      if (clicked.type === 'embed' && clicked.url) {
+        try {
+          if (window.require) {
+            const { shell } = window.require('electron');
+            shell.openExternal(clicked.url);
+          } else {
+            window.open(clicked.url, '_blank');
+          }
+        } catch (err) {
+          window.open(clicked.url, '_blank');
+        }
+        return;
+      }
+      if (clicked.type === 'sticky_note' || clicked.type === 'shape' || clicked.type === 'text' || clicked.type === 'frame') {
+        openInlineEditor(clicked);
+      }
     }
   });
 
@@ -571,7 +641,7 @@ document.addEventListener('DOMContentLoaded', () => {
         updatedAt: new Date().toISOString(),
         items: engine.items
       };
-      localStorage.setItem('miro_local_current_board', JSON.stringify(data));
+      localStorage.setItem('miro_local_current_board_v3', JSON.stringify(data));
       saveStatusText.innerText = 'Guardado en local';
     }, 500);
   }
@@ -590,7 +660,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (res.ok) {
         const board = await res.json();
         engine.saveSnapshot();
-        engine.items = convertMiroToBrainBoard(board);
+        engine.items = (board.items && Array.isArray(board.items)) ? board.items : convertMiroToBrainBoard(board);
         engine.selectedItemIds.clear();
         boardTitleInput.value = board.name || 'DEV / AI';
         engine.fitView();
@@ -604,11 +674,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Carga inicial
   async function loadInitialBoard() {
     // 1. Intentar cargar desde LocalStorage si ya tiene el tablero completo (>500 items)
-    const saved = localStorage.getItem('miro_local_current_board');
+    const saved = localStorage.getItem('miro_local_current_board_v3');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.items && parsed.items.length >= 500) {
+        if (parsed.items && parsed.items.length >= 500 && parsed.items.some(i => i.text === 'DEV')) {
           engine.items = parsed.items;
           boardTitleInput.value = parsed.name || 'DEV / AI';
           engine.fitView();
@@ -622,7 +692,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await fetch('../boards/DEV_AI.json');
       if (res.ok) {
         const board = await res.json();
-        engine.items = convertMiroToBrainBoard(board);
+        engine.items = (board.items && Array.isArray(board.items)) ? board.items : convertMiroToBrainBoard(board);
         boardTitleInput.value = board.name || 'DEV / AI';
         engine.fitView();
         autoSaveBoard();

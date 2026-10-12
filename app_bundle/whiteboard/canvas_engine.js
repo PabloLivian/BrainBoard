@@ -528,7 +528,8 @@ class CanvasEngine {
       this.items.filter(it => it.type === 'sticky_note' && isVisible(it)).forEach(it => this.drawStickyNote(it));
 
       // 6. Textos y dibujo a mano alzada
-      this.items.filter(it => it.type === 'text' && isVisible(it)).forEach(it => this.drawText(it));
+      this.items.filter(it => it.type === 'text' && it.fillColor && it.fillColor !== 'transparent' && isVisible(it)).forEach(it => this.drawText(it));
+      this.items.filter(it => it.type === 'text' && (!it.fillColor || it.fillColor === 'transparent') && isVisible(it)).forEach(it => this.drawText(it));
       this.items.filter(it => it.type === 'pen').forEach(it => this.drawPen(it));
 
       // 7. Seleccion y recuadro marquee
@@ -651,14 +652,58 @@ class CanvasEngine {
 
   drawText(it) {
     this.ctx.save();
-    this.ctx.fillStyle = it.color || '#1a1a1a';
+    const hasFill = Boolean(it.fillColor && it.fillColor !== 'transparent');
+
+    // Si tiene relleno, dibujar la caja / banner / tarjeta
+    if (hasFill) {
+      this.ctx.fillStyle = it.fillColor;
+      const radius = Math.min(8, it.height / 4);
+      this.ctx.beginPath();
+      this.roundRect(this.ctx, it.x, it.y, it.width, it.height, radius);
+      this.ctx.fill();
+
+      if (it.fillColor === '#bbcbd2') {
+        this.ctx.strokeStyle = '#94a3b8';
+        this.ctx.lineWidth = 1;
+        this.ctx.stroke();
+      }
+    }
+
     const fontSize = it.fontSize || 15;
-    this.ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-    this.ctx.textAlign = 'left';
-    this.ctx.textBaseline = 'top';
-    const maxWidth = Math.max(100, it.width || 400);
-    const lineHeight = Math.round(fontSize * 1.35);
-    this.wrapText(this.ctx, it.text || '', it.x, it.y, maxWidth, lineHeight, 'top');
+    const isBold = hasFill || fontSize >= 24;
+    this.ctx.font = `${isBold ? '700 ' : '400 '}${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+
+    let textColor = it.color || '#1a1a1a';
+    if (hasFill) {
+      if (it.fillColor === '#2d2d2d' || it.fillColor === '#40414c' || it.fillColor === '#1a1a1a') {
+        textColor = it.color || '#ffffff';
+      } else if (it.fillColor === '#bbcbd2') {
+        textColor = it.color || '#1a1a1a';
+      }
+    }
+    this.ctx.fillStyle = textColor;
+
+    const align = it.textAlign || (hasFill ? 'center' : 'left');
+    this.ctx.textAlign = align;
+
+    if (align === 'center') {
+      this.ctx.textBaseline = 'middle';
+      const textX = it.x + it.width / 2;
+      const textY = it.y + it.height / 2;
+      const maxWidth = Math.max(20, it.width - 24);
+      const lineHeight = Math.round(fontSize * 1.3);
+      this.wrapText(this.ctx, it.text || '', textX, textY, maxWidth, lineHeight, 'center');
+    } else {
+      this.ctx.textBaseline = 'top';
+      const padX = hasFill ? 14 : 0;
+      const padY = hasFill ? 10 : 0;
+      const textX = it.x + padX;
+      const textY = it.y + padY;
+      const maxWidth = Math.max(20, (it.width || 400) - padX * 2);
+      const lineHeight = Math.round(fontSize * 1.35);
+      this.wrapText(this.ctx, it.text || '', textX, textY, maxWidth, lineHeight, 'top');
+    }
+
     this.ctx.restore();
   }
 
@@ -708,23 +753,101 @@ class CanvasEngine {
 
   drawEmbed(it) {
     this.ctx.save();
+    const r = 8;
+    const thumbH = Math.max(60, Math.round(it.height * 0.60));
+
+    // 1. Sombra suave y fondo blanco de la tarjeta widget
+    this.ctx.save();
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+    this.ctx.shadowBlur = 8 / this.camera.zoom;
+    this.ctx.shadowOffsetY = 3 / this.camera.zoom;
     this.ctx.fillStyle = '#ffffff';
-    this.ctx.strokeStyle = '#e2e8f0';
-    this.ctx.lineWidth = 1.5;
     this.ctx.beginPath();
-    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, 8);
+    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
     this.ctx.fill();
+    this.ctx.restore();
+
+    // Borde exterior sutil
+    this.ctx.strokeStyle = '#e2e8f0';
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
     this.ctx.stroke();
 
+    // 2. Sección superior: Miniatura recortada en esquinas superiores
+    this.ctx.save();
+    this.ctx.beginPath();
+    this.ctx.moveTo(it.x + r, it.y);
+    this.ctx.lineTo(it.x + it.width - r, it.y);
+    this.ctx.quadraticCurveTo(it.x + it.width, it.y, it.x + it.width, it.y + r);
+    this.ctx.lineTo(it.x + it.width, it.y + thumbH);
+    this.ctx.lineTo(it.x, it.y + thumbH);
+    this.ctx.lineTo(it.x, it.y + r);
+    this.ctx.quadraticCurveTo(it.x, it.y, it.x + r, it.y);
+    this.ctx.closePath();
+    this.ctx.clip();
+
     if (it.src) {
-      this.drawImage(it);
-    } else if (it.title || it.url) {
-      this.ctx.fillStyle = '#1e293b';
-      this.ctx.font = '600 13px -apple-system, sans-serif';
+      if (!it.imgElement || it.imgElement.getAttribute('data-src') !== it.src) {
+        it.imgElement = new Image();
+        it.imgElement.setAttribute('data-src', it.src);
+        it.imgElement.onload = () => this.render();
+        it.imgElement.onerror = () => { it.imgFailed = true; };
+        it.imgElement.src = it.src;
+      }
+      if (it.imgElement.complete && it.imgElement.naturalWidth > 0) {
+        const img = it.imgElement;
+        const imgRatio = img.naturalWidth / img.naturalHeight;
+        const targetRatio = it.width / thumbH;
+        let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
+        if (imgRatio > targetRatio) {
+          sh = img.naturalHeight;
+          sw = sh * targetRatio;
+          sx = (img.naturalWidth - sw) / 2;
+        } else {
+          sw = img.naturalWidth;
+          sh = sw / targetRatio;
+          sy = (img.naturalHeight - sh) / 2;
+        }
+        this.ctx.drawImage(img, sx, sy, sw, sh, it.x, it.y, it.width, thumbH);
+      } else {
+        this.ctx.fillStyle = '#f8fafc';
+        this.ctx.fillRect(it.x, it.y, it.width, thumbH);
+      }
+    } else {
+      this.ctx.fillStyle = '#f1f5f9';
+      this.ctx.fillRect(it.x, it.y, it.width, thumbH);
+      this.ctx.fillStyle = '#94a3b8';
+      this.ctx.font = '24px sans-serif';
       this.ctx.textAlign = 'center';
       this.ctx.textBaseline = 'middle';
-      this.wrapText(this.ctx, it.title || it.url, it.x + it.width / 2, it.y + it.height / 2, it.width - 16, 18, 'center');
+      this.ctx.fillText('🔗', it.x + it.width / 2, it.y + thumbH / 2);
     }
+    this.ctx.restore();
+
+    // Línea divisoria entre miniatura y metadatos
+    this.ctx.strokeStyle = '#f1f5f9';
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.ctx.moveTo(it.x, it.y + thumbH);
+    this.ctx.lineTo(it.x + it.width, it.y + thumbH);
+    this.ctx.stroke();
+
+    // 3. Sección inferior: Metadatos del widget (Dominio y Título)
+    const domain = (it.domain || this.extractDomain(it.url)).toUpperCase();
+    this.ctx.fillStyle = '#64748b';
+    this.ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'top';
+    this.ctx.fillText(domain, it.x + 14, it.y + thumbH + 14);
+
+    const title = it.title || this.extractTitle(it.url) || domain;
+    this.ctx.fillStyle = '#0f172a';
+    this.ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'top';
+    this.wrapText(this.ctx, title, it.x + 14, it.y + thumbH + 32, it.width - 28, 18, 'top');
+
     this.ctx.restore();
   }
 
@@ -775,17 +898,35 @@ class CanvasEngine {
 
   drawFrame(it) {
     this.ctx.save();
-    // Borde discontinuo elegante
-    this.ctx.strokeStyle = '#a3a3a3';
-    this.ctx.lineWidth = 1.5;
-    this.ctx.setLineDash([6, 6]);
-    this.ctx.strokeRect(it.x, it.y, it.width, it.height);
-    this.ctx.setLineDash([]);
 
-    // Etiqueta del marco arriba
-    this.ctx.fillStyle = '#737373';
-    this.ctx.font = '13px -apple-system, sans-serif';
-    this.ctx.fillText(it.title || 'Marco', it.x, it.y - 8);
+    // Relleno sólido/suave del marco: en Miro las columnas usan #bbcbd2
+    const fillColor = it.fillColor || '#bbcbd2';
+    this.ctx.fillStyle = fillColor;
+    this.ctx.fillRect(it.x, it.y, it.width, it.height);
+
+    // Borde limpio y elegante
+    this.ctx.strokeStyle = '#94a3b8';
+    this.ctx.lineWidth = 1;
+    this.ctx.strokeRect(it.x, it.y, it.width, it.height);
+
+    // Etiqueta del marco arriba si tiene título
+    if (it.title) {
+      const titleFont = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      this.ctx.font = titleFont;
+      const textWidth = this.ctx.measureText(it.title).width;
+      const tabWidth = Math.max(70, textWidth + 24);
+      const tabHeight = 26;
+
+      this.ctx.fillStyle = '#475569';
+      this.ctx.beginPath();
+      this.roundRect(this.ctx, it.x, it.y - tabHeight, tabWidth, tabHeight, 4);
+      this.ctx.fill();
+
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.textAlign = 'left';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(it.title, it.x + 12, it.y - tabHeight / 2);
+    }
     this.ctx.restore();
   }
 
@@ -922,5 +1063,43 @@ class CanvasEngine {
     newItems.forEach(copy => this.selectedItemIds.add(copy.id));
     if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
     this.render();
+  }
+
+  extractDomain(url) {
+    if (!url) return 'ENLACE';
+    try {
+      return new URL(url).hostname.replace(/^www\./, '').toUpperCase();
+    } catch (e) {
+      return 'ENLACE';
+    }
+  }
+
+  extractTitle(url) {
+    if (!url) return '';
+    try {
+      const u = new URL(url);
+      const host = u.hostname.replace(/^www\./, '').toUpperCase();
+      if (host.includes('YOUTUBE')) {
+        const m = u.pathname.match(/@([^\/\?]+)/);
+        if (m) return '@' + m[1];
+        const v = u.searchParams.get('v');
+        if (v) return 'Video: ' + v;
+        return 'YouTube';
+      }
+      if (host.includes('GITHUB')) {
+        const parts = u.pathname.split('/').filter(Boolean);
+        return parts.length > 0 ? parts.join('/') : 'GitHub';
+      }
+      const pathClean = decodeURIComponent(u.pathname.replace(/^\/|\/$/g, ''));
+      if (pathClean) {
+        const parts = pathClean.split('/');
+        let name = parts[parts.length - 1].replace(/[-_]/g, ' ');
+        return name.charAt(0).toUpperCase() + name.slice(1);
+      }
+      const parts = host.split('.');
+      return parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+    } catch (e) {
+      return url;
+    }
   }
 }
