@@ -10,6 +10,12 @@
   },
   "isBeta": "false",
   "main": "app_bundle/main.js",
+  "scripts": {
+    "start": "electron .",
+    "deploy": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy.ps1",
+    "deploy:launch": "powershell -ExecutionPolicy Bypass -File ./scripts/deploy.ps1 -Launch",
+    "restore": "powershell -ExecutionPolicy Bypass -File ./scripts/restore.ps1"
+  },
   "config": {
     "appName": "Miro"
   },
