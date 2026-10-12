@@ -1,0 +1,112 @@
+﻿/* font-family: "ArialMT"; */
+@font-face {
+	font-family: 'Arial';
+	src: url('../fonts/general/ArialMT/ArialMT.eot');
+	src: url('../fonts/general/ArialMT/ArialMT.eot?#iefix') format('embedded-opentype'),
+		url('../fonts/general/ArialMT/ArialMT.woff') format('woff'),
+		url('../fonts/general/ArialMT/ArialMT.ttf') format('truetype');
+	font-style: normal;
+	font-weight: normal;
+}
+/* font-family: "OpenSansRegular"; */
+@font-face {
+	font-family: 'OpenSans';
+	src: url('../fonts/general/OpenSansRegular/OpenSansRegular.eot');
+	src: url('../fonts/general/OpenSansRegular/OpenSansRegular.eot?#iefix') format('embedded-opentype'),
+		url('../fonts/general/OpenSansRegular/OpenSansRegular.woff') format('woff'),
+		url('../fonts/general/OpenSansRegular/OpenSansRegular.ttf') format('truetype');
+	font-style: normal;
+	font-weight: normal;
+}
+/* font-family: "OpenSansLight"; */
+@font-face {
+	font-family: 'OpenSans';
+	src: url('../fonts/general/OpenSansLight/OpenSansLight.eot');
+	src: url('../fonts/general/OpenSansLight/OpenSansLight.eot?#iefix') format('embedded-opentype'),
+		url('../fonts/general/OpenSansLight/OpenSansLight.woff') format('woff'),
+		url('../fonts/general/OpenSansLight/OpenSansLight.ttf') format('truetype');
+	font-style: normal;
+	font-weight: 100;
+}
+/* font-family: "OpenSansItalic"; */
+@font-face {
+	font-family: 'OpenSans';
+	src: url('../fonts/general/OpenSansItalic/OpenSansItalic.eot');
+	src: url('../fonts/general/OpenSansItalic/OpenSansItalic.eot?#iefix') format('embedded-opentype'),
+		url('../fonts/general/OpenSansItalic/OpenSansItalic.woff') format('woff'),
+		url('../fonts/general/OpenSansItalic/OpenSansItalic.ttf') format('truetype');
+	font-style: italic;
+	font-weight: normal;
+}
+/* font-family: "OpenSansBold"; */
+@font-face {
+	font-family: 'OpenSans';
+	src: url('../fonts/general/OpenSansBold/OpenSansBold.eot');
+	src: url('../fonts/general/OpenSansBold/OpenSansBold.eot?#iefix') format('embedded-opentype'),
+		url('../fonts/general/OpenSansBold/OpenSansBold.woff') format('woff'),
+		url('../fonts/general/OpenSansBold/OpenSansBold.ttf') format('truetype');
+	font-style: normal;
+	font-weight: bold;
+}
+/* font-family: "OpenSansBoldItalic"; */
+@font-face {
+	font-family: 'OpenSans';
+	src: url('../fonts/general/OpenSansBoldItalic/OpenSansBoldItalic.eot');
+	src: url('../fonts/general/OpenSansBoldItalic/OpenSansBoldItalic.eot?#iefix') format('embedded-opentype'),
+		url('../fonts/general/OpenSansBoldItalic/OpenSansBoldItalic.woff') format('woff'),
+		url('../fonts/general/OpenSansBoldItalic/OpenSansBoldItalic.ttf') format('truetype');
+	font-style: italic;
+	font-weight: bold;
+}
+/* font-family: "OpenSansSemiBold"; */
+@font-face {
+	font-family: 'OpenSans';
+	src: url('../fonts/general/OpenSansSemiBold/OpenSansSemiBold.eot');
+	src: url('../fonts/general/OpenSansSemiBold/OpenSansSemiBold.eot?#iefix') format('embedded-opentype'),
+		url('../fonts/general/OpenSansSemiBold/OpenSansSemiBold.woff') format('woff'),
+		url('../fonts/general/OpenSansSemiBold/OpenSansSemiBold.ttf') format('truetype');
+	font-style: normal;
+	font-weight: 600;
+}
+/* font-family: "OpenSansExtraBold"; */
+@font-face {
+	font-family: 'OpenSans';
+	src: url('../fonts/general/OpenSansExtraBold/OpenSansExtraBold.eot');
+	src: url('../fonts/general/OpenSansExtraBold/OpenSansExtraBold.eot?#iefix') format('embedded-opentype'),
+		url('../fonts/general/OpenSansExtraBold/OpenSansExtraBold.woff') format('woff'),
+		url('../fonts/general/OpenSansExtraBold/OpenSansExtraBold.ttf') format('truetype');
+	font-style: normal;
+	font-weight: 900;
+}
+/* font-family: "Formular"; */
+@font-face {
+	font-family: 'Formular';
+	font-style: normal;
+	font-weight: 400;
+	font-display: swap;
+	src: url('../fonts/general/Formular/Formular.otf') format('opentype');
+}
+
+@font-face {
+	font-family: 'Formular';
+	font-style: normal;
+	font-weight: normal;
+	font-display: swap;
+	src: url('../fonts/general/Formular/Formular.otf') format('opentype');
+}
+
+@font-face {
+	font-family: 'Formular';
+	font-style: normal;
+	font-weight: 500;
+	font-display: swap;
+	src: url('../fonts/general/Formular/FormularMedium.otf') format('opentype');
+}
+
+@font-face {
+	font-family: 'Formular';
+	font-style: normal;
+	font-weight: 700;
+	font-display: swap;
+	src: url('../fonts/general/Formular/FormularBold.otf') format('opentype');
+}

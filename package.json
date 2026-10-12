@@ -1,0 +1,46 @@
+{
+  "name": "RealtimeBoard",
+  "author": "Miro",
+  "appName": "Miro",
+  "description": "Miro desktop app",
+  "version": "0.11.168",
+  "appBaseVersion": {
+    "desktop": "0.11",
+    "uwp": "2.5"
+  },
+  "isBeta": "false",
+  "main": "app_bundle/main.js",
+  "config": {
+    "appName": "Miro"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "lint-staged"
+    }
+  },
+  "optionalDependencies": {
+    "appdmg": "0.6.6"
+  },
+  "overrides": {
+    "eslint-config-airbnb-typescript": {
+      "@typescript-eslint/eslint-plugin": "6.21.0"
+    }
+  },
+  "dependencies": {
+    "@miro-site/enterprise-workspaces": "file:artifactory_packages/@miro-site/enterprise-workspaces",
+    "@sentry/electron": "7.16.0",
+    "debug": "4.4.3",
+    "electron-dl": "4.0.0",
+    "electron-fetch": "1.9.1",
+    "electron-log": "5.4.4",
+    "electron-store": "8.2.0",
+    "electron-updater": "6.8.9",
+    "electron-window-state": "5.0.3",
+    "form-data": "4.0.6",
+    "minimist": "1.2.8",
+    "node-fetch": "3.3.2",
+    "offline-js": "0.7.19",
+    "semver": "7.8.5",
+    "systeminformation": "5.33.1"
+  }
+}

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en-US">
+	<head>
+		<meta charset="UTF-8" />
+		<!-- XD-2597: CSP for the local app shell. 'unsafe-inline' for styles is required because
+		     the renderer injects <style> elements at runtime (e.g. SettingsDot). frame-src https:
+		     keeps webview-hosted content loadable. -->
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https: wss:; frame-src https:; object-src 'none'; base-uri 'none'; form-action 'none'"
+		/>
+		<title>Miro</title>
+		<link rel="stylesheet" href="static/css/fonts.css" />
+		<link rel="stylesheet" href="static/css/app.css" />
+		<link rel="stylesheet" href="static/css/electron-tabs.css" />
+	</head>
+	<body>
+		<div class="etabs-tabgroup">
+			<div class="etabs-tabs"></div>
+			<div class="etabs-buttons"></div>
+		</div>
+		<div class="etabs-views">
+			<div id="overlay-container" class="hidden">
+				<div class="overlay"></div>
+				<div class="message">Trying to connect...</div>
+			</div>
+			<div id="test-environment-warning" class="testEnvironmentWarning hidden">
+				Warning. Application is currently running in developer mode and may be unsafe
+			</div>
+		</div>
+		<script src="./renderer.js"></script>
+	</body>
+</html>

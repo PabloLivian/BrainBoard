@@ -1,0 +1,20 @@
+body {
+	font-family: OpenSans, Arial, Helvetica, sans-serif;
+	font-size: 12px;
+}
+
+.copy_container {
+	display: flex;
+	align-items: center;
+	margin-top: 12px;
+}
+
+.caption {
+	color: #767676;
+	margin-left: 12px;
+	transition: opacity 0.2s ease-in-out;
+}
+
+.hidden {
+	opacity: 0;
+}

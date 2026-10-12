@@ -1,0 +1,207 @@
+﻿webview {
+	width: 100%;
+	height: 100%;
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+}
+
+webview:focus {
+	outline: none;
+}
+
+.etabs-tabgroup {
+	display: none;
+	width: 100%;
+	height: 24px;
+	background-color: #d2d0d2;
+	cursor: default;
+	font-family: ArialMT, Arial, Helvetica, sans-serif;
+	font-size: 12px;
+	-webkit-user-select: none;
+	user-select: none;
+	border-bottom: 1px solid #b4b2b4;
+	flex: 0 0 auto;
+}
+
+.etabs-tabgroup.windows {
+	border-top: 1px solid #b4b2b4;
+	box-shadow: inset 0 -1px 0 0 #b4b2b4;
+	border-bottom: none;
+	height: 25px;
+}
+
+.etabs-tabgroup.windows > .etabs-tabs > .etabs-tab > .etabs-tab-title {
+	margin-bottom: 0 !important;
+}
+
+.etabs-tabgroup.windows > .etabs-tabs > .etabs-tab > .etabs-tab-buttons > .etabs-tab-button-close > img {
+	margin-bottom: 0 !important;
+}
+
+.etabs-tabgroup.visible {
+	display: block;
+}
+
+.etabs-tabs {
+	display: flex;
+	height: 100%;
+}
+
+.etabs-tabs.pointer-disabled {
+	pointer-events: none;
+}
+
+.etabs-tab {
+	display: none;
+	position: relative;
+	color: #000;
+	height: 25px;
+	width: 200px;
+	min-width: 0;
+	box-shadow: inset -1px -1px 0 0 #b4b2b4;
+	font-family: ArialMT, Arial, Helvetica, sans-serif;
+	font-size: 12px;
+	background-color: #e1e0e1;
+	cursor: default;
+	text-align: center;
+}
+
+.etabs-tab-permanent > .etabs-tab-title {
+	margin: 0;
+}
+
+.etabs-tab.visible {
+	display: inline-block;
+}
+
+.etabs-tab.active {
+	background: #f2f2f2;
+	box-shadow: inset -1px 0 0 0 #b4b2b4;
+}
+
+.etabs-tab.animated {
+	transition: transform ease-in-out 120ms;
+}
+
+.etabs-tab.foreground {
+	z-index: 1;
+}
+
+.etabs-tab.active > .etabs-tab-title {
+	opacity: 0.8;
+}
+
+.etabs-buttons {
+	float: left;
+}
+
+.etabs-buttons button {
+	float: left;
+	color: #333;
+	background: none;
+	border: none;
+	font-size: 12px;
+	margin-top: 6px;
+	border-radius: 2px;
+	margin-left: 4px;
+	width: 20px;
+	text-align: center;
+	padding: 4px 0;
+}
+
+.etabs-tab-icon {
+	display: inline-block;
+	height: 16px;
+}
+
+.etabs-tab-icon img {
+	max-width: 16px;
+	max-height: 16px;
+}
+
+.etabs-tab-title {
+	display: inline-block;
+	width: calc(88% - 24px);
+	margin-left: 12%;
+	margin-bottom: 2px !important;
+	text-overflow: ellipsis;
+	overflow: hidden;
+	white-space: nowrap;
+	vertical-align: middle;
+	float: inherit;
+	opacity: 0.6;
+}
+
+.etabs-tab-buttons {
+}
+
+.etabs-tab-button-close {
+	display: inline-block;
+	color: #333;
+	background: none;
+	border: none;
+	width: 24px;
+	height: 24px;
+	text-align: center;
+	padding: 0;
+}
+
+.etabs-tab-button-close:focus {
+	outline: 0;
+}
+
+.etabs-tab-button-close > img {
+	width: 8px;
+	height: 8px;
+	object-fit: contain;
+	opacity: 0.4;
+	margin-bottom: 1px;
+	-webkit-user-select: none;
+	-webkit-user-drag: none;
+}
+
+.etabs-tab-button-close:hover > img {
+	opacity: 0.8;
+}
+
+.etabs-views {
+	flex: 1;
+	position: relative;
+	overflow: hidden;
+}
+
+.etabs-view {
+	width: 100%;
+	height: 100%;
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	visibility: hidden;
+}
+
+.etabs-view.visible {
+	visibility: visible;
+}
+
+.etabs-view.pointer-disabled {
+	pointer-events: none;
+}
+
+.etabs-view-overlay {
+	width: 100%;
+	height: 100%;
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: 0;
+	left: 0;
+	user-select: none;
+}
+
+.etabs-view-webview {
+}
