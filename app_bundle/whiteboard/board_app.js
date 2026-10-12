@@ -159,6 +159,210 @@ document.addEventListener('DOMContentLoaded', () => {
     fileInput.click();
   });
 
+  // Convertidor inteligente de elementos de Miro a Brain Board
+  function convertMiroToBrainBoard(data) {
+    if (!data || !Array.isArray(data.items)) return [];
+
+    // Si ya viene pre-convertido (todos tienen type reconocido y x/y absolutos sin relativeTo)
+    const isAlreadyConverted = data.items.every(it => !it.relativeTo && it.text !== undefined);
+    if (isAlreadyConverted) return data.items;
+
+    const cleanText = (html) => {
+      if (!html) return '';
+      return String(html)
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/<\/p>/gi, '\n')
+        .replace(/<p[^>]*>/gi, '')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&#43;/g, '+')
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/&quot;/g, '"')
+        .replace(/&#39;/g, "'")
+        .replace(/&nbsp;/g, ' ')
+        .trim();
+    };
+
+    const colorMap = {
+      light_yellow: '#fff9b0', yellow: '#ffec3d',
+      light_green: '#d5f692', green: '#73d13d',
+      light_blue: '#cbf3f9', blue: '#40a9ff',
+      light_pink: '#ffcce1', pink: '#ff85c0',
+      violet: '#e1d4f9', gray: '#e5e5e5',
+      black: '#1a1a1a', white: '#ffffff',
+      transparent: 'transparent'
+    };
+    const mapColor = (col) => colorMap[col] || col || '#ffffff';
+
+    const itemsById = new Map();
+    data.items.forEach(it => itemsById.set(it.id, it));
+
+    function getWorldBounds(it) {
+      const w = it.width || 100;
+      const h = it.height || 40;
+      if (it.relativeTo === 'parent_top_left' && it.parentId) {
+        const parent = itemsById.get(it.parentId);
+        if (parent) {
+          const pBounds = getWorldBounds(parent);
+          const cx = pBounds.x + it.x;
+          const cy = pBounds.y + it.y;
+          if (it.origin === 'center') {
+            return { x: cx - w / 2, y: cy - h / 2, width: w, height: h };
+          } else {
+            return { x: cx, y: cy, width: w, height: h };
+          }
+        }
+      }
+      if (it.origin === 'center') {
+        return { x: (it.x || 0) - w / 2, y: (it.y || 0) - h / 2, width: w, height: h };
+      } else {
+        return { x: it.x || 0, y: it.y || 0, width: w, height: h };
+      }
+    }
+
+    const resMap = window.__resourcesMap || {};
+    const resEntries = Object.values(resMap);
+
+    return data.items.map(it => {
+      const b = getWorldBounds(it);
+
+      if (it.type === 'sticky_note') {
+        return {
+          id: it.id || 'note_' + Math.random(),
+          type: 'sticky_note',
+          x: b.x,
+          y: b.y,
+          width: b.width,
+          height: b.height,
+          text: cleanText(it.content),
+          color: mapColor(it.style?.fillColor)
+        };
+      }
+      if (it.type === 'shape') {
+        let shapeType = 'rectangle';
+        if (it.shape === 'round_rectangle') shapeType = 'rounded';
+        else if (it.shape === 'circle') shapeType = 'circle';
+        else if (it.shape === 'rhombus') shapeType = 'diamond';
+        else if (it.shape === 'triangle') shapeType = 'triangle';
+
+        return {
+          id: it.id || 'shape_' + Math.random(),
+          type: 'shape',
+          shape: shapeType,
+          x: b.x,
+          y: b.y,
+          width: b.width,
+          height: b.height,
+          text: cleanText(it.content),
+          fillColor: mapColor(it.style?.fillColor),
+          strokeColor: mapColor(it.style?.borderColor || it.style?.color || '#1a1a1a'),
+          strokeWidth: it.style?.borderWidth || 1
+        };
+      }
+      if (it.type === 'text' || it.type === 'table_text') {
+        return {
+          id: it.id || 'text_' + Math.random(),
+          type: 'text',
+          x: b.x,
+          y: b.y,
+          width: b.width,
+          height: b.height,
+          text: cleanText(it.content),
+          fontSize: Math.round(it.style?.fontSize || 16),
+          color: mapColor(it.style?.color || '#1a1a1a')
+        };
+      }
+      if (it.type === 'code') {
+        return {
+          id: it.id || 'code_' + Math.random(),
+          type: 'code',
+          x: b.x,
+          y: b.y,
+          width: b.width,
+          height: b.height,
+          title: it.title || 'Code',
+          text: cleanText(it.content)
+        };
+      }
+      if (it.type === 'frame') {
+        return {
+          id: it.id || 'frame_' + Math.random(),
+          type: 'frame',
+          x: b.x,
+          y: b.y,
+          width: b.width,
+          height: b.height,
+          title: it.title || ''
+        };
+      }
+      if (it.type === 'image') {
+        let src = it.url || it.src;
+        let localSrc = null;
+        const resId = it.resourceId || (typeof src === 'string' && src.match(/\/resources\/(\d+)\//)?.[1]);
+        if (resId && resMap[resId]) {
+          localSrc = resMap[resId].localPath;
+        } else if (resEntries.length > 0) {
+          // Relación de aspecto
+          const r = b.width / b.height;
+          const match = resEntries.find(re => re.ratio && Math.abs(re.ratio - r) < 0.04);
+          if (match) localSrc = match.localPath;
+        }
+        return {
+          id: it.id || 'img_' + Math.random(),
+          type: 'image',
+          x: b.x,
+          y: b.y,
+          width: b.width,
+          height: b.height,
+          src: localSrc || src || ''
+        };
+      }
+      if (it.type === 'embed' || it.type === 'preview') {
+        return {
+          id: it.id || 'embed_' + Math.random(),
+          type: 'embed',
+          x: b.x,
+          y: b.y,
+          width: b.width,
+          height: b.height,
+          title: it.title || '',
+          url: it.url || it.previewUrl || ''
+        };
+      }
+      if (it.type === 'connector' || it.type === 'curve') {
+        let startPoint = { x: b.x, y: b.y };
+        let endPoint = { x: b.x + b.width, y: b.y + b.height };
+
+        if (it.start?.item && itemsById.has(it.start.item)) {
+          const s = getWorldBounds(itemsById.get(it.start.item));
+          const pos = it.start.position || { x: 0.5, y: 0.5 };
+          startPoint = { x: s.x + s.width * pos.x, y: s.y + s.height * pos.y };
+        } else if (it.start?.point) {
+          startPoint = it.start.point;
+        }
+
+        if (it.end?.item && itemsById.has(it.end.item)) {
+          const e = getWorldBounds(itemsById.get(it.end.item));
+          const pos = it.end.position || { x: 0.5, y: 0.5 };
+          endPoint = { x: e.x + e.width * pos.x, y: e.y + e.height * pos.y };
+        } else if (it.end?.point) {
+          endPoint = it.end.point;
+        }
+
+        return {
+          id: it.id || 'conn_' + Math.random(),
+          type: 'connector',
+          start: startPoint,
+          end: endPoint,
+          color: mapColor(it.style?.strokeColor || '#1a1a1a'),
+          strokeWidth: it.style?.strokeWidth || 2
+        };
+      }
+      return it;
+    });
+  }
+
   fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -169,7 +373,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = JSON.parse(evt.target.result);
         if (data.items && Array.isArray(data.items)) {
           engine.saveSnapshot();
-          engine.items = data.items;
+          engine.items = convertMiroToBrainBoard(data);
           engine.selectedItemIds.clear();
           if (data.name) boardTitleInput.value = data.name;
           engine.fitView();
@@ -372,14 +576,39 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 500);
   }
 
+  // Cargar mapa de recursos locales extraídos del .RTB
+  fetch('whiteboard/resources_map.json')
+    .then(r => r.json())
+    .then(m => { window.__resourcesMap = m; })
+    .catch(() => {});
+
+  // Boton para cargar directamente el tablero DEV / AI
+  const btnLoadDevAi = document.getElementById('btn-load-dev-ai');
+  btnLoadDevAi?.addEventListener('click', async () => {
+    try {
+      const res = await fetch('../boards/DEV_AI.json');
+      if (res.ok) {
+        const board = await res.json();
+        engine.saveSnapshot();
+        engine.items = convertMiroToBrainBoard(board);
+        engine.selectedItemIds.clear();
+        boardTitleInput.value = board.name || 'DEV / AI';
+        engine.fitView();
+        autoSaveBoard();
+      }
+    } catch (e) {
+      alert('Error cargando tablero DEV / AI: ' + e.message);
+    }
+  });
+
   // Carga inicial
   async function loadInitialBoard() {
-    // 1. Intentar cargar desde LocalStorage
+    // 1. Intentar cargar desde LocalStorage si ya tiene el tablero completo (>500 items)
     const saved = localStorage.getItem('miro_local_current_board');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (parsed.items) {
+        if (parsed.items && parsed.items.length >= 500) {
           engine.items = parsed.items;
           boardTitleInput.value = parsed.name || 'DEV / AI';
           engine.fitView();
@@ -388,14 +617,15 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (e) {}
     }
 
-    // 2. Si no hay guardado, cargar tablero inicial DEV_AI.json
+    // 2. Si no hay guardado completo, cargar tablero completo DEV_AI.json
     try {
       const res = await fetch('../boards/DEV_AI.json');
       if (res.ok) {
         const board = await res.json();
-        engine.items = board.items;
-        boardTitleInput.value = board.name;
+        engine.items = convertMiroToBrainBoard(board);
+        boardTitleInput.value = board.name || 'DEV / AI';
         engine.fitView();
+        autoSaveBoard();
       }
     } catch (e) {
       console.log('Iniciando con tablero vacio');

@@ -6,7 +6,7 @@ class CanvasEngine {
 
     // Estado de la camara
     this.camera = { x: 0, y: 0, zoom: 1 };
-    this.minZoom = 0.1;
+    this.minZoom = 0.01;
     this.maxZoom = 5.0;
 
     // Coleccion de elementos en el tablero
@@ -47,11 +47,11 @@ class CanvasEngine {
   initCanvasSize() {
     this.width = window.innerWidth;
     this.height = window.innerHeight;
-    this.canvas.width = this.width * window.devicePixelRatio;
-    this.canvas.height = this.height * window.devicePixelRatio;
+    const dpr = window.devicePixelRatio || 1;
+    this.canvas.width = Math.round(this.width * dpr);
+    this.canvas.height = Math.round(this.height * dpr);
     this.canvas.style.width = `${this.width}px`;
     this.canvas.style.height = `${this.height}px`;
-    this.ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
   }
 
   // Conversion de coordenadas
@@ -123,18 +123,47 @@ class CanvasEngine {
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     this.items.forEach(it => {
-      minX = Math.min(minX, it.x);
-      minY = Math.min(minY, it.y);
-      maxX = Math.max(maxX, it.x + (it.width || 50));
-      maxY = Math.max(maxY, it.y + (it.height || 50));
+      if (it.type === 'connector') {
+        if (it.start && typeof it.start.x === 'number' && typeof it.start.y === 'number') {
+          minX = Math.min(minX, it.start.x);
+          maxX = Math.max(maxX, it.start.x);
+          minY = Math.min(minY, it.start.y);
+          maxY = Math.max(maxY, it.start.y);
+        }
+        if (it.end && typeof it.end.x === 'number' && typeof it.end.y === 'number') {
+          minX = Math.min(minX, it.end.x);
+          maxX = Math.max(maxX, it.end.x);
+          minY = Math.min(minY, it.end.y);
+          maxY = Math.max(maxY, it.end.y);
+        }
+        return;
+      }
+
+      const x = it.x;
+      const y = it.y;
+      const w = it.width || 50;
+      const h = it.height || 50;
+      if (typeof x === 'number' && !isNaN(x) && typeof y === 'number' && !isNaN(y)) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + (typeof w === 'number' && !isNaN(w) ? w : 50));
+        maxY = Math.max(maxY, y + (typeof h === 'number' && !isNaN(h) ? h : 50));
+      }
     });
 
-    const padding = 100;
-    const boxW = Math.max(100, maxX - minX + padding * 2);
-    const boxH = Math.max(100, maxY - minY + padding * 2);
+    if (!isFinite(minX) || !isFinite(maxX) || !isFinite(minY) || !isFinite(maxY)) {
+      this.camera = { x: 0, y: 0, zoom: 0.1 };
+      this.render();
+      if (this.onZoomChange) this.onZoomChange(this.camera.zoom);
+      return;
+    }
+
+    const padding = 150;
+    const boxW = Math.max(200, maxX - minX + padding * 2);
+    const boxH = Math.max(200, maxY - minY + padding * 2);
     const zoomX = this.width / boxW;
     const zoomY = this.height / boxH;
-    this.camera.zoom = Math.min(1.5, Math.max(0.2, Math.min(zoomX, zoomY)));
+    this.camera.zoom = Math.min(1.5, Math.max(0.015, Math.min(zoomX, zoomY)));
 
     const centerX = (minX + maxX) / 2;
     const centerY = (minY + maxY) / 2;
@@ -156,6 +185,7 @@ class CanvasEngine {
           if (d < (it.strokeWidth || 4) + 6) return it;
         }
       } else if (it.type === 'connector') {
+        if (!it.start || !it.end || typeof it.start.x !== 'number' || typeof it.end.x !== 'number') continue;
         const d = this.distToSegment({ x: wx, y: wy }, it.start, it.end);
         if (d < 10) return it;
       } else {
@@ -443,39 +473,70 @@ class CanvasEngine {
 
   // Renderizado del lienzo
   render() {
-    this.ctx.save();
-    this.ctx.clearRect(0, 0, this.width, this.height);
+    const dpr = window.devicePixelRatio || 1;
+    // 1. Limpieza absoluta a nivel de pixel fisico (elimina cualquier rastro o estela)
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
-    // Fondo y cuadricula de puntos infinita
+    // Fondo solido limpio del lienzo
+    this.ctx.fillStyle = '#f8f9fa';
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    // 2. Escala de resolucion de pantalla (HiDPI)
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // 3. Cuadricula infinita
     this.drawDotGrid();
 
-    // Aplicar transformacion de camara
-    this.ctx.translate(this.width / 2, this.height / 2);
-    this.ctx.scale(this.camera.zoom, this.camera.zoom);
-    this.ctx.translate(this.camera.x, this.camera.y);
+    // 4. Transformacion de camara protegida
+    this.ctx.save();
+    try {
+      this.ctx.translate(this.width / 2, this.height / 2);
+      this.ctx.scale(this.camera.zoom, this.camera.zoom);
+      this.ctx.translate(this.camera.x, this.camera.y);
 
-    // 1. Dibujar marcos (fondo)
-    this.items.filter(it => it.type === 'frame').forEach(it => this.drawFrame(it));
+      // Culling / optimizacion visual: no procesar elementos muy lejos de la pantalla
+      const vpMinX = -this.width / 2 / this.camera.zoom - this.camera.x - 300;
+      const vpMaxX = this.width / 2 / this.camera.zoom - this.camera.x + 300;
+      const vpMinY = -this.height / 2 / this.camera.zoom - this.camera.y - 300;
+      const vpMaxY = this.height / 2 / this.camera.zoom - this.camera.y + 300;
 
-    // 2. Dibujar conectores
-    this.items.filter(it => it.type === 'connector').forEach(it => this.drawConnector(it));
+      const isVisible = (it) => {
+        if (it.type === 'connector') return true;
+        const ix = it.x || 0;
+        const iy = it.y || 0;
+        const iw = it.width || 100;
+        const ih = it.height || 100;
+        return (ix + iw >= vpMinX && ix <= vpMaxX && iy + ih >= vpMinY && iy <= vpMaxY);
+      };
 
-    // 3. Dibujar formas e imagenes
-    this.items.filter(it => it.type === 'shape').forEach(it => this.drawShape(it));
-    this.items.filter(it => it.type === 'image').forEach(it => this.drawImage(it));
+      // 1. Marcos (fondo)
+      this.items.filter(it => it.type === 'frame' && isVisible(it)).forEach(it => this.drawFrame(it));
 
-    // 4. Dibujar notas adhesivas
-    this.items.filter(it => it.type === 'sticky_note').forEach(it => this.drawStickyNote(it));
+      // 2. Conectores
+      this.items.filter(it => it.type === 'connector').forEach(it => this.drawConnector(it));
 
-    // 5. Dibujar textos y dibujos
-    this.items.filter(it => it.type === 'text').forEach(it => this.drawText(it));
-    this.items.filter(it => it.type === 'pen').forEach(it => this.drawPen(it));
+      // 3. Formas, embeds, codigo
+      this.items.filter(it => it.type === 'shape' && isVisible(it)).forEach(it => this.drawShape(it));
+      this.items.filter(it => it.type === 'code' && isVisible(it)).forEach(it => this.drawCodeBlock(it));
+      this.items.filter(it => (it.type === 'embed' || it.type === 'preview') && isVisible(it)).forEach(it => this.drawEmbed(it));
 
-    // 6. Dibujar seleccion y recuadro marquee
-    this.drawSelectionOutline();
-    this.drawMarquee();
+      // 4. Imagenes
+      this.items.filter(it => it.type === 'image' && isVisible(it)).forEach(it => this.drawImage(it));
 
-    this.ctx.restore();
+      // 5. Notas adhesivas
+      this.items.filter(it => it.type === 'sticky_note' && isVisible(it)).forEach(it => this.drawStickyNote(it));
+
+      // 6. Textos y dibujo a mano alzada
+      this.items.filter(it => it.type === 'text' && isVisible(it)).forEach(it => this.drawText(it));
+      this.items.filter(it => it.type === 'pen').forEach(it => this.drawPen(it));
+
+      // 7. Seleccion y recuadro marquee
+      this.drawSelectionOutline();
+      this.drawMarquee();
+    } finally {
+      this.ctx.restore();
+    }
   }
 
   drawDotGrid() {
@@ -567,11 +628,22 @@ class CanvasEngine {
     this.ctx.stroke();
 
     if (it.text) {
-      this.ctx.fillStyle = it.strokeColor || '#1a1a1a';
-      this.ctx.font = '14px -apple-system, sans-serif';
+      let isDarkBg = false;
+      if (it.fillColor && it.fillColor.startsWith('#')) {
+        const hex = it.fillColor.replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16) || 0;
+        const g = parseInt(hex.substring(2, 4), 16) || 0;
+        const b = parseInt(hex.substring(4, 6), 16) || 0;
+        const lum = (0.299 * r + 0.587 * g + 0.114 * b);
+        isDarkBg = lum < 140;
+      }
+      const isHeader = (it.height >= 50 && it.text && it.text.length <= 10);
+      const fontSize = isHeader ? 22 : 14;
+      this.ctx.fillStyle = it.textColor || (isDarkBg ? '#ffffff' : (it.strokeColor || '#1a1a1a'));
+      this.ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
       this.ctx.textAlign = 'center';
       this.ctx.textBaseline = 'middle';
-      this.wrapText(this.ctx, it.text, it.x + it.width / 2, it.y + it.height / 2, it.width - 16, 18);
+      this.wrapText(this.ctx, it.text, it.x + it.width / 2, it.y + it.height / 2, it.width - 16, fontSize + 6);
     }
 
     this.ctx.restore();
@@ -580,10 +652,79 @@ class CanvasEngine {
   drawText(it) {
     this.ctx.save();
     this.ctx.fillStyle = it.color || '#1a1a1a';
-    this.ctx.font = `${it.fontSize || 20}px -apple-system, sans-serif`;
+    const fontSize = it.fontSize || 15;
+    this.ctx.font = `${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
     this.ctx.textAlign = 'left';
     this.ctx.textBaseline = 'top';
-    this.ctx.fillText(it.text || '', it.x, it.y);
+    const maxWidth = Math.max(100, it.width || 400);
+    const lineHeight = Math.round(fontSize * 1.35);
+    this.wrapText(this.ctx, it.text || '', it.x, it.y, maxWidth, lineHeight, 'top');
+    this.ctx.restore();
+  }
+
+  drawCodeBlock(it) {
+    this.ctx.save();
+    this.ctx.fillStyle = '#1e1e1e';
+    this.ctx.strokeStyle = '#374151';
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, 8);
+    this.ctx.fill();
+    this.ctx.stroke();
+
+    // Barra superior estilo terminal
+    this.ctx.fillStyle = '#262626';
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, it.x, it.y, it.width, Math.min(26, it.height), 8);
+    this.ctx.fill();
+
+    // Puntos de ventana (rojo, amarillo, verde)
+    const dotY = it.y + 13;
+    const colors = ['#ef4444', '#f59e0b', '#10b981'];
+    colors.forEach((col, idx) => {
+      this.ctx.fillStyle = col;
+      this.ctx.beginPath();
+      this.ctx.arc(it.x + 14 + idx * 14, dotY, 4, 0, Math.PI * 2);
+      this.ctx.fill();
+    });
+
+    if (it.title) {
+      this.ctx.fillStyle = '#9ca3af';
+      this.ctx.font = '600 11px monospace';
+      this.ctx.textAlign = 'right';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(it.title, it.x + it.width - 12, dotY);
+    }
+
+    if (it.text) {
+      this.ctx.fillStyle = '#e2e8f0';
+      this.ctx.font = '13px "Fira Code", Consolas, Menlo, monospace';
+      this.ctx.textAlign = 'left';
+      this.ctx.textBaseline = 'top';
+      this.wrapText(this.ctx, it.text, it.x + 12, it.y + 34, it.width - 24, 18, 'top');
+    }
+    this.ctx.restore();
+  }
+
+  drawEmbed(it) {
+    this.ctx.save();
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.strokeStyle = '#e2e8f0';
+    this.ctx.lineWidth = 1.5;
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, 8);
+    this.ctx.fill();
+    this.ctx.stroke();
+
+    if (it.src) {
+      this.drawImage(it);
+    } else if (it.title || it.url) {
+      this.ctx.fillStyle = '#1e293b';
+      this.ctx.font = '600 13px -apple-system, sans-serif';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.wrapText(this.ctx, it.title || it.url, it.x + it.width / 2, it.y + it.height / 2, it.width - 16, 18, 'center');
+    }
     this.ctx.restore();
   }
 
@@ -605,6 +746,11 @@ class CanvasEngine {
   }
 
   drawConnector(it) {
+    if (!it.start || !it.end) return;
+    if (typeof it.start.x !== 'number' || typeof it.start.y !== 'number') return;
+    if (typeof it.end.x !== 'number' || typeof it.end.y !== 'number') return;
+    if (isNaN(it.start.x) || isNaN(it.start.y) || isNaN(it.end.x) || isNaN(it.end.y)) return;
+
     this.ctx.save();
     this.ctx.strokeStyle = it.color || '#1a1a1a';
     this.ctx.lineWidth = it.strokeWidth || 2;
@@ -644,10 +790,12 @@ class CanvasEngine {
   }
 
   drawImage(it) {
-    if (!it.imgElement) {
+    if (!it.imgElement || it.imgElement.getAttribute('data-src') !== it.src) {
       it.imgElement = new Image();
-      it.imgElement.src = it.src;
+      it.imgElement.setAttribute('data-src', it.src);
       it.imgElement.onload = () => this.render();
+      it.imgElement.onerror = () => console.warn('No se pudo cargar la imagen local:', it.src);
+      it.imgElement.src = it.src;
       return;
     }
     if (it.imgElement.complete && it.imgElement.naturalWidth > 0) {
@@ -710,24 +858,36 @@ class CanvasEngine {
     ctx.quadraticCurveTo(x, y, x + radius, y);
   }
 
-  wrapText(ctx, text, x, y, maxWidth, lineHeight) {
-    const words = text.split(' ');
-    let lines = [];
-    let currentLine = words[0] || '';
+  wrapText(ctx, text, x, y, maxWidth, lineHeight, align = 'center') {
+    if (!text) return;
+    const paragraphs = String(text).split('\n');
+    const lines = [];
 
-    for (let i = 1; i < words.length; i++) {
-      const word = words[i];
-      const width = ctx.measureText(currentLine + ' ' + word).width;
-      if (width < maxWidth) {
-        currentLine += ' ' + word;
-      } else {
-        lines.push(currentLine);
-        currentLine = word;
+    for (const para of paragraphs) {
+      if (!para.trim()) {
+        lines.push('');
+        continue;
       }
+      const words = para.split(' ');
+      let currentLine = words[0] || '';
+      for (let i = 1; i < words.length; i++) {
+        const word = words[i];
+        const width = ctx.measureText(currentLine + ' ' + word).width;
+        if (width < maxWidth) {
+          currentLine += ' ' + word;
+        } else {
+          lines.push(currentLine);
+          currentLine = word;
+        }
+      }
+      lines.push(currentLine);
     }
-    lines.push(currentLine);
 
-    const startY = y - ((lines.length - 1) * lineHeight) / 2;
+    let startY = y;
+    if (align === 'center') {
+      startY = y - ((lines.length - 1) * lineHeight) / 2;
+    }
+
     lines.forEach((line, idx) => {
       ctx.fillText(line, x, startY + idx * lineHeight);
     });

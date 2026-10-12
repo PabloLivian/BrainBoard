@@ -136155,9 +136155,11 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const electron_1 = __webpack_require__(/*! electron */ "electron");
+const path_1 = __importDefault(__webpack_require__(/*! path */ "path"));
+electron_1.app.setName('Brain Board');
+electron_1.app.setPath('userData', path_1.default.join(electron_1.app.getPath('appData'), 'BrainBoard'));
 const electron_dl_1 = __importDefault(__webpack_require__(/*! electron-dl */ "./node_modules/electron-dl/index.js"));
 const SystemInformation = __importStar(__webpack_require__(/*! systeminformation */ "./node_modules/systeminformation/lib/index.js"));
-const path_1 = __importDefault(__webpack_require__(/*! path */ "path"));
 const url_1 = __importDefault(__webpack_require__(/*! url */ "url"));
 const electron_window_state_1 = __importDefault(__webpack_require__(/*! electron-window-state */ "./node_modules/electron-window-state/index.js"));
 const os = __importStar(__webpack_require__(/*! os */ "os"));

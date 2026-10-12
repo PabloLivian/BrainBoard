@@ -1,12 +1,12 @@
 {
-  "name": "RealtimeBoard",
-  "author": "Miro",
-  "appName": "Miro",
-  "description": "Miro desktop app",
-  "version": "0.11.168",
+  "name": "brain-board",
+  "author": "Brain Board",
+  "appName": "Brain Board",
+  "productName": "Brain Board",
+  "description": "Brain Board - Local Whiteboard Desktop App",
+  "version": "1.0.0",
   "appBaseVersion": {
-    "desktop": "0.11",
-    "uwp": "2.5"
+    "desktop": "1.0"
   },
   "isBeta": "false",
   "main": "app_bundle/main.js",
@@ -17,7 +17,7 @@
     "restore": "powershell -ExecutionPolicy Bypass -File ./scripts/restore.ps1"
   },
   "config": {
-    "appName": "Miro"
+    "appName": "Brain Board"
   },
   "husky": {
     "hooks": {
