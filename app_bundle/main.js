@@ -136646,6 +136646,15 @@ function registerShortcuts(wc) {
             electron_1.ipcMain.emit('stop-fullscreen');
         }
     });
+    (0, ElectronLocalShortcut_1.webContentsRegister)(wc, 'F12', () => {
+        electron_1.ipcMain.emit('open-dev-tools');
+    });
+    (0, ElectronLocalShortcut_1.webContentsRegister)(wc, 'CommandOrControl+Shift+I', () => {
+        electron_1.ipcMain.emit('open-dev-tools');
+    });
+    (0, ElectronLocalShortcut_1.webContentsRegister)(wc, 'CommandOrControl+Alt+I', () => {
+        electron_1.ipcMain.emit('open-dev-tools-for-tabs');
+    });
 }
 function getDisplayByWindow(window) {
     return electron_1.screen.getDisplayMatching(window.getBounds());
