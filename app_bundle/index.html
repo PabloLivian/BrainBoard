@@ -17,17 +17,48 @@
 
     <!-- Barra superior -->
     <div id="top-bar">
-      <div class="top-bar-left">
-        <div class="logo-badge">
-          <svg class="logo-icon" viewBox="0 0 24 24">
-            <path d="M4 4h4v16H4V4zm6 4h4v12h-4V8zm6-4h4v16h-4V4z"/>
-          </svg>
-          <span>Brain Board</span>
+      <div class="top-bar-left board-controller-pill">
+        <button id="btn-toggle-board-drawer" class="btn btn-icon btn-hamburger" title="Espacios de trabajo y tableros">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <div class="miro-logo-brand">
+          <span class="miro-logo-text">miro</span>
+        </div>
+        <div class="board-thumbnail-mini">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#6366f1" stroke-width="2.2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
         </div>
         <input type="text" id="board-title" value="DEV / AI" title="Haz clic para renombrar el tablero" />
+        <button id="btn-board-options-trigger" class="btn btn-icon btn-three-dots" title="Opciones de tablero">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="12" cy="19" r="2.2"/></svg>
+        </button>
         <div class="save-status">
           <div class="status-dot"></div>
-          <span id="save-status-text">Guardado en local</span>
+          <span id="save-status-text">Guardado</span>
+        </div>
+
+        <!-- Menú desplegable de opciones de tablero -->
+        <div id="board-options-menu" class="board-dropdown-menu">
+          <div class="dropdown-item" id="menu-opt-rename">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            <span>Renombrar tablero</span>
+          </div>
+          <div class="dropdown-item" id="menu-opt-export-json">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span>Guardar copia JSON</span>
+          </div>
+          <div class="dropdown-item" id="menu-opt-export-png">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            <span>Exportar imagen PNG</span>
+          </div>
+          <div class="dropdown-divider"></div>
+          <div class="dropdown-item" id="menu-opt-reset-zoom">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
+            <span>Ajustar vista al contenido</span>
+          </div>
+          <div class="dropdown-item text-danger" id="menu-opt-clear">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span>Limpiar tablero</span>
+          </div>
         </div>
       </div>
 
@@ -38,16 +69,21 @@
         <button id="btn-redo" class="btn btn-icon" title="Rehacer (Ctrl+Y)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>
         </button>
+        <div class="top-bar-divider" style="height: 18px; width: 1px; background: #e2e8f0; margin: 0 4px;"></div>
+        <button id="btn-board-search-trigger" class="btn btn-icon" title="Buscar en el tablero (Ctrl+F)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
       </div>
 
       <div class="top-bar-right">
         <button id="btn-new" class="btn" title="Nuevo tablero en blanco">Nuevo</button>
         <button id="btn-open" class="btn" title="Abrir tablero desde archivo JSON">Abrir</button>
         <button id="btn-save" class="btn btn-primary" title="Descargar copia del tablero en JSON">Guardar</button>
-        <button id="btn-load-dev-ai" class="btn" style="background:#e0e7ff;color:#3730a3;font-weight:600;" title="Cargar tablero DEV / AI">Tablero DEV / AI</button>
+        <button id="btn-export-hires-trigger" class="btn" style="background:#e0e7ff;color:#3730a3;font-weight:600;" title="Exportar PNG en Alta Resolución (4K)">Exportar 4K</button>
+        <button id="btn-load-dev-ai" class="btn" title="Cargar tablero DEV / AI">Tablero DEV / AI</button>
         <button id="btn-toggle-assets" class="btn" title="Abrir galeria de imagenes del archivo .rtb">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-          <span>Imagenes .RTB (147)</span>
+          <span>Imagenes .RTB (171)</span>
         </button>
       </div>
     </div>
@@ -63,15 +99,39 @@
       <button class="tool-btn" data-tool="sticky_note" title="Nota Adhesiva (N)">
         <svg viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg>
       </button>
-      <button class="tool-btn" data-tool="shape" data-shape="rectangle" title="Forma: Rectangulo (S)">
-        <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/></svg>
-      </button>
-      <button class="tool-btn" data-tool="shape" data-shape="circle" title="Forma: Circulo">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
-      </button>
-      <button class="tool-btn" data-tool="shape" data-shape="diamond" title="Forma: Rombo">
-        <svg viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z"/></svg>
-      </button>
+      <!-- Herramienta Forma agrupada estilo Photoshop con clic derecho -->
+      <div class="tool-btn-wrapper" id="shape-tool-wrapper">
+        <button class="tool-btn has-flyout" id="btn-tool-shape" data-tool="shape" data-shape="rectangle" title="Forma (S) - Clic derecho para cambiar de forma">
+          <svg id="shape-tool-icon" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/></svg>
+          <span class="flyout-arrow"></span>
+        </button>
+
+        <!-- Menú desplegable estilo Photoshop / Miro -->
+        <div class="tool-flyout-menu" id="shape-flyout-menu" style="display: none;">
+          <div class="flyout-title">FORMAS</div>
+          <div class="flyout-item active" data-shape="rectangle" title="Rectángulo (S)">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/></svg>
+            <span>Rectángulo</span>
+            <kbd>S</kbd>
+          </div>
+          <div class="flyout-item" data-shape="circle" title="Círculo">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></svg>
+            <span>Círculo</span>
+          </div>
+          <div class="flyout-item" data-shape="diamond" title="Rombo">
+            <svg viewBox="0 0 24 24"><path d="M12 2l10 10-10 10L2 12z"/></svg>
+            <span>Rombo</span>
+          </div>
+          <div class="flyout-item" data-shape="triangle" title="Triángulo">
+            <svg viewBox="0 0 24 24"><polygon points="12 3 22 21 2 21"/></svg>
+            <span>Triángulo</span>
+          </div>
+          <div class="flyout-item" data-shape="rounded" title="Rectángulo redondeado">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="6"/></svg>
+            <span>Redondeado</span>
+          </div>
+        </div>
+      </div>
       <button class="tool-btn" data-tool="text" title="Texto libre (T)">
         <svg viewBox="0 0 24 24"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
       </button>
@@ -84,17 +144,92 @@
       <button class="tool-btn" data-tool="frame" title="Marco contenedor (F)">
         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/></svg>
       </button>
+      <button class="tool-btn" data-tool="comment" title="Comentario o Pin (C)">
+        <svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      </button>
     </div>
 
-    <!-- Barra flotante de propiedades -->
+    <!-- Barra flotante contextual estilo Miro sobre el elemento seleccionado -->
     <div id="properties-bar">
-      <div id="color-picker-group" class="color-picker-group"></div>
+      <!-- Selector de Tipo / Fuente -->
+      <div class="prop-group font-family-group">
+        <select id="prop-font-family" class="prop-select" title="Familia tipográfica">
+          <option value="OpenSans">Open Sans</option>
+          <option value="Formular">Formular</option>
+          <option value="Arial">Arial</option>
+          <option value="-apple-system, sans-serif">Sistema</option>
+          <option value="monospace">Monoespacio</option>
+        </select>
+      </div>
+
       <div class="divider"></div>
+
+      <!-- Tamaño de fuente con stepper -->
+      <div class="prop-group font-size-group">
+        <button id="btn-font-size-dec" class="btn btn-icon prop-btn-small" title="Reducir tamaño">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+        <input id="prop-font-size" type="number" min="8" max="140" value="14" class="prop-size-input" title="Tamaño de fuente" />
+        <button id="btn-font-size-inc" class="btn btn-icon prop-btn-small" title="Aumentar tamaño">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Negrita y Cursiva -->
+      <div class="prop-group text-style-group">
+        <button id="btn-prop-bold" class="btn btn-icon prop-toggle-btn" title="Negrita (B)">
+          <span style="font-weight: 800; font-size: 13px;">B</span>
+        </button>
+        <button id="btn-prop-italic" class="btn btn-icon prop-toggle-btn" title="Cursiva (I)">
+          <span style="font-style: italic; font-weight: 700; font-size: 13px; font-family: serif;">I</span>
+        </button>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Alineación de texto -->
+      <div class="prop-group align-group">
+        <button id="btn-align-left" class="btn btn-icon prop-toggle-btn" title="Alinear a la izquierda">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="17" y1="10" x2="3" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="17" y1="18" x2="3" y2="18"/></svg>
+        </button>
+        <button id="btn-align-center" class="btn btn-icon prop-toggle-btn" title="Centrar texto">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="10" x2="6" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="18" y1="18" x2="6" y2="18"/></svg>
+        </button>
+        <button id="btn-align-right" class="btn btn-icon prop-toggle-btn" title="Alinear a la derecha">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="21" y1="10" x2="7" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="21" y1="18" x2="7" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Color de texto -->
+      <div class="prop-group color-dropdown-group">
+        <button id="btn-text-color-trigger" class="btn btn-icon prop-color-btn" title="Color de texto">
+          <span style="font-weight: 800; font-size: 13px; line-height: 1;">A</span>
+          <span id="text-color-indicator" class="color-underline" style="background-color: #1a1a1a;"></span>
+        </button>
+        <div id="text-color-popover" class="color-palette-popover"></div>
+      </div>
+
+      <!-- Color de fondo / relleno -->
+      <div class="prop-group color-dropdown-group" id="group-fill-color">
+        <button id="btn-fill-color-trigger" class="btn btn-icon prop-color-btn" title="Color de fondo">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 11l-7-7-8.5 8.5a2.12 2.12 0 0 0 0 3l5 5a2.12 2.12 0 0 0 3 0L19 11z"/><path d="M5 2l5 5"/><path d="M2 13h15"/></svg>
+          <span id="fill-color-indicator" class="color-underline" style="background-color: #fff9b0;"></span>
+        </button>
+        <div id="fill-color-popover" class="color-palette-popover"></div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- Duplicar y Borrar -->
       <button id="btn-prop-duplicate" class="btn btn-icon" title="Duplicar seleccionado (Ctrl+D)">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
       </button>
       <button id="btn-prop-delete" class="btn btn-icon" title="Eliminar seleccionado (Supr / Backspace)">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
       </button>
     </div>
 
@@ -113,6 +248,61 @@
       </button>
     </div>
 
+    <!-- Panel lateral estilo Miro: Controlador y Navegador de Tableros -->
+    <div id="board-controller-drawer" class="board-drawer">
+      <div class="drawer-top-actions">
+        <button id="btn-drawer-search" class="drawer-icon-btn" title="Buscar tableros">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
+        <button id="btn-close-board-drawer" class="drawer-icon-btn" title="Cerrar panel">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="drawer-workspace-header">
+        <div class="workspace-info">
+          <h2 class="workspace-name">Creative</h2>
+          <span class="workspace-members">1 miembro</span>
+        </div>
+        <button id="btn-drawer-new-board" class="btn-create-board-mini" title="Crear nuevo tablero">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+
+      <!-- Buscador de tableros -->
+      <div class="drawer-search-box" id="drawer-search-container" style="display: none;">
+        <input type="text" id="input-drawer-search" placeholder="Buscar tableros..." />
+      </div>
+
+      <!-- Navegación del espacio -->
+      <div class="drawer-nav-items">
+        <div class="drawer-nav-row active">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          <span>Vista general</span>
+        </div>
+        <div class="drawer-nav-row">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><line x1="2" y1="12" x2="22" y2="12"/></svg>
+          <span>Explorar</span>
+        </div>
+      </div>
+
+      <!-- Callout informativo estilo Miro -->
+      <div class="drawer-callout-card" id="drawer-callout-box">
+        <button class="callout-close-btn" id="btn-close-callout">✕</button>
+        <p class="callout-text">Ordena tu espacio con secciones para ayudarte a organizar y navegar por tu contenido más fácilmente.</p>
+        <button class="callout-action-btn" id="btn-create-section">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Crear sección</span>
+        </button>
+      </div>
+
+      <!-- Lista de tableros del espacio de trabajo -->
+      <div class="drawer-section-title">TABLEROS RECIENTES</div>
+      <div class="drawer-boards-list" id="drawer-boards-list">
+        <!-- Generado dinámicamente -->
+      </div>
+    </div>
+
     <!-- Panel lateral de recursos extraidos del RTB -->
     <div id="assets-drawer">
       <div class="drawer-header">
@@ -120,6 +310,99 @@
         <button id="btn-close-drawer" class="btn btn-icon" style="height:24px;width:24px;">✕</button>
       </div>
       <div id="assets-container" class="drawer-content"></div>
+    </div>
+
+    <!-- Radar de navegación / Mini-mapa interactivo -->
+    <div id="minimap-container" class="minimap-box">
+      <div class="minimap-header">
+        <span class="minimap-title">RADAR</span>
+        <button id="btn-toggle-minimap" class="btn-mini-close" title="Ocultar minimapa">✕</button>
+      </div>
+      <canvas id="minimap-canvas" width="200" height="130"></canvas>
+    </div>
+    <button id="btn-show-minimap" class="btn btn-icon minimap-floating-btn" style="display: none;" title="Mostrar radar de navegación">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" y1="3" x2="9" y2="18"/><line x1="15" y1="6" x2="15" y2="21"/></svg>
+    </button>
+
+    <!-- Buscador global en el tablero (Ctrl + F) -->
+    <div id="board-search-bar" class="board-search-bar" style="display: none;">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="board-search-input" placeholder="Buscar texto, código, notas..." autocomplete="off" />
+      <span id="board-search-count" class="search-match-count">0/0</span>
+      <button id="btn-search-prev" class="btn-search-arrow" title="Anterior (Shift+Enter)">▲</button>
+      <button id="btn-search-next" class="btn-search-arrow" title="Siguiente (Enter)">▼</button>
+      <button id="btn-search-close" class="btn-search-close" title="Cerrar (Esc)">✕</button>
+    </div>
+
+    <!-- Popover de comentario estilo Miro -->
+    <div id="comment-popover" class="comment-popover-card" style="display: none;">
+      <div class="comment-popover-header">
+        <div class="comment-author-badge">
+          <span class="avatar-initial" id="comment-avatar-char">U</span>
+          <div class="author-details">
+            <span class="author-name" id="comment-author-name">Usuario</span>
+            <span class="comment-timestamp" id="comment-timestamp">Ahora</span>
+          </div>
+        </div>
+        <div class="comment-actions-top">
+          <button id="btn-comment-resolve" class="btn-comment-action" title="Marcar resuelto">✓</button>
+          <button id="btn-comment-delete" class="btn-comment-action text-danger" title="Eliminar">🗑</button>
+          <button id="btn-comment-close" class="btn-comment-action" title="Cerrar">✕</button>
+        </div>
+      </div>
+      <div class="comment-popover-body">
+        <textarea id="comment-text-input" placeholder="Escribe un comentario..." rows="3"></textarea>
+      </div>
+      <div class="comment-popover-footer">
+        <button id="btn-comment-save" class="btn btn-primary btn-sm">Guardar comentario</button>
+      </div>
+    </div>
+
+    <!-- Modal de exportación Hi-Res / 4K -->
+    <div id="export-hires-modal" class="modal-backdrop" style="display: none;">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4262ff" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <h3>Exportar imagen en Alta Resolución</h3>
+          </div>
+          <button id="btn-close-export-modal" class="btn-mini-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">Exporta el contenido vectorial del tablero con nitidez ultra-HD para presentaciones o impresión.</p>
+          <div class="export-options-group">
+            <label class="export-label">Área de exportación:</label>
+            <div class="export-radio-group">
+              <label><input type="radio" name="export-scope" value="all" checked /> Tablero completo</label>
+              <label><input type="radio" name="export-scope" value="selection" /> Elementos seleccionados</label>
+            </div>
+          </div>
+          <div class="export-options-group">
+            <label class="export-label">Calidad / Resolución:</label>
+            <div class="export-quality-cards">
+              <label class="quality-card">
+                <input type="radio" name="export-scale" value="1" />
+                <div class="quality-title">1x Estándar</div>
+                <div class="quality-sub">Web & compartir</div>
+              </label>
+              <label class="quality-card selected">
+                <input type="radio" name="export-scale" value="2" checked />
+                <div class="quality-title">2x Retina HD</div>
+                <div class="quality-sub">Presentaciones</div>
+              </label>
+              <label class="quality-card">
+                <input type="radio" name="export-scale" value="4" />
+                <div class="quality-title">4x Ultra-HD 4K</div>
+                <div class="quality-sub">Nitidez extrema / Print</div>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-cancel-export" class="btn">Cancelar</button>
+          <button id="btn-confirm-export" class="btn btn-primary">Descargar PNG</button>
+        </div>
+      </div>
     </div>
 
     <!-- Editor in-situ para textos y notas -->

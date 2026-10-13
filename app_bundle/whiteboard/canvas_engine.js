@@ -28,16 +28,34 @@ class CanvasEngine {
     this.isDraggingItem = false;
     this.dragStart = { x: 0, y: 0 };
     this.isResizing = false;
-    this.resizeHandle = null;
+    this.activeResizeHandle = null;
+    this.resizeTargetItem = null;
+    this.resizeInitialBounds = null;
+    this.resizeStartWorld = null;
     this.isSelectingMarquee = false;
     this.marqueeBox = null;
     this.currentDrawing = null;
     this.activeConnector = null;
 
+    // Smart Guides magnéticas (Alineación estilo Miro)
+    this.smartGuidesEnabled = true;
+    this.activeGuides = [];
+
+    // Minimap bounds
+    this.minimapBounds = null;
+
     // Callbacks
     this.onSelectionChange = null;
     this.onZoomChange = null;
+    this.onCameraChange = null;
     this.onBoardModified = null;
+    this.onCommentClick = null;
+    this.onCommentCreated = null;
+    this.onEditingFinish = null;
+
+    // ID del elemento que se esta editando in-situ (para no duplicar texto)
+    this.editingItemId = null;
+    this.isSpacePressed = false;
 
     this.initCanvasSize();
     this.bindEvents();
@@ -69,8 +87,24 @@ class CanvasEngine {
     };
   }
 
+  getCleanItems() {
+    return this.items.map(it => {
+      if (it.imgElement) {
+        const copy = { ...it };
+        delete copy.imgElement;
+        return copy;
+      }
+      return it;
+    });
+  }
+
   saveSnapshot() {
-    this.undoStack.push(JSON.stringify(this.items));
+    const snapshot = JSON.stringify(this.getCleanItems());
+    // Evitar registrar snapshots duplicados consecutivos
+    if (this.undoStack.length > 0 && this.undoStack[this.undoStack.length - 1] === snapshot) {
+      return;
+    }
+    this.undoStack.push(snapshot);
     if (this.undoStack.length > 50) this.undoStack.shift();
     this.redoStack = [];
     if (this.onBoardModified) this.onBoardModified();
@@ -78,9 +112,19 @@ class CanvasEngine {
 
   undo() {
     if (this.undoStack.length === 0) return;
-    this.redoStack.push(JSON.stringify(this.items));
+    this.redoStack.push(JSON.stringify(this.getCleanItems()));
     const prev = this.undoStack.pop();
-    this.items = JSON.parse(prev);
+    try {
+      this.items = JSON.parse(prev);
+      // Eliminar referencias imgElement corruptas ({}) procedentes de JSON.parse
+      this.items.forEach(it => {
+        if (it.imgElement && typeof it.imgElement.getAttribute !== 'function') {
+          delete it.imgElement;
+        }
+      });
+    } catch (e) {
+      console.error('Error al restaurar historial en undo:', e);
+    }
     this.selectedItemIds.clear();
     this.render();
     if (this.onBoardModified) this.onBoardModified();
@@ -88,9 +132,18 @@ class CanvasEngine {
 
   redo() {
     if (this.redoStack.length === 0) return;
-    this.undoStack.push(JSON.stringify(this.items));
+    this.undoStack.push(JSON.stringify(this.getCleanItems()));
     const next = this.redoStack.pop();
-    this.items = JSON.parse(next);
+    try {
+      this.items = JSON.parse(next);
+      this.items.forEach(it => {
+        if (it.imgElement && typeof it.imgElement.getAttribute !== 'function') {
+          delete it.imgElement;
+        }
+      });
+    } catch (e) {
+      console.error('Error al restaurar historial en redo:', e);
+    }
     this.selectedItemIds.clear();
     this.render();
     if (this.onBoardModified) this.onBoardModified();
@@ -110,6 +163,7 @@ class CanvasEngine {
     this.camera.y += (worldAfter.y - worldBefore.y);
 
     if (this.onZoomChange) this.onZoomChange(this.camera.zoom);
+    if (this.onCameraChange) this.onCameraChange();
     this.render();
   }
 
@@ -118,6 +172,7 @@ class CanvasEngine {
       this.camera = { x: 0, y: 0, zoom: 1 };
       this.render();
       if (this.onZoomChange) this.onZoomChange(1);
+      if (this.onCameraChange) this.onCameraChange();
       return;
     }
 
@@ -138,7 +193,6 @@ class CanvasEngine {
         }
         return;
       }
-
       const x = it.x;
       const y = it.y;
       const w = it.width || 50;
@@ -155,6 +209,7 @@ class CanvasEngine {
       this.camera = { x: 0, y: 0, zoom: 0.1 };
       this.render();
       if (this.onZoomChange) this.onZoomChange(this.camera.zoom);
+      if (this.onCameraChange) this.onCameraChange();
       return;
     }
 
@@ -172,29 +227,178 @@ class CanvasEngine {
 
     this.render();
     if (this.onZoomChange) this.onZoomChange(this.camera.zoom);
+    if (this.onCameraChange) this.onCameraChange();
   }
 
-  getItemAt(wx, wy) {
-    // Buscar en orden inverso (elementos mas al frente primero)
+  zoomToItem(it, targetZoom = 1.0) {
+    if (!it) return;
+    const cx = (it.x || 0) + (it.width || 100) / 2;
+    const cy = (it.y || 0) + (it.height || 100) / 2;
+    this.camera.zoom = targetZoom;
+    this.camera.x = -cx;
+    this.camera.y = -cy;
+    this.render();
+    if (this.onZoomChange) this.onZoomChange(this.camera.zoom);
+    if (this.onCameraChange) this.onCameraChange();
+  }
+
+  getItemAt(wx, wy, excludeFrames = false) {
+    // Para respetar la jerarquía visual idéntica a render(), buscamos de la capa superior a la inferior:
+    // Capa 7: Comentarios (pins burbuja en el nivel superior)
     for (let i = this.items.length - 1; i >= 0; i--) {
       const it = this.items[i];
-      if (it.type === 'pen') {
-        // Distancia a trazo
+      if (it.type === 'comment') {
+        const d = Math.hypot(it.x - wx, it.y - wy);
+        if (d <= 20) return it;
+      }
+    }
+
+    // Capa 6: Trazos de pluma (pen)
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const it = this.items[i];
+      if (it.type === 'pen' && it.points) {
         for (const pt of it.points) {
           const d = Math.hypot(pt.x - wx, pt.y - wy);
           if (d < (it.strokeWidth || 4) + 6) return it;
         }
-      } else if (it.type === 'connector') {
-        if (!it.start || !it.end || typeof it.start.x !== 'number' || typeof it.end.x !== 'number') continue;
-        const d = this.distToSegment({ x: wx, y: wy }, it.start, it.end);
-        if (d < 10) return it;
-      } else {
-        if (wx >= it.x && wx <= it.x + it.width && wy >= it.y && wy <= it.y + it.height) {
+      }
+    }
+
+    // Capa 5: Textos (los textos van sobre formas e imágenes)
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const it = this.items[i];
+      if (it.type === 'text') {
+        if (wx >= it.x && wx <= it.x + (it.width || 100) && wy >= it.y && wy <= it.y + (it.height || 40)) {
           return it;
         }
       }
     }
+
+    // Capa 4: Notas adhesivas
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const it = this.items[i];
+      if (it.type === 'sticky_note') {
+        if (wx >= it.x && wx <= it.x + (it.width || 100) && wy >= it.y && wy <= it.y + (it.height || 100)) {
+          return it;
+        }
+      }
+    }
+
+    // Capa 3: Bloques de código, embeds, cartas, imágenes
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const it = this.items[i];
+      if (it.type === 'image' || it.type === 'code' || it.type === 'embed' || it.type === 'preview') {
+        if (wx >= it.x && wx <= it.x + (it.width || 100) && wy >= it.y && wy <= it.y + (it.height || 100)) {
+          return it;
+        }
+      }
+    }
+
+    // Capa 2: Formas (shapes)
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const it = this.items[i];
+      if (it.type === 'shape') {
+        if (wx >= it.x && wx <= it.x + (it.width || 100) && wy >= it.y && wy <= it.y + (it.height || 100)) {
+          return it;
+        }
+      }
+    }
+
+    // Capa 1: Conectores
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const it = this.items[i];
+      if (it.type === 'connector') {
+        if (!it.start || !it.end || typeof it.start.x !== 'number' || typeof it.end.x !== 'number') continue;
+        const d = this.distToSegment({ x: wx, y: wy }, it.start, it.end);
+        if (d < 10) return it;
+      }
+    }
+
+    // Capa 0: Marcos contenedores (frames de fondo)
+    if (!excludeFrames) {
+      for (let i = this.items.length - 1; i >= 0; i--) {
+        const it = this.items[i];
+        if (it.type === 'frame') {
+          if (wx >= it.x && wx <= it.x + (it.width || 200) && wy >= it.y && wy <= it.y + (it.height || 200)) {
+            return it;
+          }
+        }
+      }
+    }
+
     return null;
+  }
+
+  // Comprueba si un punto (wx, wy) cae sobre la pestaña del título o el borde perimetral del frame
+  isPointOnFrameHeaderOrBorder(frame, wx, wy) {
+    if (!frame) return false;
+    const tabHeight = 30;
+    const tabWidth = Math.max(80, (frame.title ? frame.title.length * 10 : 70) + 30);
+    // Pestaña superior del marco
+    if (wx >= frame.x && wx <= frame.x + tabWidth && wy >= frame.y - tabHeight && wy <= frame.y + 8) {
+      return true;
+    }
+    // Borde perimetral del marco (franja de 10px)
+    const margin = 8;
+    const isInsideOuter = wx >= frame.x - margin && wx <= frame.x + frame.width + margin &&
+                          wy >= frame.y - margin && wy <= frame.y + frame.height + margin;
+    const isInsideInner = wx >= frame.x + margin && wx <= frame.x + frame.width - margin &&
+                          wy >= frame.y + margin && wy <= frame.y + frame.height - margin;
+    return isInsideOuter && !isInsideInner;
+  }
+
+  // Comprueba si un elemento intersecta o está contenido dentro del recuadro de selección Marquee
+  itemIntersectsBox(it, minX, minY, maxX, maxY) {
+    if (!it) return false;
+
+    // Los marcos (frames) solo se seleccionan por recuadro si el recuadro los encierra por completo
+    if (it.type === 'frame') {
+      const itW = it.width || 0;
+      const itH = it.height || 0;
+      return it.x >= minX && it.x + itW <= maxX && it.y >= minY && it.y + itH <= maxY;
+    }
+
+    // Comentarios (pin circular con radio de 16px)
+    if (it.type === 'comment') {
+      return it.x + 16 >= minX && it.x - 16 <= maxX && it.y + 16 >= minY && it.y - 16 <= maxY;
+    }
+
+    // Conectores (línea o curva entre start y end)
+    if (it.type === 'connector') {
+      if (!it.start || !it.end || typeof it.start.x !== 'number' || typeof it.end.x !== 'number') return false;
+      const cStart = it.start;
+      const cEnd = it.end;
+      if (cStart.x >= minX && cStart.x <= maxX && cStart.y >= minY && cStart.y <= maxY) return true;
+      if (cEnd.x >= minX && cEnd.x <= maxX && cEnd.y >= minY && cEnd.y <= maxY) return true;
+      const cMinX = Math.min(cStart.x, cEnd.x);
+      const cMaxX = Math.max(cStart.x, cEnd.x);
+      const cMinY = Math.min(cStart.y, cEnd.y);
+      const cMaxY = Math.max(cStart.y, cEnd.y);
+      return cMinX <= maxX && cMaxX >= minX && cMinY <= maxY && cMaxY >= minY;
+    }
+
+    // Trazos a mano alzada (pen)
+    if (it.type === 'pen') {
+      if (!it.points || !it.points.length) return false;
+      let pMinX = Infinity, pMaxX = -Infinity, pMinY = Infinity, pMaxY = -Infinity;
+      for (const pt of it.points) {
+        if (pt.x >= minX && pt.x <= maxX && pt.y >= minY && pt.y <= maxY) return true;
+        if (pt.x < pMinX) pMinX = pt.x;
+        if (pt.x > pMaxX) pMaxX = pt.x;
+        if (pt.y < pMinY) pMinY = pt.y;
+        if (pt.y > pMaxY) pMaxY = pt.y;
+      }
+      return pMinX <= maxX && pMaxX >= minX && pMinY <= maxY && pMaxY >= minY;
+    }
+
+    // Para todos los demás elementos (notas adhesivas, formas, textos, embeds, previews, imágenes, etc.):
+    // Intersección de cajas AABB estándar (Axis-Aligned Bounding Box)
+    const itW = it.width || 0;
+    const itH = it.height || 0;
+    const itRight = it.x + itW;
+    const itBottom = it.y + itH;
+
+    return it.x <= maxX && itRight >= minX && it.y <= maxY && itBottom >= minY;
   }
 
   distToSegment(p, v, w) {
@@ -205,25 +409,365 @@ class CanvasEngine {
     return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
   }
 
+  // Obtener los 8 puntos de anclaje de redimensionamiento estilo Miro
+  getResizeHandles(it) {
+    if (!it || it.type === 'pen' || it.type === 'connector') return [];
+    const x = it.x;
+    const y = it.y;
+    const w = it.width || 50;
+    const h = it.height || 50;
+    const mx = x + w / 2;
+    const my = y + h / 2;
+
+    return [
+      { name: 'nw', x: x, y: y, cursor: 'nwse-resize' },
+      { name: 'n',  x: mx, y: y, cursor: 'ns-resize' },
+      { name: 'ne', x: x + w, y: y, cursor: 'nesw-resize' },
+      { name: 'e',  x: x + w, y: my, cursor: 'ew-resize' },
+      { name: 'se', x: x + w, y: y + h, cursor: 'nwse-resize' },
+      { name: 's',  x: mx, y: y + h, cursor: 'ns-resize' },
+      { name: 'sw', x: x, y: y + h, cursor: 'nesw-resize' },
+      { name: 'w',  x: x, y: my, cursor: 'ew-resize' }
+    ];
+  }
+
+  isPointInsideItem(wx, wy, it) {
+    if (!it) return false;
+    const w = it.width || 100;
+    const h = it.height || 40;
+    return wx >= it.x && wx <= it.x + w && wy >= it.y && wy <= it.y + h;
+  }
+
+  getResizeHandleAt(wx, wy) {
+    if (this.selectedItemIds.size !== 1) return null;
+    const hitRadiusWorld = Math.max(8, 12 / this.camera.zoom);
+
+    for (const it of this.items) {
+      if (this.selectedItemIds.has(it.id)) {
+        const handles = this.getResizeHandles(it);
+        for (const h of handles) {
+          const dist = Math.hypot(wx - h.x, wy - h.y);
+          if (dist <= hitRadiusWorld) {
+            return { item: it, handle: h.name, cursor: h.cursor };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  isItemInsideFrame(child, frame) {
+    if (child.type === 'connector') {
+      return (
+        child.start && child.end &&
+        child.start.x >= frame.x && child.start.x <= frame.x + frame.width &&
+        child.start.y >= frame.y && child.start.y <= frame.y + frame.height
+      );
+    }
+    const cx = (child.x || 0) + (child.width || 0) / 2;
+    const cy = (child.y || 0) + (child.height || 0) / 2;
+    return (
+      cx >= frame.x && cx <= frame.x + frame.width &&
+      cy >= frame.y && cy <= frame.y + frame.height
+    );
+  }
+
+  openExternalUrl(url) {
+    if (!url) return;
+    try {
+      if (window.require) {
+        const { shell } = window.require('electron');
+        shell.openExternal(url);
+        return;
+      }
+    } catch (e) {}
+    window.open(url, '_blank');
+  }
+
+  // =========================================================
+  // 1. SMART GUIDES MAGNÉTICAS (ALINEACIÓN INTELIGENTE)
+  // =========================================================
+  calculateSmartGuides(movingItem, tentativeDx, tentativeDy) {
+    if (!this.smartGuidesEnabled || movingItem.type === 'pen' || movingItem.type === 'connector') {
+      return { dx: tentativeDx, dy: tentativeDy, guides: [] };
+    }
+
+    const curX = movingItem.x + tentativeDx;
+    const curY = movingItem.y + tentativeDy;
+    const curW = movingItem.width || 100;
+    const curH = movingItem.height || 100;
+    const curMidX = curX + curW / 2;
+    const curMidY = curY + curH / 2;
+
+    const snapDist = Math.max(5, 7 / this.camera.zoom);
+    let bestSnapX = null;
+    let bestDistX = Infinity;
+    let guideX = null;
+
+    let bestSnapY = null;
+    let bestDistY = Infinity;
+    let guideY = null;
+
+    // Comparar contra otros elementos cercanos
+    for (const other of this.items) {
+      if (this.selectedItemIds.has(other.id) || other.type === 'pen' || other.type === 'connector' || other.type === 'frame') continue;
+      const ox = other.x;
+      const oy = other.y;
+      const ow = other.width || 100;
+      const oh = other.height || 100;
+      const oMidX = ox + ow / 2;
+      const oMidY = oy + oh / 2;
+
+      // Alineación vertical (eje X)
+      const xChecks = [
+        { cur: curX, target: ox, offset: 0 },
+        { cur: curX, target: ox + ow, offset: 0 },
+        { cur: curMidX, target: oMidX, offset: curW / 2 },
+        { cur: curX + curW, target: ox, offset: curW },
+        { cur: curX + curW, target: ox + ow, offset: curW }
+      ];
+
+      for (const chk of xChecks) {
+        const d = Math.abs(chk.cur - chk.target);
+        if (d < snapDist && d < bestDistX) {
+          bestDistX = d;
+          bestSnapX = chk.target - chk.offset - movingItem.x;
+          guideX = {
+            type: 'v',
+            x: chk.target,
+            y1: Math.min(curY, oy) - 20,
+            y2: Math.max(curY + curH, oy + oh) + 20
+          };
+        }
+      }
+
+      // Alineación horizontal (eje Y)
+      const yChecks = [
+        { cur: curY, target: oy, offset: 0 },
+        { cur: curY, target: oy + oh, offset: 0 },
+        { cur: curMidY, target: oMidY, offset: curH / 2 },
+        { cur: curY + curH, target: oy, offset: curH },
+        { cur: curY + curH, target: oy + oh, offset: curH }
+      ];
+
+      for (const chk of yChecks) {
+        const d = Math.abs(chk.cur - chk.target);
+        if (d < snapDist && d < bestDistY) {
+          bestDistY = d;
+          bestSnapY = chk.target - chk.offset - movingItem.y;
+          guideY = {
+            type: 'h',
+            y: chk.target,
+            x1: Math.min(curX, ox) - 20,
+            x2: Math.max(curX + curW, ox + ow) + 20
+          };
+        }
+      }
+    }
+
+    const finalDx = bestSnapX !== null ? bestSnapX : tentativeDx;
+    const finalDy = bestSnapY !== null ? bestSnapY : tentativeDy;
+    const guides = [];
+    if (guideX) guides.push(guideX);
+    if (guideY) guides.push(guideY);
+
+    return { dx: finalDx, dy: finalDy, guides };
+  }
+
+  // =========================================================
+  // 2. MINI-MAPA INTERACTIVO (RADAR DE NAVEGACIÓN)
+  // =========================================================
+  renderMinimap(miniCanvas) {
+    if (!miniCanvas) return;
+    const mctx = miniCanvas.getContext('2d');
+    const mw = miniCanvas.width;
+    const mh = miniCanvas.height;
+
+    mctx.clearRect(0, 0, mw, mh);
+    mctx.fillStyle = '#f8f9fa';
+    mctx.fillRect(0, 0, mw, mh);
+
+    if (this.items.length === 0) return;
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    this.items.forEach(it => {
+      const x = it.x || 0;
+      const y = it.y || 0;
+      const w = it.width || 40;
+      const h = it.height || 40;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x + w);
+      maxY = Math.max(maxY, y + h);
+    });
+
+    const pad = 350;
+    minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+    const totalW = Math.max(500, maxX - minX);
+    const totalH = Math.max(500, maxY - minY);
+
+    const scale = Math.min(mw / totalW, mh / totalH);
+    const offsetX = (mw - totalW * scale) / 2;
+    const offsetY = (mh - totalH * scale) / 2;
+
+    this.minimapBounds = { minX, minY, totalW, totalH, scale, offsetX, offsetY };
+
+    // Dibujar elementos en miniatura
+    this.items.forEach(it => {
+      const ix = offsetX + ((it.x || 0) - minX) * scale;
+      const iy = offsetY + ((it.y || 0) - minY) * scale;
+      const iw = Math.max(1.5, (it.width || 20) * scale);
+      const ih = Math.max(1.5, (it.height || 20) * scale);
+
+      if (it.type === 'frame') {
+        mctx.fillStyle = it.fillColor || '#cbd5e1';
+        mctx.fillRect(ix, iy, iw, ih);
+        mctx.strokeStyle = '#94a3b8';
+        mctx.lineWidth = 0.5;
+        mctx.strokeRect(ix, iy, iw, ih);
+      } else if (it.type === 'code') {
+        mctx.fillStyle = '#334155';
+        mctx.fillRect(ix, iy, iw, ih);
+      } else if (it.type === 'embed' || it.type === 'image') {
+        mctx.fillStyle = '#60a5fa';
+        mctx.fillRect(ix, iy, iw, ih);
+      } else if (it.type === 'comment') {
+        mctx.fillStyle = it.resolved ? '#10b981' : '#f59e0b';
+        mctx.beginPath();
+        mctx.arc(ix, iy, 2.5, 0, Math.PI * 2);
+        mctx.fill();
+      } else {
+        mctx.fillStyle = it.fillColor && it.fillColor !== 'transparent' ? it.fillColor : (it.color || '#94a3b8');
+        mctx.fillRect(ix, iy, iw, ih);
+      }
+    });
+
+    // Rectángulo del visor actual de la cámara
+    const viewTopLeft = this.screenToWorld(0, 0);
+    const viewBottomRight = this.screenToWorld(this.width, this.height);
+
+    const vx = offsetX + (viewTopLeft.x - minX) * scale;
+    const vy = offsetY + (viewTopLeft.y - minY) * scale;
+    const vw = Math.max(8, (viewBottomRight.x - viewTopLeft.x) * scale);
+    const vh = Math.max(8, (viewBottomRight.y - viewTopLeft.y) * scale);
+
+    mctx.fillStyle = 'rgba(66, 98, 255, 0.12)';
+    mctx.strokeStyle = '#4262ff';
+    mctx.lineWidth = 1.5;
+    mctx.fillRect(vx, vy, vw, vh);
+    mctx.strokeRect(vx, vy, vw, vh);
+  }
+
+  panFromMinimap(miniX, miniY) {
+    if (!this.minimapBounds) return;
+    const { minX, minY, scale, offsetX, offsetY } = this.minimapBounds;
+    const targetWx = minX + (miniX - offsetX) / scale;
+    const targetWy = minY + (miniY - offsetY) / scale;
+
+    this.camera.x = -targetWx;
+    this.camera.y = -targetWy;
+    this.render();
+    if (this.onCameraChange) this.onCameraChange();
+  }
+
+  // =========================================================
+  // 3. EXPORTACIÓN EN ALTA RESOLUCIÓN (4K / ULTRA-HD)
+  // =========================================================
+  async exportHiRes({ bounds = null, scale = 2, filename = 'tablero_4k.png' } = {}) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    if (bounds) {
+      minX = bounds.x;
+      minY = bounds.y;
+      maxX = bounds.x + bounds.width;
+      maxY = bounds.y + bounds.height;
+    } else {
+      this.items.forEach(it => {
+        const x = it.x || 0;
+        const y = it.y || 0;
+        const w = it.width || 50;
+        const h = it.height || 50;
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x + w);
+        maxY = Math.max(maxY, y + h);
+      });
+      const pad = 60;
+      minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+    }
+
+    if (!isFinite(minX)) return false;
+
+    const expW = Math.max(200, Math.round(maxX - minX));
+    const expH = Math.max(200, Math.round(maxY - minY));
+
+    const offCanvas = document.createElement('canvas');
+    offCanvas.width = Math.round(expW * scale);
+    offCanvas.height = Math.round(expH * scale);
+    const octx = offCanvas.getContext('2d');
+
+    // Fondo limpio
+    octx.scale(scale, scale);
+    octx.translate(-minX, -minY);
+    octx.fillStyle = '#f8f9fa';
+    octx.fillRect(minX, minY, expW, expH);
+
+    const origCtx = this.ctx;
+    const origZoom = this.camera.zoom;
+    this.ctx = octx;
+    this.camera.zoom = 1;
+
+    try {
+      this.items.filter(it => it.type === 'frame').forEach(it => this.drawFrame(it));
+      this.items.filter(it => it.type === 'connector').forEach(it => this.drawConnector(it));
+      this.items.filter(it => it.type === 'shape').forEach(it => this.drawShape(it));
+      this.items.filter(it => it.type === 'code').forEach(it => this.drawCodeBlock(it));
+      this.items.filter(it => it.type === 'embed' || it.type === 'preview').forEach(it => this.drawEmbed(it));
+      this.items.filter(it => it.type === 'image').forEach(it => this.drawImage(it));
+      this.items.filter(it => it.type === 'sticky_note').forEach(it => this.drawStickyNote(it));
+      this.items.filter(it => it.type === 'text').forEach(it => this.drawText(it));
+      this.items.filter(it => it.type === 'pen').forEach(it => this.drawPen(it));
+      this.items.filter(it => it.type === 'comment').forEach(it => this.drawComment(it));
+    } finally {
+      this.ctx = origCtx;
+      this.camera.zoom = origZoom;
+    }
+
+    const dataUrl = offCanvas.toDataURL('image/png');
+    const a = document.createElement('a');
+    a.href = dataUrl;
+    a.download = filename;
+    a.click();
+    return true;
+  }
+
   bindEvents() {
     window.addEventListener('resize', () => {
       this.initCanvasSize();
       this.render();
+      if (this.onCameraChange) this.onCameraChange();
     });
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      if (e.ctrlKey || e.metaKey) {
-        // Zoom con rueda
-        const factor = e.deltaY < 0 ? 1.15 : 0.85;
-        this.zoomAt(e.clientX, e.clientY, factor);
-      } else {
-        // Desplazamiento (Pan) con rueda
-        this.camera.x -= e.deltaX / this.camera.zoom;
-        this.camera.y -= e.deltaY / this.camera.zoom;
-        this.render();
-      }
+      // Zoom directo con rueda centrado en el cursor (estilo Miro)
+      const factor = e.deltaY < 0 ? 1.12 : 0.88;
+      this.zoomAt(e.clientX, e.clientY, factor);
     }, { passive: false });
+
+    // Soporte para desplazar (pan) manteniendo la barra espaciadora pulsada
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        this.isSpacePressed = true;
+        if (!this.isPanning) this.canvas.style.cursor = 'grab';
+      }
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.code === 'Space') {
+        this.isSpacePressed = false;
+        if (!this.isPanning) this.canvas.style.cursor = this.activeTool === 'hand' ? 'grab' : 'default';
+      }
+    });
 
     this.canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     window.addEventListener('pointermove', (e) => this.onPointerMove(e));
@@ -231,8 +775,12 @@ class CanvasEngine {
   }
 
   onPointerDown(e) {
-    // Clic central, derecho o barra espaciadora = Pan
-    if (e.button === 1 || e.button === 2 || this.activeTool === 'hand' || e.spaceKey) {
+    if (this.onEditingFinish) {
+      this.onEditingFinish();
+    }
+
+    // Clic central, derecho, herramienta mano o barra espaciadora = Pan
+    if (e.button === 1 || e.button === 2 || this.activeTool === 'hand' || this.isSpacePressed) {
       this.isPanning = true;
       this.panStart = { x: e.clientX, y: e.clientY };
       this.canvas.style.cursor = 'grabbing';
@@ -242,30 +790,116 @@ class CanvasEngine {
     const world = this.screenToWorld(e.clientX, e.clientY);
 
     if (this.activeTool === 'select') {
-      const clicked = this.getItemAt(world.x, world.y);
-      if (clicked) {
+      // 1. Comprobar si se ha pulsado en un controlador de redimensionamiento (Resize Handle)
+      const handleHit = this.getResizeHandleAt(world.x, world.y);
+      if (handleHit) {
+        this.saveSnapshot();
+        this.isResizing = true;
+        this.activeResizeHandle = handleHit.handle;
+        this.resizeTargetItem = handleHit.item;
+        this.resizeInitialBounds = {
+          x: handleHit.item.x,
+          y: handleHit.item.y,
+          width: handleHit.item.width || 100,
+          height: handleHit.item.height || 100,
+          aspectRatio: (handleHit.item.width || 100) / (handleHit.item.height || 100)
+        };
+        this.resizeStartWorld = { x: world.x, y: world.y };
+        return;
+      }
+
+      // 1. Buscar elementos regulares interactivos (excluyendo frames contenedores)
+      const clickedItem = this.getItemAt(world.x, world.y, true);
+
+      if (clickedItem) {
+        // Si el elemento es un comentario, abrir popover de comentario
+        if (clickedItem.type === 'comment') {
+          if (this.onCommentClick) {
+            this.onCommentClick(clickedItem, e.clientX, e.clientY);
+          }
+          this.selectedItemIds.clear();
+          this.selectedItemIds.add(clickedItem.id);
+          this.render();
+          return;
+        }
+
+        // Si el elemento es una carta de enlace (embed/preview) y se pulsa el botón ↗ de abrir exterior
+        if ((clickedItem.type === 'embed' || clickedItem.type === 'preview') && clickedItem.url) {
+          const btnX = clickedItem.x + clickedItem.width - 36;
+          const btnY = clickedItem.y + 12;
+          const dBtn = Math.hypot(world.x - (btnX + 12), world.y - (btnY + 12));
+          if (dBtn <= 16) {
+            this.openExternalUrl(clickedItem.url);
+            return;
+          }
+        }
+
         if (!e.shiftKey) {
-          if (!this.selectedItemIds.has(clicked.id)) {
+          if (!this.selectedItemIds.has(clickedItem.id)) {
             this.selectedItemIds.clear();
-            this.selectedItemIds.add(clicked.id);
+            this.selectedItemIds.add(clickedItem.id);
           }
         } else {
-          if (this.selectedItemIds.has(clicked.id)) {
-            this.selectedItemIds.delete(clicked.id);
+          if (this.selectedItemIds.has(clickedItem.id)) {
+            this.selectedItemIds.delete(clickedItem.id);
           } else {
-            this.selectedItemIds.add(clicked.id);
+            this.selectedItemIds.add(clickedItem.id);
           }
         }
         this.isDraggingItem = true;
         this.dragStart = { x: world.x, y: world.y };
-        this.saveSnapshot();
-      } else {
-        // Iniciar seleccion por recuadro (Marquee)
-        if (!e.shiftKey) this.selectedItemIds.clear();
-        this.isSelectingMarquee = true;
-        this.marqueeBox = { startX: world.x, startY: world.y, currentX: world.x, currentY: world.y };
+        this.dragStartScreen = { x: e.clientX, y: e.clientY };
+        this.hasMovedItem = false;
+        if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
+        this.render();
+        return;
       }
-      if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
+
+      // 2. Si no se pulsó ningún elemento regular, comprobar si hay un frame (marco contenedor)
+      const frameUnder = this.getItemAt(world.x, world.y, false);
+      if (frameUnder && frameUnder.type === 'frame') {
+        const isFrameSelected = this.selectedItemIds.has(frameUnder.id);
+        const onHeaderOrBorder = this.isPointOnFrameHeaderOrBorder(frameUnder, world.x, world.y);
+
+        if (isFrameSelected || onHeaderOrBorder) {
+          // El usuario clickeó deliberadamente la cabecera, borde o un marco ya seleccionado
+          if (!e.shiftKey) {
+            if (!isFrameSelected) {
+              this.selectedItemIds.clear();
+              this.selectedItemIds.add(frameUnder.id);
+            }
+          } else {
+            if (isFrameSelected) {
+              this.selectedItemIds.delete(frameUnder.id);
+            } else {
+              this.selectedItemIds.add(frameUnder.id);
+            }
+          }
+          this.isDraggingItem = true;
+          this.dragStart = { x: world.x, y: world.y };
+          this.dragStartScreen = { x: e.clientX, y: e.clientY };
+          this.hasMovedItem = false;
+          if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
+          this.render();
+          return;
+        }
+
+        // Clic en el área vacía interior de un marco NO seleccionado:
+        // Inicia selección por recuadro (Marquee) para seleccionar lo que haya dentro.
+        // Si no se arrastra (clic simple < 4px), se seleccionará el marco al soltar el puntero.
+        this.potentialFrameClick = frameUnder;
+      } else {
+        this.potentialFrameClick = null;
+      }
+
+      // 3. Iniciar selección por recuadro (Marquee)
+      this.isSelectingMarquee = true;
+      this.marqueeBox = { startX: world.x, startY: world.y, currentX: world.x, currentY: world.y };
+      this.marqueeInitialSelection = e.shiftKey ? new Set(this.selectedItemIds) : new Set();
+      if (!e.shiftKey) {
+        this.selectedItemIds.clear();
+        if (this.onSelectionChange) this.onSelectionChange([]);
+      }
       this.render();
       return;
     }
@@ -287,6 +921,7 @@ class CanvasEngine {
       this.selectedItemIds.add(newNote.id);
       this.activeTool = 'select';
       if (this.onSelectionChange) this.onSelectionChange([newNote.id]);
+      if (this.onBoardModified) this.onBoardModified();
       this.render();
       return;
     }
@@ -311,6 +946,7 @@ class CanvasEngine {
       this.selectedItemIds.add(newShape.id);
       this.activeTool = 'select';
       if (this.onSelectionChange) this.onSelectionChange([newShape.id]);
+      if (this.onBoardModified) this.onBoardModified();
       this.render();
       return;
     }
@@ -333,6 +969,7 @@ class CanvasEngine {
       this.selectedItemIds.add(newText.id);
       this.activeTool = 'select';
       if (this.onSelectionChange) this.onSelectionChange([newText.id]);
+      if (this.onBoardModified) this.onBoardModified();
       this.render();
       return;
     }
@@ -382,6 +1019,31 @@ class CanvasEngine {
       this.selectedItemIds.add(newFrame.id);
       this.activeTool = 'select';
       if (this.onSelectionChange) this.onSelectionChange([newFrame.id]);
+      if (this.onBoardModified) this.onBoardModified();
+      this.render();
+      return;
+    }
+
+    if (this.activeTool === 'comment') {
+      this.saveSnapshot();
+      const newComment = {
+        id: 'comment_' + Date.now(),
+        type: 'comment',
+        x: world.x,
+        y: world.y,
+        text: '',
+        author: 'Usuario',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        resolved: false
+      };
+      this.items.push(newComment);
+      this.selectedItemIds.clear();
+      this.selectedItemIds.add(newComment.id);
+      this.activeTool = 'select';
+      if (this.onCommentCreated) {
+        this.onCommentCreated(newComment, e.clientX, e.clientY);
+      }
+      if (this.onBoardModified) this.onBoardModified();
       this.render();
       return;
     }
@@ -395,48 +1057,170 @@ class CanvasEngine {
       this.camera.y += dy / this.camera.zoom;
       this.panStart = { x: e.clientX, y: e.clientY };
       this.render();
+      if (this.onCameraChange) this.onCameraChange();
       return;
     }
 
     const world = this.screenToWorld(e.clientX, e.clientY);
 
+    // 1. Redimensionamiento interactivo de elementos
+    if (this.isResizing && this.resizeTargetItem) {
+      const it = this.resizeTargetItem;
+      const init = this.resizeInitialBounds;
+      const dx = world.x - this.resizeStartWorld.x;
+      const dy = world.y - this.resizeStartWorld.y;
+      const handle = this.activeResizeHandle;
+      const keepRatio = e.shiftKey || it.type === 'image';
+      const minW = 24;
+      const minH = 20;
+
+      let newX = init.x;
+      let newY = init.y;
+      let newW = init.width;
+      let newH = init.height;
+
+      if (handle === 'se') {
+        newW = Math.max(minW, init.width + dx);
+        newH = keepRatio ? Math.max(minH, newW / init.aspectRatio) : Math.max(minH, init.height + dy);
+      } else if (handle === 'sw') {
+        newW = Math.max(minW, init.width - dx);
+        newX = init.x + (init.width - newW);
+        newH = keepRatio ? Math.max(minH, newW / init.aspectRatio) : Math.max(minH, init.height + dy);
+      } else if (handle === 'ne') {
+        newW = Math.max(minW, init.width + dx);
+        newH = keepRatio ? Math.max(minH, newW / init.aspectRatio) : Math.max(minH, init.height - dy);
+        newY = init.y + (init.height - newH);
+      } else if (handle === 'nw') {
+        newW = Math.max(minW, init.width - dx);
+        newX = init.x + (init.width - newW);
+        newH = keepRatio ? Math.max(minH, newW / init.aspectRatio) : Math.max(minH, init.height - dy);
+        newY = init.y + (init.height - newH);
+      } else if (handle === 'e') {
+        newW = Math.max(minW, init.width + dx);
+      } else if (handle === 'w') {
+        newW = Math.max(minW, init.width - dx);
+        newX = init.x + (init.width - newW);
+      } else if (handle === 's') {
+        newH = Math.max(minH, init.height + dy);
+      } else if (handle === 'n') {
+        newH = Math.max(minH, init.height - dy);
+        newY = init.y + (init.height - newH);
+      }
+
+      it.x = newX;
+      it.y = newY;
+      it.width = Math.round(newW);
+      it.height = Math.round(newH);
+
+      this.render();
+      if (this.onCameraChange) this.onCameraChange();
+      return;
+    }
+
+    // 2. Arrastre de elementos (con soporte de arrastrar marcos y sus hijos)
     if (this.isDraggingItem) {
+      if (!this.hasMovedItem) {
+        const screenDist = Math.hypot(e.clientX - (this.dragStartScreen?.x ?? e.clientX), e.clientY - (this.dragStartScreen?.y ?? e.clientY));
+        if (screenDist < 4) {
+          return;
+        }
+        this.saveSnapshot();
+        this.hasMovedItem = true;
+      }
       const dx = world.x - this.dragStart.x;
       const dy = world.y - this.dragStart.y;
+
+      let moveDx = dx;
+      let moveDy = dy;
+
+      // Smart Guides magnéticas si se arrastra un único elemento
+      if (this.selectedItemIds.size === 1) {
+        const singleId = Array.from(this.selectedItemIds)[0];
+        const singleItem = this.items.find(i => i.id === singleId);
+        if (singleItem && singleItem.type !== 'pen' && singleItem.type !== 'connector') {
+          const snap = this.calculateSmartGuides(singleItem, dx, dy);
+          moveDx = snap.dx;
+          moveDy = snap.dy;
+          this.activeGuides = snap.guides;
+        } else {
+          this.activeGuides = [];
+        }
+      } else {
+        this.activeGuides = [];
+      }
+
+      const moveItemIds = new Set(this.selectedItemIds);
       this.items.forEach(it => {
-        if (this.selectedItemIds.has(it.id)) {
+        if (this.selectedItemIds.has(it.id) && it.type === 'frame') {
+          const frame = it;
+          this.items.forEach(child => {
+            if (child.id !== frame.id && (child.parentId === frame.id || this.isItemInsideFrame(child, frame))) {
+              moveItemIds.add(child.id);
+            }
+          });
+        }
+      });
+
+      this.items.forEach(it => {
+        if (moveItemIds.has(it.id)) {
           if (it.type === 'pen') {
-            it.points.forEach(p => { p.x += dx; p.y += dy; });
+            it.points.forEach(p => { p.x += moveDx; p.y += moveDy; });
           } else if (it.type === 'connector') {
-            it.start.x += dx; it.start.y += dy;
-            it.end.x += dx; it.end.y += dy;
+            it.start.x += moveDx; it.start.y += moveDy;
+            it.end.x += moveDx; it.end.y += moveDy;
           } else {
-            it.x += dx;
-            it.y += dy;
+            it.x += moveDx;
+            it.y += moveDy;
           }
         }
       });
-      this.dragStart = { x: world.x, y: world.y };
+      this.dragStart = { x: this.dragStart.x + moveDx, y: this.dragStart.y + moveDy };
       this.render();
+      if (this.onCameraChange) this.onCameraChange();
       return;
+    }
+
+    // 3. Hover sobre handles de redimensionamiento cuando se usa la herramienta select
+    if (!this.isDraggingItem && !this.isPanning && !this.isSelectingMarquee && this.activeTool === 'select') {
+      const handleHit = this.getResizeHandleAt(world.x, world.y);
+      if (handleHit) {
+        this.canvas.style.cursor = handleHit.cursor;
+      } else {
+        const itemUnder = this.getItemAt(world.x, world.y, true);
+        if (itemUnder) {
+          this.canvas.style.cursor = 'move';
+        } else {
+          const frameUnder = this.getItemAt(world.x, world.y, false);
+          if (frameUnder && frameUnder.type === 'frame' && (this.selectedItemIds.has(frameUnder.id) || this.isPointOnFrameHeaderOrBorder(frameUnder, world.x, world.y))) {
+            this.canvas.style.cursor = 'move';
+          } else {
+            this.canvas.style.cursor = 'default';
+          }
+        }
+      }
     }
 
     if (this.isSelectingMarquee && this.marqueeBox) {
       this.marqueeBox.currentX = world.x;
       this.marqueeBox.currentY = world.y;
 
+      const dist = Math.hypot(world.x - this.marqueeBox.startX, world.y - this.marqueeBox.startY);
+      if (dist > 4) {
+        this.potentialFrameClick = null;
+      }
+
       const minX = Math.min(this.marqueeBox.startX, this.marqueeBox.currentX);
       const maxX = Math.max(this.marqueeBox.startX, this.marqueeBox.currentX);
       const minY = Math.min(this.marqueeBox.startY, this.marqueeBox.currentY);
       const maxY = Math.max(this.marqueeBox.startY, this.marqueeBox.currentY);
 
-      this.selectedItemIds.clear();
+      const newSelection = new Set(this.marqueeInitialSelection || []);
       this.items.forEach(it => {
-        if (it.x >= minX && it.x + (it.width || 0) <= maxX &&
-            it.y >= minY && it.y + (it.height || 0) <= maxY) {
-          this.selectedItemIds.add(it.id);
+        if (this.itemIntersectsBox(it, minX, minY, maxX, maxY)) {
+          newSelection.add(it.id);
         }
       });
+      this.selectedItemIds = newSelection;
       if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
       this.render();
       return;
@@ -460,13 +1244,48 @@ class CanvasEngine {
       this.isPanning = false;
       this.canvas.style.cursor = this.activeTool === 'hand' ? 'grab' : 'default';
     }
+    if (this.isResizing) {
+      this.isResizing = false;
+      this.activeResizeHandle = null;
+      this.resizeTargetItem = null;
+      if (this.onBoardModified) this.onBoardModified();
+    }
+    if (this.hasMovedItem) {
+      this.hasMovedItem = false;
+      if (this.onBoardModified) this.onBoardModified();
+    }
     this.isDraggingItem = false;
-    this.isSelectingMarquee = false;
-    this.marqueeBox = null;
-    this.currentDrawing = null;
+    this.dragStartScreen = null;
+    this.activeGuides = [];
+
+    if (this.isSelectingMarquee) {
+      if (this.potentialFrameClick) {
+        // Clic simple en el interior de un frame sin arrastrar (< 4px de movimiento)
+        if (!e.shiftKey) {
+          this.selectedItemIds.clear();
+          this.selectedItemIds.add(this.potentialFrameClick.id);
+        } else {
+          if (this.selectedItemIds.has(this.potentialFrameClick.id)) {
+            this.selectedItemIds.delete(this.potentialFrameClick.id);
+          } else {
+            this.selectedItemIds.add(this.potentialFrameClick.id);
+          }
+        }
+        this.potentialFrameClick = null;
+      }
+      this.isSelectingMarquee = false;
+      this.marqueeBox = null;
+      if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
+    }
+
+    if (this.currentDrawing) {
+      this.currentDrawing = null;
+      if (this.onBoardModified) this.onBoardModified();
+    }
     if (this.activeConnector) {
       this.activeConnector = null;
       this.activeTool = 'select';
+      if (this.onBoardModified) this.onBoardModified();
     }
     this.render();
   }
@@ -511,28 +1330,56 @@ class CanvasEngine {
       };
 
       // 1. Marcos (fondo)
-      this.items.filter(it => it.type === 'frame' && isVisible(it)).forEach(it => this.drawFrame(it));
+      this.items.filter(it => it.type === 'frame' && isVisible(it)).forEach(it => {
+        try { this.drawFrame(it); } catch (e) { console.error('Error al dibujar marco:', e); }
+      });
 
       // 2. Conectores
-      this.items.filter(it => it.type === 'connector').forEach(it => this.drawConnector(it));
+      this.items.filter(it => it.type === 'connector').forEach(it => {
+        try { this.drawConnector(it); } catch (e) { console.error('Error al dibujar conector:', e); }
+      });
 
       // 3. Formas, embeds, codigo
-      this.items.filter(it => it.type === 'shape' && isVisible(it)).forEach(it => this.drawShape(it));
-      this.items.filter(it => it.type === 'code' && isVisible(it)).forEach(it => this.drawCodeBlock(it));
-      this.items.filter(it => (it.type === 'embed' || it.type === 'preview') && isVisible(it)).forEach(it => this.drawEmbed(it));
+      this.items.filter(it => it.type === 'shape' && isVisible(it)).forEach(it => {
+        try { this.drawShape(it); } catch (e) { console.error('Error al dibujar forma:', e); }
+      });
+      this.items.filter(it => it.type === 'code' && isVisible(it)).forEach(it => {
+        try { this.drawCodeBlock(it); } catch (e) { console.error('Error al dibujar codigo:', e); }
+      });
+      this.items.filter(it => (it.type === 'embed' || it.type === 'preview') && isVisible(it)).forEach(it => {
+        try { this.drawEmbed(it); } catch (e) { console.error('Error al dibujar embed:', e); }
+      });
 
       // 4. Imagenes
-      this.items.filter(it => it.type === 'image' && isVisible(it)).forEach(it => this.drawImage(it));
+      this.items.filter(it => it.type === 'image' && isVisible(it)).forEach(it => {
+        try { this.drawImage(it); } catch (e) { console.error('Error al dibujar imagen:', e); }
+      });
 
       // 5. Notas adhesivas
-      this.items.filter(it => it.type === 'sticky_note' && isVisible(it)).forEach(it => this.drawStickyNote(it));
+      this.items.filter(it => it.type === 'sticky_note' && isVisible(it)).forEach(it => {
+        try { this.drawStickyNote(it); } catch (e) { console.error('Error al dibujar nota adhesiva:', e); }
+      });
 
       // 6. Textos y dibujo a mano alzada
-      this.items.filter(it => it.type === 'text' && it.fillColor && it.fillColor !== 'transparent' && isVisible(it)).forEach(it => this.drawText(it));
-      this.items.filter(it => it.type === 'text' && (!it.fillColor || it.fillColor === 'transparent') && isVisible(it)).forEach(it => this.drawText(it));
-      this.items.filter(it => it.type === 'pen').forEach(it => this.drawPen(it));
+      this.items.filter(it => it.type === 'text' && it.fillColor && it.fillColor !== 'transparent' && isVisible(it)).forEach(it => {
+        try { this.drawText(it); } catch (e) { console.error('Error al dibujar texto con fondo:', e); }
+      });
+      this.items.filter(it => it.type === 'text' && (!it.fillColor || it.fillColor === 'transparent') && isVisible(it)).forEach(it => {
+        try { this.drawText(it); } catch (e) { console.error('Error al dibujar texto libre:', e); }
+      });
+      this.items.filter(it => it.type === 'pen').forEach(it => {
+        try { this.drawPen(it); } catch (e) { console.error('Error al dibujar trazo:', e); }
+      });
 
-      // 7. Seleccion y recuadro marquee
+      // 7. Comentarios estilo Miro (Pin burbuja)
+      this.items.filter(it => it.type === 'comment' && isVisible(it)).forEach(it => {
+        try { this.drawComment(it); } catch (e) { console.error('Error al dibujar comentario:', e); }
+      });
+
+      // 8. Smart Guides magnéticas
+      this.drawSmartGuides();
+
+      // 9. Seleccion y recuadro marquee
       this.drawSelectionOutline();
       this.drawMarquee();
     } finally {
@@ -588,12 +1435,16 @@ class CanvasEngine {
     this.ctx.fill();
 
     // Texto
-    if (it.text) {
-      this.ctx.fillStyle = '#1a1a1a';
-      this.ctx.font = '15px -apple-system, sans-serif';
-      this.ctx.textAlign = 'center';
+    if (it.text && this.editingItemId !== it.id) {
+      const fontSize = it.fontSize || 15;
+      const fontFamily = it.fontFamily || 'OpenSans, -apple-system, sans-serif';
+      const isBold = it.isBold ? '700 ' : '400 ';
+      const fontStyle = it.isItalic ? 'italic ' : '';
+      this.ctx.fillStyle = it.textColor || '#1a1a1a';
+      this.ctx.font = `${fontStyle}${isBold}${fontSize}px ${fontFamily}`;
+      this.ctx.textAlign = it.textAlign || 'center';
       this.ctx.textBaseline = 'middle';
-      this.wrapText(this.ctx, it.text, it.x + it.width / 2, it.y + it.height / 2, it.width - 24, 20);
+      this.wrapText(this.ctx, it.text, it.x + it.width / 2, it.y + it.height / 2, it.width - 24, fontSize + 5, it.textAlign || 'center');
     }
 
     this.ctx.restore();
@@ -628,7 +1479,7 @@ class CanvasEngine {
     this.ctx.fill();
     this.ctx.stroke();
 
-    if (it.text) {
+    if (it.text && this.editingItemId !== it.id) {
       let isDarkBg = false;
       if (it.fillColor && it.fillColor.startsWith('#')) {
         const hex = it.fillColor.replace('#', '');
@@ -639,12 +1490,15 @@ class CanvasEngine {
         isDarkBg = lum < 140;
       }
       const isHeader = (it.height >= 50 && it.text && it.text.length <= 10);
-      const fontSize = isHeader ? 22 : 14;
+      const fontSize = it.fontSize || (isHeader ? 22 : 14);
+      const fontFamily = it.fontFamily || 'OpenSans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+      const isBold = it.isBold !== undefined ? it.isBold : true;
+      const fontStyle = it.isItalic ? 'italic ' : '';
       this.ctx.fillStyle = it.textColor || (isDarkBg ? '#ffffff' : (it.strokeColor || '#1a1a1a'));
-      this.ctx.font = `700 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      this.ctx.textAlign = 'center';
+      this.ctx.font = `${fontStyle}${isBold ? '700 ' : '400 '}${fontSize}px ${fontFamily}`;
+      this.ctx.textAlign = it.textAlign || 'center';
       this.ctx.textBaseline = 'middle';
-      this.wrapText(this.ctx, it.text, it.x + it.width / 2, it.y + it.height / 2, it.width - 16, fontSize + 6);
+      this.wrapText(this.ctx, it.text, it.x + it.width / 2, it.y + it.height / 2, it.width - 16, fontSize + 6, it.textAlign || 'center');
     }
 
     this.ctx.restore();
@@ -669,16 +1523,24 @@ class CanvasEngine {
       }
     }
 
-    const fontSize = it.fontSize || 15;
-    const isBold = hasFill || fontSize >= 24;
-    this.ctx.font = `${isBold ? '700 ' : '400 '}${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+    // Si esta siendo editado in-situ, no pintar el texto en el canvas para evitar doble texto
+    if (this.editingItemId === it.id) {
+      this.ctx.restore();
+      return;
+    }
 
-    let textColor = it.color || '#1a1a1a';
+    const fontSize = it.fontSize || 15;
+    const fontFamily = it.fontFamily || 'OpenSans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const isBold = it.isBold !== undefined ? it.isBold : (hasFill || fontSize >= 24);
+    const fontStyle = it.isItalic ? 'italic ' : '';
+    this.ctx.font = `${fontStyle}${isBold ? '700 ' : '400 '}${fontSize}px ${fontFamily}`;
+
+    let textColor = it.textColor || it.color || '#1a1a1a';
     if (hasFill) {
       if (it.fillColor === '#2d2d2d' || it.fillColor === '#40414c' || it.fillColor === '#1a1a1a') {
-        textColor = it.color || '#ffffff';
+        textColor = it.textColor || it.color || '#ffffff';
       } else if (it.fillColor === '#bbcbd2') {
-        textColor = it.color || '#1a1a1a';
+        textColor = it.textColor || it.color || '#1a1a1a';
       }
     }
     this.ctx.fillStyle = textColor;
@@ -693,6 +1555,15 @@ class CanvasEngine {
       const maxWidth = Math.max(20, it.width - 24);
       const lineHeight = Math.round(fontSize * 1.3);
       this.wrapText(this.ctx, it.text || '', textX, textY, maxWidth, lineHeight, 'center');
+    } else if (align === 'right') {
+      this.ctx.textBaseline = 'top';
+      const padX = hasFill ? 14 : 0;
+      const padY = hasFill ? 10 : 0;
+      const textX = it.x + (it.width || 400) - padX;
+      const textY = it.y + padY;
+      const maxWidth = Math.max(20, (it.width || 400) - padX * 2);
+      const lineHeight = Math.round(fontSize * 1.35);
+      this.wrapText(this.ctx, it.text || '', textX, textY, maxWidth, lineHeight, 'right');
     } else {
       this.ctx.textBaseline = 'top';
       const padX = hasFill ? 14 : 0;
@@ -709,58 +1580,167 @@ class CanvasEngine {
 
   drawCodeBlock(it) {
     this.ctx.save();
-    this.ctx.fillStyle = '#1e1e1e';
-    this.ctx.strokeStyle = '#374151';
+    const r = 8;
+    const headerH = 30;
+
+    // Caja oscura del bloque de código estilo Miro
+    this.ctx.fillStyle = '#1e1e24';
+    this.ctx.strokeStyle = '#32323a';
     this.ctx.lineWidth = 1;
     this.ctx.beginPath();
-    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, 8);
+    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
     this.ctx.fill();
     this.ctx.stroke();
 
-    // Barra superior estilo terminal
-    this.ctx.fillStyle = '#262626';
+    // Barra de cabecera estilo macOS
+    this.ctx.fillStyle = '#26262d';
     this.ctx.beginPath();
-    this.roundRect(this.ctx, it.x, it.y, it.width, Math.min(26, it.height), 8);
+    this.ctx.moveTo(it.x + r, it.y);
+    this.ctx.lineTo(it.x + it.width - r, it.y);
+    this.ctx.quadraticCurveTo(it.x + it.width, it.y, it.x + it.width, it.y + r);
+    this.ctx.lineTo(it.x + it.width, it.y + headerH);
+    this.ctx.lineTo(it.x, it.y + headerH);
+    this.ctx.lineTo(it.x, it.y + r);
+    this.ctx.quadraticCurveTo(it.x, it.y, it.x + r, it.y);
+    this.ctx.closePath();
     this.ctx.fill();
 
-    // Puntos de ventana (rojo, amarillo, verde)
-    const dotY = it.y + 13;
+    // Línea divisoria cabecera
+    this.ctx.strokeStyle = '#32323a';
+    this.ctx.beginPath();
+    this.ctx.moveTo(it.x, it.y + headerH);
+    this.ctx.lineTo(it.x + it.width, it.y + headerH);
+    this.ctx.stroke();
+
+    // Puntos de ventana estilo macOS (rojo, amarillo, verde)
+    const dotY = it.y + 15;
     const colors = ['#ef4444', '#f59e0b', '#10b981'];
     colors.forEach((col, idx) => {
       this.ctx.fillStyle = col;
       this.ctx.beginPath();
-      this.ctx.arc(it.x + 14 + idx * 14, dotY, 4, 0, Math.PI * 2);
+      this.ctx.arc(it.x + 16 + idx * 14, dotY, 4, 0, Math.PI * 2);
       this.ctx.fill();
     });
 
-    if (it.title) {
-      this.ctx.fillStyle = '#9ca3af';
-      this.ctx.font = '600 11px monospace';
-      this.ctx.textAlign = 'right';
-      this.ctx.textBaseline = 'middle';
-      this.ctx.fillText(it.title, it.x + it.width - 12, dotY);
+    // Píldora de lenguaje a la derecha
+    const lang = (it.language || it.title || 'Code').toUpperCase();
+    this.ctx.font = '600 10.5px monospace';
+    const textW = this.ctx.measureText(lang).width;
+    const langBadgeW = Math.max(50, textW + 16);
+    const langBadgeX = it.x + it.width - langBadgeW - 12;
+
+    this.ctx.fillStyle = '#3a3a44';
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, langBadgeX, it.y + 7, langBadgeW, 16, 4);
+    this.ctx.fill();
+
+    this.ctx.fillStyle = '#9ca3af';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(lang, langBadgeX + langBadgeW / 2, it.y + 15);
+
+    // Si está siendo editado in-situ, no pintar el contenido en canvas para evitar solapamiento
+    if (this.editingItemId === it.id) {
+      this.ctx.restore();
+      return;
     }
 
-    if (it.text) {
-      this.ctx.fillStyle = '#e2e8f0';
-      this.ctx.font = '13px "Fira Code", Consolas, Menlo, monospace';
-      this.ctx.textAlign = 'left';
-      this.ctx.textBaseline = 'top';
-      this.wrapText(this.ctx, it.text, it.x + 12, it.y + 34, it.width - 24, 18, 'top');
+    // Columna de numeración de líneas (Gutter)
+    const gutterW = 38;
+    this.ctx.fillStyle = '#18181c';
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, it.x, it.y + headerH, gutterW, it.height - headerH, 0);
+    this.ctx.fill();
+
+    this.ctx.strokeStyle = '#2b2b34';
+    this.ctx.beginPath();
+    this.ctx.moveTo(it.x + gutterW, it.y + headerH);
+    this.ctx.lineTo(it.x + gutterW, it.y + it.height);
+    this.ctx.stroke();
+
+    // Obtener texto del código o fallback informativo estructurado
+    let codeText = it.text;
+    if (!codeText || codeText.trim() === '') {
+      codeText = it.defaultCode || '// Haz doble clic para editar código\nfunction ejecutar() {\n  return "DEV / AI";\n}';
     }
+
+    const lines = String(codeText).split('\n');
+    const startY = it.y + headerH + 12;
+    const lineHeight = 19;
+    const maxVisibleLines = Math.floor((it.height - headerH - 16) / lineHeight);
+
+    for (let i = 0; i < Math.min(lines.length, maxVisibleLines); i++) {
+      const line = lines[i];
+      const curY = startY + i * lineHeight;
+
+      // 1. Número de línea
+      this.ctx.fillStyle = '#5c6370';
+      this.ctx.font = '11.5px monospace';
+      this.ctx.textAlign = 'right';
+      this.ctx.textBaseline = 'top';
+      this.ctx.fillText(String(i + 1), it.x + gutterW - 8, curY);
+
+      // 2. Línea de código con resaltado sintáctico de tokens
+      this.drawCodeLine(line, it.x + gutterW + 10, curY, it.width - gutterW - 16);
+    }
+
     this.ctx.restore();
+  }
+
+  drawCodeLine(line, startX, lineY, maxWidth) {
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'top';
+
+    if (!line) return;
+
+    // Resaltado de comentarios completos
+    const trimmed = line.trimStart();
+    if (trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('/*') || trimmed.startsWith('*')) {
+      this.ctx.fillStyle = '#6a737d';
+      this.ctx.font = 'italic 12.5px "Fira Code", Consolas, monospace';
+      this.ctx.fillText(line, startX, lineY);
+      return;
+    }
+
+    // Tokenizar por palabras clave, strings, números y símbolos
+    const tokenRegex = /(\b(?:const|let|var|function|return|if|else|for|while|import|from|export|def|class|SELECT|FROM|WHERE|JOIN|ORDER|BY|GROUP|TABLE|INSERT|UPDATE|DELETE|async|await)\b)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|(\b\d+\b)|([{}()[\],;=<>+\-*\/%&|!:]+)|(\b[a-zA-Z_$][a-zA-Z0-9_$]*\b)|(\s+)/g;
+    let match;
+    let curX = startX;
+
+    while ((match = tokenRegex.exec(line)) !== null) {
+      if (curX > startX + maxWidth) break;
+      const [full, keyword, str, num, punct, ident, space] = match;
+
+      if (keyword) {
+        this.ctx.fillStyle = '#c678dd'; // Púrpura / magenta
+      } else if (str) {
+        this.ctx.fillStyle = '#98c379'; // Verde
+      } else if (num) {
+        this.ctx.fillStyle = '#d19a66'; // Naranja
+      } else if (punct) {
+        this.ctx.fillStyle = '#56b6c2'; // Cian
+      } else if (ident) {
+        this.ctx.fillStyle = '#abb2bf'; // Gris claro
+      } else {
+        this.ctx.fillStyle = '#abb2bf';
+      }
+
+      this.ctx.font = '12.5px "Fira Code", Consolas, monospace';
+      this.ctx.fillText(full, curX, lineY);
+      curX += this.ctx.measureText(full).width;
+    }
   }
 
   drawEmbed(it) {
     this.ctx.save();
-    const r = 8;
-    const thumbH = Math.max(60, Math.round(it.height * 0.60));
+    const r = 10;
+    const thumbH = Math.max(60, Math.round(it.height * 0.54));
 
-    // 1. Sombra suave y fondo blanco de la tarjeta widget
+    // 1. Sombra suave de la tarjeta widget
     this.ctx.save();
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
-    this.ctx.shadowBlur = 8 / this.camera.zoom;
-    this.ctx.shadowOffsetY = 3 / this.camera.zoom;
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
+    this.ctx.shadowBlur = 10 / this.camera.zoom;
+    this.ctx.shadowOffsetY = 4 / this.camera.zoom;
     this.ctx.fillStyle = '#ffffff';
     this.ctx.beginPath();
     this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
@@ -788,14 +1768,14 @@ class CanvasEngine {
     this.ctx.clip();
 
     if (it.src) {
-      if (!it.imgElement || it.imgElement.getAttribute('data-src') !== it.src) {
+      if (!it.imgElement || typeof it.imgElement.getAttribute !== 'function' || it.imgElement.getAttribute('data-src') !== it.src) {
         it.imgElement = new Image();
         it.imgElement.setAttribute('data-src', it.src);
         it.imgElement.onload = () => this.render();
         it.imgElement.onerror = () => { it.imgFailed = true; };
         it.imgElement.src = it.src;
       }
-      if (it.imgElement.complete && it.imgElement.naturalWidth > 0) {
+      if (it.imgElement && it.imgElement.complete && it.imgElement.naturalWidth > 0) {
         const img = it.imgElement;
         const imgRatio = img.naturalWidth / img.naturalHeight;
         const targetRatio = it.width / thumbH;
@@ -811,21 +1791,83 @@ class CanvasEngine {
         }
         this.ctx.drawImage(img, sx, sy, sw, sh, it.x, it.y, it.width, thumbH);
       } else {
-        this.ctx.fillStyle = '#f8fafc';
+        this.ctx.fillStyle = '#0f172a';
         this.ctx.fillRect(it.x, it.y, it.width, thumbH);
       }
     } else {
-      this.ctx.fillStyle = '#f1f5f9';
+      // Fondo degradado elegante si no tiene imagen
+      const grad = this.ctx.createLinearGradient(it.x, it.y, it.x + it.width, it.y + thumbH);
+      grad.addColorStop(0, '#1e293b');
+      grad.addColorStop(1, '#0f172a');
+      this.ctx.fillStyle = grad;
       this.ctx.fillRect(it.x, it.y, it.width, thumbH);
-      this.ctx.fillStyle = '#94a3b8';
-      this.ctx.font = '24px sans-serif';
-      this.ctx.textAlign = 'center';
-      this.ctx.textBaseline = 'middle';
-      this.ctx.fillText('🔗', it.x + it.width / 2, it.y + thumbH / 2);
     }
     this.ctx.restore();
 
-    // Línea divisoria entre miniatura y metadatos
+    // 3. Insignia flotante de la plataforma en la esquina superior izquierda (estilo Miro exacto)
+    const badgeX = it.x + 12;
+    const badgeY = it.y + 12;
+    const badgeSize = 28;
+    this.ctx.save();
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
+    this.ctx.shadowBlur = 6;
+    this.ctx.shadowOffsetY = 2;
+    this.ctx.fillStyle = '#ffffff';
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, badgeX, badgeY, badgeSize, badgeSize, 6);
+    this.ctx.fill();
+    this.ctx.strokeStyle = '#e2e8f0';
+    this.ctx.lineWidth = 1;
+    this.ctx.stroke();
+    this.ctx.restore();
+
+    // Icono dentro de la insignia flotante
+    const domain = (it.domain || this.extractDomain(it.url)).toUpperCase();
+    if (domain.includes('YOUTUBE')) {
+      this.ctx.fillStyle = '#ff0000';
+      this.ctx.beginPath();
+      this.roundRect(this.ctx, badgeX + 5, badgeY + 8, 18, 12, 3);
+      this.ctx.fill();
+      this.ctx.fillStyle = '#ffffff';
+      this.ctx.beginPath();
+      this.ctx.moveTo(badgeX + 11, badgeY + 11);
+      this.ctx.lineTo(badgeX + 18, badgeY + 14);
+      this.ctx.lineTo(badgeX + 11, badgeY + 17);
+      this.ctx.closePath();
+      this.ctx.fill();
+    } else if (domain.includes('GITHUB')) {
+      this.ctx.fillStyle = '#181717';
+      this.ctx.font = '700 13px sans-serif';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText('⚡', badgeX + badgeSize / 2, badgeY + badgeSize / 2);
+    } else {
+      this.ctx.fillStyle = '#3b82f6';
+      this.ctx.font = '14px sans-serif';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText('🌐', badgeX + badgeSize / 2, badgeY + badgeSize / 2);
+    }
+
+    // 4. Botón de enlace exterior ↗ en la esquina superior derecha
+    const btnX = it.x + it.width - 36;
+    const btnY = it.y + 12;
+    const btnSize = 24;
+    this.ctx.save();
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.12)';
+    this.ctx.shadowBlur = 4;
+    this.ctx.beginPath();
+    this.ctx.arc(btnX + btnSize / 2, btnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.fillStyle = '#334155';
+    this.ctx.font = '700 12px sans-serif';
+    this.ctx.textAlign = 'center';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText('↗', btnX + btnSize / 2, btnY + btnSize / 2);
+    this.ctx.restore();
+
+    // 5. Línea divisoria
     this.ctx.strokeStyle = '#f1f5f9';
     this.ctx.lineWidth = 1;
     this.ctx.beginPath();
@@ -833,20 +1875,32 @@ class CanvasEngine {
     this.ctx.lineTo(it.x + it.width, it.y + thumbH);
     this.ctx.stroke();
 
-    // 3. Sección inferior: Metadatos del widget (Dominio y Título)
-    const domain = (it.domain || this.extractDomain(it.url)).toUpperCase();
+    // 6. Sección inferior de información (Dominio en mayúsculas y Título en negrita)
     this.ctx.fillStyle = '#64748b';
-    this.ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.ctx.font = '700 10.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     this.ctx.textAlign = 'left';
     this.ctx.textBaseline = 'top';
-    this.ctx.fillText(domain, it.x + 14, it.y + thumbH + 14);
+    this.ctx.fillText(domain, it.x + 14, it.y + thumbH + 12);
 
     const title = it.title || this.extractTitle(it.url) || domain;
     this.ctx.fillStyle = '#0f172a';
-    this.ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     this.ctx.textAlign = 'left';
     this.ctx.textBaseline = 'top';
-    this.wrapText(this.ctx, title, it.x + 14, it.y + thumbH + 32, it.width - 28, 18, 'top');
+    this.wrapText(this.ctx, title, it.x + 14, it.y + thumbH + 28, it.width - 28, 17, 'top');
+
+    // Snippet de URL recortada al final
+    if (it.url) {
+      this.ctx.fillStyle = '#94a3b8';
+      this.ctx.font = '400 11px -apple-system, BlinkMacSystemFont, sans-serif';
+      const cleanUrl = it.url.replace(/^https?:\/\//i, '');
+      const maxTextW = it.width - 28;
+      let displayUrl = cleanUrl;
+      while (this.ctx.measureText(displayUrl).width > maxTextW && displayUrl.length > 10) {
+        displayUrl = displayUrl.slice(0, -4) + '...';
+      }
+      this.ctx.fillText(displayUrl, it.x + 14, it.y + it.height - 18);
+    }
 
     this.ctx.restore();
   }
@@ -931,7 +1985,8 @@ class CanvasEngine {
   }
 
   drawImage(it) {
-    if (!it.imgElement || it.imgElement.getAttribute('data-src') !== it.src) {
+    if (!it.src) return;
+    if (!it.imgElement || typeof it.imgElement.getAttribute !== 'function' || it.imgElement.getAttribute('data-src') !== it.src) {
       it.imgElement = new Image();
       it.imgElement.setAttribute('data-src', it.src);
       it.imgElement.onload = () => this.render();
@@ -939,34 +1994,132 @@ class CanvasEngine {
       it.imgElement.src = it.src;
       return;
     }
-    if (it.imgElement.complete && it.imgElement.naturalWidth > 0) {
+    if (it.imgElement && it.imgElement.complete && it.imgElement.naturalWidth > 0) {
       this.ctx.drawImage(it.imgElement, it.x, it.y, it.width, it.height);
     }
+  }
+
+  drawComment(it) {
+    this.ctx.save();
+    const x = it.x;
+    const y = it.y;
+    const r = 16;
+    const isResolved = it.resolved;
+    const isSelected = this.selectedItemIds.has(it.id);
+    const bg = isResolved ? '#10b981' : '#f59e0b'; // Verde o Naranja Miro
+
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
+    this.ctx.shadowBlur = 6;
+    this.ctx.shadowOffsetY = 2;
+
+    // Pin circular con cola estilo burbuja de conversación
+    this.ctx.fillStyle = bg;
+    this.ctx.beginPath();
+    this.ctx.arc(x, y, r, 0, Math.PI * 2);
+    this.ctx.fill();
+
+    // Pequeño pico inferior de la burbuja
+    this.ctx.beginPath();
+    this.ctx.moveTo(x - 5, y + 13);
+    this.ctx.lineTo(x - 13, y + 22);
+    this.ctx.lineTo(x + 3, y + 15);
+    this.ctx.closePath();
+    this.ctx.fill();
+
+    // Borde blanco nítido (o azul si está seleccionado)
+    this.ctx.shadowColor = 'transparent';
+    this.ctx.strokeStyle = isSelected ? '#4262ff' : '#ffffff';
+    this.ctx.lineWidth = isSelected ? 2.5 : 2;
+    this.ctx.beginPath();
+    this.ctx.arc(x, y, r, 0, Math.PI * 2);
+    this.ctx.stroke();
+
+    // Icono interior
+    this.ctx.fillStyle = '#ffffff';
+    if (isResolved) {
+      this.ctx.font = 'bold 13px sans-serif';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText('✓', x, y);
+    } else {
+      this.ctx.font = 'bold 12px sans-serif';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText('💬', x, y);
+    }
+
+    this.ctx.restore();
+  }
+
+  drawSmartGuides() {
+    if (!this.activeGuides || this.activeGuides.length === 0) return;
+    this.ctx.save();
+    this.ctx.strokeStyle = '#ff007a'; // Magenta guía Miro
+    this.ctx.lineWidth = 1.2 / this.camera.zoom;
+    this.ctx.setLineDash([5 / this.camera.zoom, 4 / this.camera.zoom]);
+
+    this.activeGuides.forEach(g => {
+      this.ctx.beginPath();
+      if (g.type === 'v') {
+        this.ctx.moveTo(g.x, g.y1);
+        this.ctx.lineTo(g.x, g.y2);
+      } else if (g.type === 'h') {
+        this.ctx.moveTo(g.x1, g.y);
+        this.ctx.lineTo(g.x2, g.y);
+      }
+      this.ctx.stroke();
+    });
+
+    this.ctx.restore();
   }
 
   drawSelectionOutline() {
     if (this.selectedItemIds.size === 0) return;
 
     this.items.filter(it => this.selectedItemIds.has(it.id)).forEach(it => {
-      if (it.type === 'pen' || it.type === 'connector') return;
+      if (it.type === 'pen' || it.type === 'connector' || it.type === 'comment') return;
       this.ctx.save();
-      this.ctx.strokeStyle = '#4262ff';
-      this.ctx.lineWidth = 2 / this.camera.zoom;
-      this.ctx.strokeRect(it.x - 4, it.y - 4, it.width + 8, it.height + 8);
+      const z = this.camera.zoom;
 
-      // Puntos de ancla (resize handles)
-      const handleSize = 8 / this.camera.zoom;
-      this.ctx.fillStyle = '#ffffff';
-      const corners = [
-        [it.x - 4, it.y - 4],
-        [it.x + it.width + 4, it.y - 4],
-        [it.x - 4, it.y + it.height + 4],
-        [it.x + it.width + 4, it.y + it.height + 4]
-      ];
-      corners.forEach(([cx, cy]) => {
-        this.ctx.fillRect(cx - handleSize / 2, cy - handleSize / 2, handleSize, handleSize);
-        this.ctx.strokeRect(cx - handleSize / 2, cy - handleSize / 2, handleSize, handleSize);
-      });
+      // Rectángulo delimitador exterior con color azul Miro
+      this.ctx.strokeStyle = '#4262ff';
+      this.ctx.lineWidth = 1.5 / z;
+      const pad = 3 / z;
+      this.ctx.strokeRect(it.x - pad, it.y - pad, it.width + pad * 2, it.height + pad * 2);
+
+      // Renderizado de los 8 controladores de redimensionamiento (solo si hay un único elemento seleccionado)
+      if (this.selectedItemIds.size === 1) {
+        const handles = this.getResizeHandles(it);
+        const cornerRadius = 4.5 / z;
+        const pillHalfW = 6 / z;
+        const pillHalfH = 2.8 / z;
+
+        handles.forEach(h => {
+          this.ctx.fillStyle = '#ffffff';
+          this.ctx.strokeStyle = '#4262ff';
+          this.ctx.lineWidth = 1.5 / z;
+
+          if (h.name === 'nw' || h.name === 'ne' || h.name === 'se' || h.name === 'sw') {
+            // Esquinas: círculos blancos con borde azul estilo Miro
+            this.ctx.beginPath();
+            this.ctx.arc(h.x, h.y, cornerRadius, 0, Math.PI * 2);
+            this.ctx.fill();
+            this.ctx.stroke();
+          } else if (h.name === 'n' || h.name === 's') {
+            // Lados superior e inferior: pastillas horizontales
+            this.ctx.beginPath();
+            this.roundRect(this.ctx, h.x - pillHalfW, h.y - pillHalfH, pillHalfW * 2, pillHalfH * 2, 2 / z);
+            this.ctx.fill();
+            this.ctx.stroke();
+          } else if (h.name === 'w' || h.name === 'e') {
+            // Lados izquierdo y derecho: pastillas verticales
+            this.ctx.beginPath();
+            this.roundRect(this.ctx, h.x - pillHalfH, h.y - pillHalfW, pillHalfH * 2, pillHalfW * 2, 2 / z);
+            this.ctx.fill();
+            this.ctx.stroke();
+          }
+        });
+      }
       this.ctx.restore();
     });
   }
@@ -977,9 +2130,10 @@ class CanvasEngine {
     const maxX = Math.max(this.marqueeBox.startX, this.marqueeBox.currentX);
     const minY = Math.min(this.marqueeBox.startY, this.marqueeBox.currentY);
     const maxY = Math.max(this.marqueeBox.startY, this.marqueeBox.currentY);
+    if (maxX - minX < 2 && maxY - minY < 2) return;
 
     this.ctx.save();
-    this.ctx.fillStyle = 'rgba(66, 98, 255, 0.1)';
+    this.ctx.fillStyle = 'rgba(66, 98, 255, 0.08)';
     this.ctx.strokeStyle = '#4262ff';
     this.ctx.lineWidth = 1 / this.camera.zoom;
     this.ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
@@ -1041,6 +2195,7 @@ class CanvasEngine {
     this.items = this.items.filter(it => !this.selectedItemIds.has(it.id));
     this.selectedItemIds.clear();
     if (this.onSelectionChange) this.onSelectionChange([]);
+    if (this.onBoardModified) this.onBoardModified();
     this.render();
   }
 
@@ -1062,6 +2217,7 @@ class CanvasEngine {
     this.selectedItemIds.clear();
     newItems.forEach(copy => this.selectedItemIds.add(copy.id));
     if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
+    if (this.onBoardModified) this.onBoardModified();
     this.render();
   }
 
