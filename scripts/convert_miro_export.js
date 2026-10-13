@@ -149,7 +149,26 @@ const assignedImageFiles = new Set();
 function findResourceForEmbed(it) {
   const u = it.url || '';
   const pu = it.previewUrl || '';
-  // 1. Coincidencia directa con previewUrl por filename o name
+  const uLower = u.toLowerCase();
+
+  // 1. Coincidencias fidedignas específicas de recursos extraídos (.RTB)
+  if (uLower.includes('websitevice')) {
+    return '../extracted_board/3458764517478105021.jpg';
+  }
+  if (uLower.includes('awwwards')) {
+    return '../extracted_board/3458764517873211164.jpg';
+  }
+  if (uLower.includes('tradingview.com/lightweight-charts')) {
+    return '../extracted_board/3458764517478079397.jpg';
+  }
+  if (uLower.includes('pexels.com')) {
+    return '../extracted_board/3458764517966736743.jpg';
+  }
+  if (uLower.includes('system-prompts') || uLower.includes('nanobananaproprompts')) {
+    return '../extracted_board/3458764517478043354.png';
+  }
+
+  // 2. Coincidencia directa con previewUrl por filename o name
   if (pu) {
     const direct = fileDims.find(r => pu.includes(r.filename) || (r.name && pu.includes(r.name)));
     if (direct) {
@@ -157,7 +176,7 @@ function findResourceForEmbed(it) {
       return direct.localPath;
     }
   }
-  // 2. Coincidencia específica para YouTube
+  // 3. Coincidencia específica para YouTube
   if (u.includes('youtube.com')) {
     const ytMatch = fileDims.find(r => !assignedImageFiles.has(r.id) && (r.filename.includes('=s900') || r.filename.includes('default.jpg') || (r.name && r.name.includes('default.jpg'))));
     if (ytMatch) {
@@ -165,7 +184,7 @@ function findResourceForEmbed(it) {
       return ytMatch.localPath;
     }
   }
-  // 3. Coincidencia por dominio o nombre
+  // 4. Coincidencia por dominio o nombre
   if (u) {
     try {
       const host = new URL(u).hostname.replace(/^www\./, '').split('.')[0].toLowerCase();
@@ -308,13 +327,8 @@ rawData.items.forEach(it => {
     const info = getUrlWidgetInfo(uStr);
     let src = findResourceForEmbed(it);
 
-    if (!src) {
-      const ratio = bounds.width / bounds.height;
-      const candidate = fileDims.find(f => !assignedImageFiles.has(f.id) && Math.abs(f.ratio - ratio) < 0.05);
-      if (candidate) {
-        src = candidate.localPath;
-        assignedImageFiles.add(candidate.id);
-      }
+    if (!src || src.includes('3458764517918099491.png')) {
+      src = '../extracted_board/3458764517903244362.svg';
     }
 
     convertedItems.push({

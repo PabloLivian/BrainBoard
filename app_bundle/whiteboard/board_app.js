@@ -727,15 +727,27 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {}
 
         let src = it.src || '';
-        if (!src && it.previewUrl) {
+        const uLower = uStr.toLowerCase();
+        const tLower = (title || '').toLowerCase();
+
+        // Resolucion determinista y fidedigna contra recursos extraidos de Miro (.RTB)
+        if (uLower.includes('websitevice') || tLower.includes('websitevice')) {
+          src = '../extracted_board/3458764517478105021.jpg';
+        } else if (uLower.includes('awwwards') || tLower.includes('awwwards')) {
+          src = '../extracted_board/3458764517873211164.jpg';
+        } else if (uLower.includes('tradingview.com/lightweight-charts') || tLower.includes('lightweight charts')) {
+          src = '../extracted_board/3458764517478079397.jpg';
+        } else if (uLower.includes('pexels.com') || tLower.includes('pexels')) {
+          src = '../extracted_board/3458764517966736743.jpg';
+        } else if (uLower.includes('system-prompts') || uLower.includes('nanobananaproprompts') || tLower.includes('prompts')) {
+          src = '../extracted_board/3458764517478043354.png';
+        } else if (!src && it.previewUrl) {
           const m = resEntries.find(re => it.previewUrl.includes(re.name) || (re.filename && it.previewUrl.includes(re.filename)));
           if (m) src = m.localPath;
-        }
-        if (!src && uStr.includes('youtube.com')) {
+        } else if (!src && uStr.includes('youtube.com')) {
           const yt = resEntries.find(re => re.filename && (re.filename.includes('=s900') || re.filename.includes('default.jpg') || (re.name && re.name.includes('default.jpg'))));
           if (yt) src = yt.localPath;
-        }
-        if (!src && uStr) {
+        } else if (!src && uStr) {
           try {
             const host = new URL(uStr).hostname.replace(/^www\./, '').split('.')[0].toLowerCase();
             if (host.length > 2) {
@@ -743,6 +755,11 @@ document.addEventListener('DOMContentLoaded', () => {
               if (dm) src = dm.localPath;
             }
           } catch (err) {}
+        }
+
+        // Fallback autentico de Miro: nunca dinosaurio para bookmarks genericos
+        if (!src || src.includes('3458764517918099491.png')) {
+          src = '../extracted_board/3458764517903244362.svg';
         }
 
         return {
@@ -1379,6 +1396,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Corrección y saneamiento proactivo de recursos de enlaces (evitar dinosaurios / imágenes erróneas)
+  function sanitizeEmbedResources(items) {
+    if (!Array.isArray(items)) return;
+    items.forEach(it => {
+      if (it.type === 'embed' || it.type === 'preview') {
+        const u = (it.url || '').toLowerCase();
+        const t = (it.title || '').toLowerCase();
+        if (u.includes('websitevice') || t.includes('websitevice')) {
+          it.src = '../extracted_board/3458764517478105021.jpg';
+        } else if (u.includes('awwwards') || t.includes('awwwards')) {
+          it.src = '../extracted_board/3458764517873211164.jpg';
+        } else if (u.includes('tradingview.com/lightweight-charts') || t.includes('lightweight charts')) {
+          it.src = '../extracted_board/3458764517478079397.jpg';
+        } else if (u.includes('pexels.com') || t.includes('pexels')) {
+          it.src = '../extracted_board/3458764517966736743.jpg';
+        } else if (u.includes('system-prompts') || u.includes('nanobananaproprompts') || t.includes('prompts')) {
+          it.src = '../extracted_board/3458764517478043354.png';
+        } else if (it.src && it.src.includes('3458764517918099491.png')) {
+          it.src = '../extracted_board/3458764517903244362.svg';
+        }
+      }
+    });
+  }
+
   // Carga inicial resiliente
   async function loadInitialBoard() {
     currentActiveBoardId = localStorage.getItem('miro_active_board_id') || 'dev_ai';
@@ -1395,6 +1436,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (savedData && Array.isArray(savedData.items) && savedData.items.length > 0) {
+      sanitizeEmbedResources(savedData.items);
       engine.items = savedData.items;
       engine.items.forEach(it => {
         if (it.imgElement && typeof it.imgElement.getAttribute !== 'function') {
@@ -1492,6 +1534,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (saved && Array.isArray(saved.items)) {
+      sanitizeEmbedResources(saved.items);
       engine.saveSnapshot();
       engine.items = saved.items;
       engine.items.forEach(it => {
