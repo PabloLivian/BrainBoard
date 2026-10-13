@@ -1734,13 +1734,14 @@ class CanvasEngine {
   drawEmbed(it) {
     this.ctx.save();
     const r = 10;
-    const thumbH = Math.max(60, Math.round(it.height * 0.54));
+    const isCompact = !it.src || it.height <= 300;
+    const thumbH = isCompact ? 0 : Math.max(60, Math.round(it.height * 0.52));
 
     // 1. Sombra suave de la tarjeta widget
     this.ctx.save();
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
-    this.ctx.shadowBlur = 10 / this.camera.zoom;
-    this.ctx.shadowOffsetY = 4 / this.camera.zoom;
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+    this.ctx.shadowBlur = 8 / this.camera.zoom;
+    this.ctx.shadowOffsetY = 3 / this.camera.zoom;
     this.ctx.fillStyle = '#ffffff';
     this.ctx.beginPath();
     this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
@@ -1754,67 +1755,76 @@ class CanvasEngine {
     this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
     this.ctx.stroke();
 
-    // 2. Sección superior: Miniatura recortada en esquinas superiores
-    this.ctx.save();
-    this.ctx.beginPath();
-    this.ctx.moveTo(it.x + r, it.y);
-    this.ctx.lineTo(it.x + it.width - r, it.y);
-    this.ctx.quadraticCurveTo(it.x + it.width, it.y, it.x + it.width, it.y + r);
-    this.ctx.lineTo(it.x + it.width, it.y + thumbH);
-    this.ctx.lineTo(it.x, it.y + thumbH);
-    this.ctx.lineTo(it.x, it.y + r);
-    this.ctx.quadraticCurveTo(it.x, it.y, it.x + r, it.y);
-    this.ctx.closePath();
-    this.ctx.clip();
+    if (!isCompact && thumbH > 0) {
+      // 2. Sección superior: Miniatura recortada en esquinas superiores
+      this.ctx.save();
+      this.ctx.beginPath();
+      this.ctx.moveTo(it.x + r, it.y);
+      this.ctx.lineTo(it.x + it.width - r, it.y);
+      this.ctx.quadraticCurveTo(it.x + it.width, it.y, it.x + it.width, it.y + r);
+      this.ctx.lineTo(it.x + it.width, it.y + thumbH);
+      this.ctx.lineTo(it.x, it.y + thumbH);
+      this.ctx.lineTo(it.x, it.y + r);
+      this.ctx.quadraticCurveTo(it.x, it.y, it.x + r, it.y);
+      this.ctx.closePath();
+      this.ctx.clip();
 
-    if (it.src) {
-      if (!it.imgElement || typeof it.imgElement.getAttribute !== 'function' || it.imgElement.getAttribute('data-src') !== it.src) {
-        it.imgElement = new Image();
-        it.imgElement.setAttribute('data-src', it.src);
-        it.imgElement.onload = () => this.render();
-        it.imgElement.onerror = () => { it.imgFailed = true; };
-        it.imgElement.src = it.src;
-      }
-      if (it.imgElement && it.imgElement.complete && it.imgElement.naturalWidth > 0) {
-        const img = it.imgElement;
-        const imgRatio = img.naturalWidth / img.naturalHeight;
-        const targetRatio = it.width / thumbH;
-        let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
-        if (imgRatio > targetRatio) {
-          sh = img.naturalHeight;
-          sw = sh * targetRatio;
-          sx = (img.naturalWidth - sw) / 2;
-        } else {
-          sw = img.naturalWidth;
-          sh = sw / targetRatio;
-          sy = (img.naturalHeight - sh) / 2;
+      if (it.src) {
+        if (!it.imgElement || typeof it.imgElement.getAttribute !== 'function' || it.imgElement.getAttribute('data-src') !== it.src) {
+          it.imgElement = new Image();
+          it.imgElement.setAttribute('data-src', it.src);
+          it.imgElement.onload = () => this.render();
+          it.imgElement.onerror = () => { it.imgFailed = true; };
+          it.imgElement.src = it.src;
         }
-        this.ctx.drawImage(img, sx, sy, sw, sh, it.x, it.y, it.width, thumbH);
+        if (it.imgElement && it.imgElement.complete && it.imgElement.naturalWidth > 0) {
+          const img = it.imgElement;
+          const imgRatio = img.naturalWidth / img.naturalHeight;
+          const targetRatio = it.width / thumbH;
+          let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
+          if (imgRatio > targetRatio) {
+            sh = img.naturalHeight;
+            sw = sh * targetRatio;
+            sx = (img.naturalWidth - sw) / 2;
+          } else {
+            sw = img.naturalWidth;
+            sh = sw / targetRatio;
+            sy = (img.naturalHeight - sh) / 2;
+          }
+          this.ctx.drawImage(img, sx, sy, sw, sh, it.x, it.y, it.width, thumbH);
+        } else {
+          this.ctx.fillStyle = '#0f172a';
+          this.ctx.fillRect(it.x, it.y, it.width, thumbH);
+        }
       } else {
-        this.ctx.fillStyle = '#0f172a';
+        const grad = this.ctx.createLinearGradient(it.x, it.y, it.x + it.width, it.y + thumbH);
+        grad.addColorStop(0, '#1e293b');
+        grad.addColorStop(1, '#0f172a');
+        this.ctx.fillStyle = grad;
         this.ctx.fillRect(it.x, it.y, it.width, thumbH);
       }
-    } else {
-      // Fondo degradado elegante si no tiene imagen
-      const grad = this.ctx.createLinearGradient(it.x, it.y, it.x + it.width, it.y + thumbH);
-      grad.addColorStop(0, '#1e293b');
-      grad.addColorStop(1, '#0f172a');
-      this.ctx.fillStyle = grad;
-      this.ctx.fillRect(it.x, it.y, it.width, thumbH);
-    }
-    this.ctx.restore();
+      this.ctx.restore();
 
-    // 3. Insignia flotante de la plataforma en la esquina superior izquierda (estilo Miro exacto)
+      // Línea divisoria bajo la miniatura
+      this.ctx.strokeStyle = '#f1f5f9';
+      this.ctx.lineWidth = 1;
+      this.ctx.beginPath();
+      this.ctx.moveTo(it.x, it.y + thumbH);
+      this.ctx.lineTo(it.x + it.width, it.y + thumbH);
+      this.ctx.stroke();
+    }
+
+    // 3. Insignia flotante / Favicon de la plataforma (estilo Miro exacto)
     const badgeX = it.x + 12;
     const badgeY = it.y + 12;
-    const badgeSize = 28;
+    const badgeSize = isCompact ? 24 : 26;
     this.ctx.save();
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.15)';
-    this.ctx.shadowBlur = 6;
-    this.ctx.shadowOffsetY = 2;
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+    this.ctx.shadowBlur = 4;
+    this.ctx.shadowOffsetY = 1;
     this.ctx.fillStyle = '#ffffff';
     this.ctx.beginPath();
-    this.roundRect(this.ctx, badgeX, badgeY, badgeSize, badgeSize, 6);
+    this.roundRect(this.ctx, badgeX, badgeY, badgeSize, badgeSize, 5);
     this.ctx.fill();
     this.ctx.strokeStyle = '#e2e8f0';
     this.ctx.lineWidth = 1;
@@ -1826,73 +1836,93 @@ class CanvasEngine {
     if (domain.includes('YOUTUBE')) {
       this.ctx.fillStyle = '#ff0000';
       this.ctx.beginPath();
-      this.roundRect(this.ctx, badgeX + 5, badgeY + 8, 18, 12, 3);
+      this.roundRect(this.ctx, badgeX + 4, badgeY + 6, 16, 12, 3);
       this.ctx.fill();
       this.ctx.fillStyle = '#ffffff';
       this.ctx.beginPath();
-      this.ctx.moveTo(badgeX + 11, badgeY + 11);
-      this.ctx.lineTo(badgeX + 18, badgeY + 14);
-      this.ctx.lineTo(badgeX + 11, badgeY + 17);
+      this.ctx.moveTo(badgeX + 9, badgeY + 9);
+      this.ctx.lineTo(badgeX + 16, badgeY + 12);
+      this.ctx.lineTo(badgeX + 9, badgeY + 15);
       this.ctx.closePath();
       this.ctx.fill();
     } else if (domain.includes('GITHUB')) {
       this.ctx.fillStyle = '#181717';
-      this.ctx.font = '700 13px sans-serif';
+      this.ctx.font = '700 12px sans-serif';
       this.ctx.textAlign = 'center';
       this.ctx.textBaseline = 'middle';
       this.ctx.fillText('⚡', badgeX + badgeSize / 2, badgeY + badgeSize / 2);
     } else {
       this.ctx.fillStyle = '#3b82f6';
-      this.ctx.font = '14px sans-serif';
+      this.ctx.font = '13px sans-serif';
       this.ctx.textAlign = 'center';
       this.ctx.textBaseline = 'middle';
       this.ctx.fillText('🌐', badgeX + badgeSize / 2, badgeY + badgeSize / 2);
     }
 
+    // Para tarjetas compactas, mostrar el dominio al lado del badge en la cabecera
+    if (isCompact) {
+      this.ctx.fillStyle = '#64748b';
+      this.ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      this.ctx.textAlign = 'left';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(it.domain ? it.domain.toLowerCase() : this.extractDomain(it.url).toLowerCase(), badgeX + badgeSize + 8, badgeY + badgeSize / 2);
+    }
+
     // 4. Botón de enlace exterior ↗ en la esquina superior derecha
-    const btnX = it.x + it.width - 36;
-    const btnY = it.y + 12;
-    const btnSize = 24;
+    const btnX = it.x + it.width - 32;
+    const btnY = it.y + 10;
+    const btnSize = 22;
     this.ctx.save();
-    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.12)';
-    this.ctx.shadowBlur = 4;
+    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+    this.ctx.shadowBlur = 3;
     this.ctx.beginPath();
     this.ctx.arc(btnX + btnSize / 2, btnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
     this.ctx.fill();
-    this.ctx.fillStyle = '#334155';
-    this.ctx.font = '700 12px sans-serif';
+    this.ctx.strokeStyle = '#e2e8f0';
+    this.ctx.lineWidth = 1;
+    this.ctx.stroke();
+    this.ctx.fillStyle = '#475569';
+    this.ctx.font = '700 11px sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
     this.ctx.fillText('↗', btnX + btnSize / 2, btnY + btnSize / 2);
     this.ctx.restore();
 
-    // 5. Línea divisoria
-    this.ctx.strokeStyle = '#f1f5f9';
-    this.ctx.lineWidth = 1;
-    this.ctx.beginPath();
-    this.ctx.moveTo(it.x, it.y + thumbH);
-    this.ctx.lineTo(it.x + it.width, it.y + thumbH);
-    this.ctx.stroke();
+    // 5. Sección de textos (Dominio, Título y Descripción)
+    const contentStartY = isCompact ? it.y + 46 : it.y + thumbH + 12;
+    let curTextY = contentStartY;
 
-    // 6. Sección inferior de información (Dominio en mayúsculas y Título en negrita)
-    this.ctx.fillStyle = '#64748b';
-    this.ctx.font = '700 10.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    this.ctx.textAlign = 'left';
-    this.ctx.textBaseline = 'top';
-    this.ctx.fillText(domain, it.x + 14, it.y + thumbH + 12);
+    if (!isCompact) {
+      this.ctx.fillStyle = '#64748b';
+      this.ctx.font = '600 10.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      this.ctx.textAlign = 'left';
+      this.ctx.textBaseline = 'top';
+      this.ctx.fillText(it.domain ? it.domain.toLowerCase() : domain.toLowerCase(), it.x + 14, curTextY);
+      curTextY += 16;
+    }
 
     const title = it.title || this.extractTitle(it.url) || domain;
     this.ctx.fillStyle = '#0f172a';
-    this.ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.ctx.font = '700 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     this.ctx.textAlign = 'left';
     this.ctx.textBaseline = 'top';
-    this.wrapText(this.ctx, title, it.x + 14, it.y + thumbH + 28, it.width - 28, 17, 'top');
+    const linesUsed = this.wrapText(this.ctx, title, it.x + 14, curTextY, it.width - 28, 16, 'top', 2);
+    curTextY += (linesUsed || 1) * 16 + 4;
 
-    // Snippet de URL recortada al final
-    if (it.url) {
+    if (it.description && curTextY < it.y + it.height - 20) {
+      this.ctx.fillStyle = '#64748b';
+      this.ctx.font = '400 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      this.ctx.textAlign = 'left';
+      this.ctx.textBaseline = 'top';
+      const availableH = (it.y + it.height - 18) - curTextY;
+      const maxDescLines = Math.max(1, Math.floor(availableH / 14));
+      this.wrapText(this.ctx, it.description, it.x + 14, curTextY, it.width - 28, 14, 'top', maxDescLines);
+    } else if (isCompact && !it.description && it.url) {
       this.ctx.fillStyle = '#94a3b8';
-      this.ctx.font = '400 11px -apple-system, BlinkMacSystemFont, sans-serif';
+      this.ctx.font = '400 10.5px -apple-system, BlinkMacSystemFont, sans-serif';
+      this.ctx.textAlign = 'left';
+      this.ctx.textBaseline = 'top';
       const cleanUrl = it.url.replace(/^https?:\/\//i, '');
       const maxTextW = it.width - 28;
       let displayUrl = cleanUrl;
@@ -2153,8 +2183,8 @@ class CanvasEngine {
     ctx.quadraticCurveTo(x, y, x + radius, y);
   }
 
-  wrapText(ctx, text, x, y, maxWidth, lineHeight, align = 'center') {
-    if (!text) return;
+  wrapText(ctx, text, x, y, maxWidth, lineHeight, align = 'center', maxLines = 0) {
+    if (!text) return 0;
     const paragraphs = String(text).split('\n');
     const lines = [];
 
@@ -2178,14 +2208,26 @@ class CanvasEngine {
       lines.push(currentLine);
     }
 
-    let startY = y;
-    if (align === 'center') {
-      startY = y - ((lines.length - 1) * lineHeight) / 2;
+    let renderLines = lines;
+    if (maxLines > 0 && lines.length > maxLines) {
+      renderLines = lines.slice(0, maxLines);
+      let lastLine = renderLines[maxLines - 1];
+      while (ctx.measureText(lastLine + '...').width > maxWidth && lastLine.length > 3) {
+        lastLine = lastLine.slice(0, -1);
+      }
+      renderLines[maxLines - 1] = lastLine + '...';
     }
 
-    lines.forEach((line, idx) => {
+    let startY = y;
+    if (align === 'center') {
+      startY = y - ((renderLines.length - 1) * lineHeight) / 2;
+    }
+
+    renderLines.forEach((line, idx) => {
       ctx.fillText(line, x, startY + idx * lineHeight);
     });
+
+    return renderLines.length;
   }
 
   // Eliminar seleccionados

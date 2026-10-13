@@ -307,7 +307,7 @@
       "title": "Flux lora portrait trainer",
       "domain": "FAL.AI",
       "url": "https://fal.ai/models/fal-ai/flux-lora-portrait-trainer",
-      "src": ""
+      "src": "../extracted_board/3458764518239369352.png"
     },
     {
       "id": "3458764672960749976",
@@ -331,7 +331,7 @@
       "title": "Shotdeck",
       "domain": "SHOTDECK.COM",
       "url": "https://shotdeck.com/",
-      "src": "../extracted_board/3458764517903244362.svg"
+      "src": "../extracted_board/3458764517966720474.jpg"
     },
     {
       "id": "3458764671504243268",
@@ -484,10 +484,11 @@
       "y": -959.1108740396271,
       "width": 320.9999999999985,
       "height": 482.9999999999977,
-      "title": "Prompts",
+      "title": "GitHub - x1xhlol/system-prompts-and-models-of-ai-tools",
       "domain": "NANOBANANAPROPROMPTS.COM",
       "url": "https://www.nanobananaproprompts.com/prompts",
-      "src": "../extracted_board/3458764517478043354.png"
+      "src": "../extracted_board/3458764517478043354.png",
+      "description": "Full, Approved Code, Clever Code, Quality Code, Redundancy, Clutter, Curves, Tables AI, Jamovi, Miro, Unleashed, Unleash, Manuals, Hidden AI, Directives..."
     },
     {
       "id": "3458764652478855222",
@@ -499,7 +500,7 @@
       "title": "Devdocs",
       "domain": "DEVDOCS.IO",
       "url": "https://devdocs.io/",
-      "src": "../extracted_board/3458764517903244362.svg"
+      "src": "../extracted_board/3458764517478090111.png"
     },
     {
       "id": "3458764652478056882",
@@ -4896,7 +4897,7 @@
       "title": "Michaeltanzillo",
       "domain": "MICHAELTANZILLO.COM",
       "url": "https://www.michaeltanzillo.com/",
-      "src": "../extracted_board/3458764517903244362.svg"
+      "src": "../extracted_board/3458764517991339081.png"
     },
     {
       "id": "3458764674306258601",
@@ -4967,7 +4968,7 @@
       "title": "Hashgraphvc",
       "domain": "HASHGRAPHVC.COM",
       "url": "https://hashgraphvc.com/",
-      "src": "../extracted_board/3458764517903244362.svg"
+      "src": "../extracted_board/3458764517991203410.png"
     },
     {
       "id": "3458764674302674309",
@@ -5748,7 +5749,7 @@
       "title": "midudev/jscamp",
       "domain": "GITHUB.COM",
       "url": "https://github.com/midudev/jscamp",
-      "src": "../extracted_board/3458764517903244362.svg"
+      "src": "../extracted_board/3458764517485645384.jpg"
     },
     {
       "id": "3458764652753134856",
@@ -6171,10 +6172,11 @@
       "y": -1680.6305326230865,
       "width": 321,
       "height": 483,
-      "title": "18268232881803474680",
+      "title": "Stitch - Design with AI",
       "domain": "STITCH.WITHGOOGLE.COM",
       "url": "https://stitch.withgoogle.com/projects/18268232881803474680?pli=1",
-      "src": "../extracted_board/3458764517494401517.png"
+      "src": "../extracted_board/3458764517494401517.png",
+      "description": "Stitch generates UIs for mobile and web applications, mixing design intention fast and easy."
     },
     {
       "id": "3458764652478125820",
@@ -6252,10 +6254,11 @@
       "y": 6174.610279085159,
       "width": 321,
       "height": 483,
-      "title": "Reactbits",
+      "title": "React Bits",
       "domain": "REACTBITS.DEV",
       "url": "https://reactbits.dev/",
-      "src": "../extracted_board/3458764517509519997.png"
+      "src": "../extracted_board/3458764517509519997.png",
+      "description": "An open source collection of high quality, animated, interactive & fully customizable React components for building stunning, memorable u..."
     },
     {
       "id": "3458764654855775503",
@@ -6264,10 +6267,11 @@
       "y": 5851.412784833106,
       "width": 321,
       "height": 258,
-      "title": "Daisyui",
+      "title": "daisyUI — Tailwind CSS Components",
       "domain": "DAISYUI.COM",
       "url": "https://daisyui.com/",
-      "src": "../extracted_board/3458764517903244362.svg"
+      "src": "",
+      "description": "The most popular, free and open-source Tailwind CSS component library."
     },
     {
       "id": "3458764654855704638",
@@ -6291,7 +6295,7 @@
       "title": "Tweakcn",
       "domain": "TWEAKCN.COM",
       "url": "https://tweakcn.com/",
-      "src": "../extracted_board/3458764517903244362.svg"
+      "src": "../extracted_board/3458764517540044281.png"
     },
     {
       "id": "3458764652479769221",
@@ -6315,7 +6319,7 @@
       "title": "100vibecoding",
       "domain": "100VIBECODING.COM",
       "url": "https://www.100vibecoding.com/",
-      "src": "../extracted_board/3458764518028914135.png"
+      "src": "../extracted_board/3458764517478108959.png"
     },
     {
       "id": "3458764652478340959",
@@ -6384,10 +6388,11 @@
       "y": 5372.263441735404,
       "width": 321,
       "height": 483,
-      "title": "cortiz2894/hologram-particles",
+      "title": "GitHub - cortiz2894/hologram-particles",
       "domain": "GITHUB.COM",
       "url": "https://github.com/cortiz2894/hologram-particles",
-      "src": "../extracted_board/3458764517967499097.png"
+      "src": "../extracted_board/3458764517967499097.png",
+      "description": "A webgl/three.js hologram particle effect built with Three.js/WebGL, Noise Shaders, and WebGL. This repository is a free open-source resource for..."
     },
     {
       "id": "3458764673017742581",
@@ -6405,10 +6410,11 @@
       "y": 5464.732109837322,
       "width": 333.94518180847507,
       "height": 502.4782642164905,
-      "title": "7508115667617706440",
+      "title": "Stitch - Design with AI",
       "domain": "STITCH.WITHGOOGLE.COM",
       "url": "https://stitch.withgoogle.com/projects/7508115667617706440",
-      "src": "../extracted_board/3458764517494401517.png"
+      "src": "../extracted_board/3458764517494401517.png",
+      "description": "Stitch generates UIs for mobile and web applications, mixing design intention fast and easy."
     },
     {
       "id": "3458764653754157548",
@@ -6430,10 +6436,11 @@
       "y": 5466.684604991128,
       "width": 321,
       "height": 483,
-      "title": "Animejs",
+      "title": "Anime.js | JavaScript Animation Engine",
       "domain": "ANIMEJS.COM",
       "url": "https://animejs.com/",
-      "src": "../extracted_board/3458764518028914135.png"
+      "src": "../extracted_board/3458764517509516195.png",
+      "description": "A fast and versatile JavaScript animation library"
     },
     {
       "id": "3458764653754157393",
@@ -6455,10 +6462,11 @@
       "y": 5691.684604991128,
       "width": 321,
       "height": 258,
-      "title": "Gitdocify",
+      "title": "GitDocify",
       "domain": "GITDOCIFY.COM",
       "url": "https://gitdocify.com/",
-      "src": "../extracted_board/3458764517903244362.svg"
+      "src": "",
+      "description": "Instant, Professional, Code Documentation. Document your code in seconds with AI."
     },
     {
       "id": "3458764653754062522",
@@ -6480,10 +6488,11 @@
       "y": 4724.620945208917,
       "width": 321,
       "height": 483,
-      "title": "Scrollxui",
+      "title": "ScrollX UI - Interactive React Components...",
       "domain": "SCROLLXUI.DEV",
       "url": "https://www.scrollxui.dev/",
-      "src": "../extracted_board/3458764517903244362.svg"
+      "src": "../extracted_board/3458764517509523994.png",
+      "description": "ScrollX UI is an open-source library with customizable, animated, interactive React components to help developers build first, visually appealing UIs."
     },
     {
       "id": "3458764653754062327",
@@ -6505,10 +6514,11 @@
       "y": 4737.680481301778,
       "width": 321,
       "height": 483,
-      "title": "Es",
+      "title": "Profile Readme Generator",
       "domain": "PROFILE-README-GENERATOR.COM",
       "url": "https://profile-readme-generator.com/es",
-      "src": "../extracted_board/3458764517509492692.png"
+      "src": "../extracted_board/3458764517509492692.png",
+      "description": "Beautify your github profile with this amazing tool, creating the readme your profile deserves! Feel free to visit the profile readme generator you will find..."
     },
     {
       "id": "3458764653754062243",
@@ -6530,10 +6540,11 @@
       "y": 4724.620945208917,
       "width": 321,
       "height": 483,
-      "title": "Reactbits",
+      "title": "React Bits",
       "domain": "REACTBITS.DEV",
       "url": "https://reactbits.dev/",
-      "src": "../extracted_board/3458764517509519997.png"
+      "src": "../extracted_board/3458764517509519997.png",
+      "description": "An open source collection of high quality, animated, interactive & fully customizable React components for building stunning, memorable u..."
     },
     {
       "id": "3458764653754061990",
@@ -6570,7 +6581,7 @@
       "title": "Code review",
       "domain": "AUGMENTCODE.COM",
       "url": "https://www.augmentcode.com/product/code-review?utm_campaign=gg_emea_dg_search_competitor_codereview&utm_source=google&utm_medium=cpc&utm_content=code_rabbit&utm_term=coderabbit&gad_source=1&gad_campaignid=23358077648&gbraid=0AAAAA-Vc4AN3OkQhMY3joPh_iTP9MWXZA&gclid=Cj0KCQiAgbnKBhDgARIsAGCDdldp5v7Tshao3BGh_FmWl-_G2u8EVMgROJ1WVpZaoOH0mwEJy9kkzhYaAqwFEALw_wcB",
-      "src": "../extracted_board/3458764518028914135.png"
+      "src": ""
     },
     {
       "id": "3458764653686781345",
@@ -6605,10 +6616,11 @@
       "y": 4724.620945208916,
       "width": 321,
       "height": 483,
-      "title": "Npmtrends",
+      "title": "npm trends: Compare NPM package downloads",
       "domain": "NPMTRENDS.COM",
       "url": "https://npmtrends.com/",
-      "src": "../extracted_board/3458764518028914135.png"
+      "src": "../extracted_board/3458764517492930057.png",
+      "description": "Which NPM package should you use? Compare packages: download stats, bundle sizes, github stars and more. Spot trends, pick the winner."
     },
     {
       "id": "3458764653031466029",
@@ -6630,10 +6642,11 @@
       "y": 4724.620945208916,
       "width": 321,
       "height": 483,
-      "title": "Unavatar",
+      "title": "unavatar",
       "domain": "UNAVATAR.IO",
       "url": "https://unavatar.io/",
-      "src": "../extracted_board/3458764517480665009.png"
+      "src": "../extracted_board/3458764517492598138.png",
+      "description": "The universal avatar service that offers everything you need to easily retrieve user avatars"
     },
     {
       "id": "3458764652758384364",
@@ -6777,10 +6790,11 @@
       "y": 4724.620945208916,
       "width": 321,
       "height": 483,
-      "title": "Allsvgicons",
+      "title": "All SVG Icons - Free and Open Source SVG Vec...",
       "domain": "ALLSVGICONS.COM",
       "url": "https://allsvgicons.com/",
-      "src": "../extracted_board/3458764517494401517.png"
+      "src": "../extracted_board/3458764517480685287.png",
+      "description": "Browse and download 250,000+ free SVG icons for your projects. Use as Web Fonts and customize, Copy Raw SVG code or download as PNG, SVG..."
     },
     {
       "id": "3458764652566924378",
@@ -6811,10 +6825,11 @@
       "y": 4724.620945208916,
       "width": 321,
       "height": 483,
-      "title": "Swapy",
+      "title": "Swapy, a simple JavaScript tool for converting...",
       "domain": "SWAPY.TAHAZSH.COM",
       "url": "https://swapy.tahazsh.com/",
-      "src": "../extracted_board/3458764517480665009.png"
+      "src": "../extracted_board/3458764517480665009.png",
+      "description": "A simple JavaScript tool for converting any layout you have to drag-to-swap layout."
     },
     {
       "id": "3458764652477713452",
@@ -6836,10 +6851,11 @@
       "y": 4724.620945208916,
       "width": 321,
       "height": 483,
-      "title": "x1xhlol/system-prompts-and-models-of-ai-tools",
+      "title": "GitHub - x1xhlol/system-prompts-and-models-of-ai-tools",
       "domain": "GITHUB.COM",
       "url": "https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools",
-      "src": "../extracted_board/3458764517478043354.png"
+      "src": "../extracted_board/3458764517478043354.png",
+      "description": "Full, Approved Code, Clever Code, Quality Code, Redundancy, Clutter, Curves, Tables AI, Jamovi, Miro, Unleashed, Unleash, Manuals, Hidden AI, Directives..."
     },
     {
       "id": "3458764652441375527",
@@ -6861,10 +6877,11 @@
       "y": 4724.620945208917,
       "width": 320.99999999999966,
       "height": 482.99999999999955,
-      "title": "Untitledui",
+      "title": "Untitled UI - Figma UI Kit and React Compon...",
       "domain": "UNTITLEDUI.COM",
       "url": "https://www.untitledui.com/",
-      "src": "../extracted_board/3458764517477372552.jpg"
+      "src": "../extracted_board/3458764517477372552.jpg",
+      "description": "Is billed as the 'world's largest Figma UI kit and React component library'. Kickstart any project with everything you need to design and develop stun..."
     },
     {
       "id": "3458764652440930855",
@@ -8326,7 +8343,7 @@
       "title": "Tailframes",
       "domain": "TAILFRAMES.COM",
       "url": "https://www.tailframes.com/",
-      "src": "../extracted_board/3458764517903244362.svg"
+      "src": "../extracted_board/3458764517480618703.jpg"
     },
     {
       "id": "3458764652865250577",
@@ -8447,7 +8464,7 @@
       "title": "Database",
       "domain": "DATABASE.BUILD",
       "url": "https://database.build/",
-      "src": "../extracted_board/3458764518028914135.png"
+      "src": "../extracted_board/3458764517477378523.png"
     },
     {
       "id": "3458764652440475940",
