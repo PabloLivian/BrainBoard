@@ -953,17 +953,26 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-undo')?.addEventListener('click', () => engine.undo());
   document.getElementById('btn-redo')?.addEventListener('click', () => engine.redo());
 
-  // Nuevo tablero
-  document.getElementById('btn-new')?.addEventListener('click', () => {
-    if (confirm('¿Crear un nuevo tablero en blanco?')) {
-      engine.items = [];
-      engine.selectedItemIds.clear();
-      boardTitleInput.value = 'Tablero Nuevo';
-      fitBoardTitleWidth();
-      engine.fitView();
-      autoSaveBoard();
+  // Guardar tablero en archivo JSON
+  function saveBoardToFile() {
+    const cleanItems = engine.getCleanItems ? engine.getCleanItems() : engine.items;
+    const boardData = {
+      name: boardTitleInput.value || 'Tablero',
+      updatedAt: new Date().toISOString(),
+      items: cleanItems
+    };
+    const jsonStr = JSON.stringify(boardData, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = (boardTitleInput.value || 'tablero').replace(/[^a-zA-Z0-9_-]/g, '_') + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    if (typeof autoSaveBoardImmediately === 'function') {
+      autoSaveBoardImmediately();
     }
-  });
+  }
 
   // Exportar como imagen PNG en Alta Resolución
   document.getElementById('btn-export-png')?.addEventListener('click', () => {
@@ -974,25 +983,113 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Guardar tablero en archivo JSON
-  document.getElementById('btn-save')?.addEventListener('click', () => {
-    const boardData = {
-      name: boardTitleInput.value || 'Tablero',
-      updatedAt: new Date().toISOString(),
-      items: engine.items
-    };
-    const jsonStr = JSON.stringify(boardData, null, 2);
-    const blob = new Blob([jsonStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = (boardTitleInput.value || 'tablero').replace(/[^a-zA-Z0-9_-]/g, '_') + '.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  });
+  document.getElementById('btn-save')?.addEventListener('click', saveBoardToFile);
 
   // Abrir / Importar archivo
+  document.getElementById('btn-drawer-import')?.addEventListener('click', () => {
+    fileInput.click();
+  });
   document.getElementById('btn-open')?.addEventListener('click', () => {
     fileInput.click();
+  });
+
+  // Exportar copia de seguridad de todos los tableros
+  async function exportAllBoardsBackup() {
+    if (typeof autoSaveBoardImmediately === 'function') {
+      autoSaveBoardImmediately();
+    }
+
+    const boardsToExport = Array.isArray(workspaceBoards) ? workspaceBoards.filter(b => b.id !== 'recursos') : [];
+    if (boardsToExport.length === 0) {
+      alert('No hay tableros para exportar.');
+      return;
+    }
+
+    // Recopilar datos de cada tablero desde IndexedDB / LocalStorage / estado activo
+    const exportedDataList = [];
+    for (const b of boardsToExport) {
+      let data = null;
+      if (b.id === currentActiveBoardId) {
+        const cleanItems = engine.getCleanItems ? engine.getCleanItems() : engine.items;
+        data = {
+          id: b.id,
+          name: boardTitleInput.value || b.title || 'Tablero',
+          updatedAt: new Date().toISOString(),
+          items: cleanItems
+        };
+      } else {
+        data = await idbLoadBoard(b.id);
+        if (!data) {
+          try {
+            const ls = localStorage.getItem(`miro_board_${b.id}`) || (b.id === 'dev_ai' ? localStorage.getItem('miro_local_current_board_v3') : null);
+            if (ls) data = JSON.parse(ls);
+          } catch (e) {}
+        }
+      }
+
+      const boardItems = (data && Array.isArray(data.items)) ? data.items : [];
+      const safeTitle = (b.title || b.id || 'tablero').replace(/[^a-zA-Z0-9_\-\u00C0-\u017F\s]/g, '').trim().replace(/\s+/g, '_');
+      const filename = `${safeTitle || 'tablero'}.json`;
+
+      exportedDataList.push({
+        id: b.id,
+        filename: filename,
+        content: JSON.stringify({
+          id: b.id,
+          name: b.title || (data ? data.name : b.id),
+          icon: b.icon || '📋',
+          updatedAt: (data && data.updatedAt) ? data.updatedAt : new Date().toISOString(),
+          items: boardItems
+        }, null, 2)
+      });
+    }
+
+    // 1. Si el navegador/Chromium soporta File System Access API (showDirectoryPicker)
+    if (typeof window.showDirectoryPicker === 'function') {
+      try {
+        const dirHandle = await window.showDirectoryPicker({
+          id: 'brain_board_backup',
+          mode: 'readwrite',
+          startIn: 'documents'
+        });
+
+        let savedCount = 0;
+        for (const item of exportedDataList) {
+          const fileHandle = await dirHandle.getFileHandle(item.filename, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(item.content);
+          await writable.close();
+          savedCount++;
+        }
+
+        alert(`¡Copia de seguridad completada con éxito!\nSe han guardado ${savedCount} tableros en la carpeta seleccionada.`);
+        return;
+      } catch (err) {
+        // Si el usuario canceló la selección de carpeta, no hacer nada
+        if (err.name === 'AbortError') return;
+        console.warn('Error con showDirectoryPicker, recurriendo a descarga:', err);
+      }
+    }
+
+    // 2. Método de descarga secuencial en caso de que no esté disponible o falle showDirectoryPicker
+    let delay = 0;
+    for (const item of exportedDataList) {
+      setTimeout(() => {
+        const blob = new Blob([item.content], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = item.filename;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 2000);
+      }, delay);
+      delay += 250;
+    }
+  }
+
+  document.getElementById('btn-drawer-backup')?.addEventListener('click', () => {
+    boardControllerDrawer?.classList.remove('open');
+    exportAllBoardsBackup();
   });
 
   // Definición integral de reglas y recursos para tarjetas de enlace (Web Bookmarks)
@@ -1313,15 +1410,36 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const data = JSON.parse(evt.target.result);
         if (data.items && Array.isArray(data.items)) {
+          const boardName = data.name || file.name.replace(/\.[^/.]+$/, "");
+          const boardId = data.id || ('board_' + Date.now());
+
+          if (Array.isArray(workspaceBoards)) {
+            let existing = workspaceBoards.find(b => b.id === boardId || b.title.toLowerCase() === boardName.toLowerCase());
+            if (!existing) {
+              existing = { id: boardId, title: boardName, icon: '📋', active: true };
+              workspaceBoards.push(existing);
+            }
+            workspaceBoards.forEach(b => b.active = (b.id === existing.id));
+            currentActiveBoardId = existing.id;
+            if (typeof saveWorkspaceBoards === 'function') saveWorkspaceBoards();
+          } else {
+            currentActiveBoardId = boardId;
+          }
+
+          localStorage.setItem('miro_active_board_id', currentActiveBoardId);
           engine.saveSnapshot();
           engine.items = convertMiroToBrainBoard(data);
           engine.selectedItemIds.clear();
-          if (data.name) {
-            boardTitleInput.value = data.name;
-            fitBoardTitleWidth();
-          }
+          boardTitleInput.value = boardName;
+          fitBoardTitleWidth();
           engine.fitView();
-          autoSaveBoard();
+          if (typeof renderDrawerBoards === 'function') renderDrawerBoards();
+          boardControllerDrawer?.classList.remove('open');
+          if (typeof autoSaveBoardImmediately === 'function') {
+            autoSaveBoardImmediately(currentActiveBoardId);
+          } else {
+            autoSaveBoard();
+          }
         } else {
           alert('El archivo no tiene el formato de tablero esperado.');
         }
@@ -1804,6 +1922,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  async function idbDeleteBoard(boardId) {
+    try {
+      const db = await openDatabase();
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_STORE);
+      store.delete(`board_${boardId}`);
+      if (typeof boardId === 'string' && boardId.startsWith('board_')) {
+        store.delete(boardId);
+      }
+      return new Promise((resolve) => {
+        tx.oncomplete = () => resolve(true);
+        tx.onerror = () => resolve(false);
+      });
+    } catch (e) {
+      return false;
+    }
+  }
+
   let saveTimeout = null;
 
   window.autoSaveBoardImmediately = autoSaveBoardImmediately;
@@ -1859,6 +1995,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   boardTitleInput?.addEventListener('input', () => {
     fitBoardTitleWidth();
+    if (Array.isArray(workspaceBoards)) {
+      const currentMeta = workspaceBoards.find(b => b.id === currentActiveBoardId);
+      if (currentMeta && boardTitleInput.value.trim()) {
+        currentMeta.title = boardTitleInput.value.trim();
+        if (typeof saveWorkspaceBoards === 'function') saveWorkspaceBoards();
+        if (typeof renderDrawerBoards === 'function') renderDrawerBoards();
+        if (typeof renderTabs === 'function') renderTabs();
+      }
+    }
     autoSaveBoard();
   });
   boardTitleInput?.addEventListener('change', fitBoardTitleWidth);
@@ -1869,35 +2014,6 @@ document.addEventListener('DOMContentLoaded', () => {
     .then(r => r.json())
     .then(m => { window.__resourcesMap = m; })
     .catch(() => {});
-
-  // Botón para cargar directamente el tablero DEV / AI
-  const btnLoadDevAi = document.getElementById('btn-load-dev-ai');
-  btnLoadDevAi?.addEventListener('click', async () => {
-    if (currentActiveBoardId === 'dev_ai') {
-      const confirmReset = confirm('¿Deseas restaurar la plantilla original DEV / AI desde el archivo? Esto sobreescribirá tus cambios locales en este tablero.');
-      if (!confirmReset) {
-        engine.fitView();
-        return;
-      }
-      try {
-        const res = await fetch('../boards/DEV_AI.json');
-        if (res.ok) {
-          const board = await res.json();
-          engine.saveSnapshot();
-          engine.items = (board.items && Array.isArray(board.items)) ? board.items : convertMiroToBrainBoard(board);
-          engine.selectedItemIds.clear();
-          boardTitleInput.value = board.name || 'DEV / AI';
-          fitBoardTitleWidth();
-          engine.fitView();
-          autoSaveBoardImmediately('dev_ai');
-        }
-      } catch (e) {
-        alert('Error cargando plantilla DEV / AI: ' + e.message);
-      }
-    } else {
-      switchBoard('dev_ai');
-    }
-  });
 
   // Corrección y saneamiento proactivo de recursos de enlaces
   function sanitizeEmbedResources(items) {
@@ -1928,6 +2044,7 @@ document.addEventListener('DOMContentLoaded', () => {
     currentActiveBoardId = localStorage.getItem('miro_active_board_id') || 'dev_ai';
     workspaceBoards.forEach(b => b.active = (b.id === currentActiveBoardId));
     renderDrawerBoards();
+    if (typeof renderTabs === 'function') renderTabs();
 
     let savedData = await idbLoadBoard(currentActiveBoardId);
 
@@ -1991,22 +2108,156 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnBoardOptionsTrigger = document.getElementById('btn-board-options-trigger');
   const boardOptionsMenu = document.getElementById('board-options-menu');
   const menuOptRename = document.getElementById('menu-opt-rename');
-  const menuOptExportJson = document.getElementById('menu-opt-export-json');
-  const menuOptExportPng = document.getElementById('menu-opt-export-png');
+  const menuOptSave = document.getElementById('menu-opt-save');
+  const menuOptExportHires = document.getElementById('menu-opt-export-hires');
   const menuOptResetZoom = document.getElementById('menu-opt-reset-zoom');
   const menuOptClear = document.getElementById('menu-opt-clear');
 
-  const workspaceBoards = [
-    { id: 'dev_ai', title: 'DEV / AI', icon: '⚡', active: true },
-    { id: 'graphics_design', title: 'Graphics Design', icon: '📊', active: false },
-    { id: 'impresion_3d', title: 'Impresión 3D', icon: '🗑️', active: false },
-    { id: 'recursos', title: 'Recursos', icon: '🏠', active: false },
-    { id: 'houdini', title: 'Houdini', icon: '🌀', active: false },
-    { id: 'concepts', title: 'Concepts', icon: '💡', active: false },
-    { id: 'industria', title: 'INDUSTRIA', icon: '🪐', active: false },
-    { id: 'zbrush', title: 'ZBRUSH', icon: '🏃', active: false },
-    { id: '3d_software', title: '3D SOFTWARE', icon: 'Ⓜ️', active: false }
-  ];
+  function loadWorkspaceBoards() {
+    try {
+      const stored = localStorage.getItem('miro_workspace_boards');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {}
+    return [
+      { id: 'dev_ai', title: 'DEV / AI', icon: '⚡', active: true },
+      { id: 'graphics_design', title: 'Graphics Design', icon: '📊', active: false },
+      { id: 'impresion_3d', title: 'Impresión 3D', icon: '🗑️', active: false },
+      { id: 'recursos', title: 'Recursos', icon: '🏠', active: false },
+      { id: 'houdini', title: 'Houdini', icon: '🌀', active: false },
+      { id: 'concepts', title: 'Concepts', icon: '💡', active: false },
+      { id: 'industria', title: 'INDUSTRIA', icon: '🪐', active: false },
+      { id: 'zbrush', title: 'ZBRUSH', icon: '🏃', active: false },
+      { id: '3d_software', title: '3D SOFTWARE', icon: 'Ⓜ️', active: false }
+    ];
+  }
+
+  function saveWorkspaceBoards() {
+    try {
+      localStorage.setItem('miro_workspace_boards', JSON.stringify(workspaceBoards));
+    } catch (e) {}
+  }
+
+  const workspaceBoards = loadWorkspaceBoards();
+  window.workspaceBoards = workspaceBoards;
+
+  // --- Sistema de Pestañas estilo Miro Desktop ---
+  const tabsList = document.getElementById('tabs-list');
+  const btnTabNew = document.getElementById('btn-tab-new');
+
+  function loadOpenTabs() {
+    try {
+      const data = localStorage.getItem('miro_open_tabs');
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {}
+    return ['dev_ai'];
+  }
+
+  let openTabs = loadOpenTabs();
+  window.openTabs = openTabs;
+
+  function saveOpenTabs() {
+    try {
+      localStorage.setItem('miro_open_tabs', JSON.stringify(openTabs));
+    } catch (e) {}
+  }
+  window.saveOpenTabs = saveOpenTabs;
+
+  function renderTabs() {
+    if (!tabsList) return;
+    tabsList.innerHTML = '';
+
+    if (!Array.isArray(openTabs) || openTabs.length === 0) {
+      openTabs = [currentActiveBoardId || 'dev_ai'];
+      saveOpenTabs();
+    }
+
+    if (currentActiveBoardId && !openTabs.includes(currentActiveBoardId)) {
+      openTabs.push(currentActiveBoardId);
+      saveOpenTabs();
+    }
+
+    openTabs.forEach(boardId => {
+      const bMeta = workspaceBoards.find(b => b.id === boardId);
+      const title = bMeta?.title || (boardId === 'dev_ai' ? 'DEV / AI' : 'Tablero');
+      const icon = bMeta?.icon || (boardId === 'dev_ai' ? '🧠' : '📋');
+      const isActive = (boardId === currentActiveBoardId);
+
+      const tabEl = document.createElement('div');
+      tabEl.className = 'tab-item' + (isActive ? ' active' : '');
+      tabEl.setAttribute('data-board-id', boardId);
+      tabEl.title = title;
+
+      tabEl.innerHTML = `
+        <span class="tab-icon">${icon}</span>
+        <span class="tab-title">${title}</span>
+        ${openTabs.length > 1 ? '<button class="tab-close-btn" title="Cerrar pestaña">✕</button>' : ''}
+      `;
+
+      tabEl.addEventListener('click', (e) => {
+        if (e.target.closest('.tab-close-btn')) return;
+        if (currentActiveBoardId !== boardId) {
+          switchBoard(boardId);
+        }
+      });
+
+      const closeBtn = tabEl.querySelector('.tab-close-btn');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          closeBoardTab(boardId);
+        });
+      }
+
+      tabsList.appendChild(tabEl);
+    });
+  }
+  window.renderTabs = renderTabs;
+
+  function openBoardTab(boardId) {
+    if (!openTabs.includes(boardId)) {
+      openTabs.push(boardId);
+      saveOpenTabs();
+    }
+    switchBoard(boardId);
+  }
+  window.openBoardTab = openBoardTab;
+
+  async function closeBoardTab(boardId) {
+    if (openTabs.length <= 1) return;
+    const idx = openTabs.indexOf(boardId);
+    if (idx === -1) return;
+
+    openTabs.splice(idx, 1);
+    saveOpenTabs();
+
+    if (currentActiveBoardId === boardId) {
+      const nextId = openTabs[Math.max(0, idx - 1)] || openTabs[0];
+      await switchBoard(nextId);
+    } else {
+      renderTabs();
+    }
+  }
+  window.closeBoardTab = closeBoardTab;
+
+  btnTabNew?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const nb = createNewBoard();
+    if (nb && nb.id) {
+      if (!openTabs.includes(nb.id)) {
+        openTabs.push(nb.id);
+        saveOpenTabs();
+      }
+      renderTabs();
+    }
+  });
 
   window.switchBoard = switchBoard;
 
@@ -2028,6 +2279,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const activeMeta = workspaceBoards.find(b => b.id === targetBoardId);
     boardTitleInput.value = activeMeta?.title || targetBoardId;
     fitBoardTitleWidth();
+
+    if (!openTabs.includes(targetBoardId)) {
+      openTabs.push(targetBoardId);
+      saveOpenTabs();
+    }
+    renderTabs();
     renderDrawerBoards();
 
     // 3. Cargar el estado guardado del tablero objetivo desde IndexedDB
@@ -2085,6 +2342,161 @@ document.addEventListener('DOMContentLoaded', () => {
     autoSaveBoardImmediately(targetBoardId);
   }
 
+  // Crear nuevo tablero en la sección de TABLEROS
+  function createNewBoard(customName) {
+    // 1. Guardar de forma inmediata el tablero actual antes de salir de él
+    if (activeEditingItem) closeInlineEditor();
+    if (currentActiveBoardId) {
+      autoSaveBoardImmediately(currentActiveBoardId);
+    }
+
+    // 2. Generar nombre de tablero limpio y único
+    let name = customName;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      const baseName = 'Tablero Nuevo';
+      let candidate = baseName;
+      let counter = 1;
+      while (workspaceBoards && workspaceBoards.some(b => b.title.trim().toLowerCase() === candidate.toLowerCase())) {
+        counter++;
+        candidate = `${baseName} ${counter}`;
+      }
+      name = candidate;
+    } else {
+      name = name.trim();
+    }
+
+    // 3. Crear identificador único para el tablero
+    const newBoardId = 'board_' + Date.now();
+    const newBoard = { id: newBoardId, title: name, icon: '📋', active: true };
+
+    // 4. Marcar inactivos los demás y añadir a la lista del espacio de trabajo
+    if (Array.isArray(workspaceBoards)) {
+      workspaceBoards.forEach(b => b.active = false);
+      workspaceBoards.push(newBoard);
+      saveWorkspaceBoards();
+    }
+
+    if (!openTabs.includes(newBoardId)) {
+      openTabs.push(newBoardId);
+      saveOpenTabs();
+    }
+
+    // 5. Establecer como activo
+    currentActiveBoardId = newBoardId;
+    localStorage.setItem('miro_active_board_id', currentActiveBoardId);
+
+    // 6. Actualizar campo de título en la barra superior
+    if (boardTitleInput) {
+      boardTitleInput.value = name;
+      fitBoardTitleWidth();
+    }
+
+    // 7. Limpiar lienzo para el nuevo tablero
+    engine.saveSnapshot();
+    engine.items = [];
+    engine.selectedItemIds.clear();
+    engine.fitView();
+
+    // 8. Renderizar de inmediato en la sección de TABLEROS del panel y en pestañas
+    renderDrawerBoards();
+    renderTabs();
+
+    // 9. Guardar inmediatamente el estado inicial en IndexedDB y LocalStorage
+    autoSaveBoardImmediately(newBoardId);
+
+    // 10. Mantener el panel abierto y hacer scroll suave al nuevo tablero creado
+    setTimeout(() => {
+      const activeEl = drawerBoardsList?.querySelector('.drawer-board-item.active');
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 40);
+
+    return newBoard;
+  }
+  window.createNewBoard = createNewBoard;
+
+  // Control del modal de seguridad para confirmación de eliminación de tablero
+  let boardPendingDeletion = null;
+  const deleteBoardModal = document.getElementById('delete-board-modal');
+  const deleteBoardModalMsg = document.getElementById('delete-board-modal-msg');
+  const btnCloseDeleteModal = document.getElementById('btn-close-delete-modal');
+  const btnCancelDeleteBoard = document.getElementById('btn-cancel-delete-board');
+  const btnConfirmDeleteBoard = document.getElementById('btn-confirm-delete-board');
+
+  function openDeleteBoardModal(boardId) {
+    if (boardId === 'dev_ai' || boardId === 'recursos') return;
+    const b = workspaceBoards.find(it => it.id === boardId);
+    if (!b) return;
+
+    boardPendingDeletion = boardId;
+    if (deleteBoardModalMsg) {
+      deleteBoardModalMsg.innerHTML = `¿Estás seguro de que deseas eliminar el tablero <strong>"${b.title}"</strong>?<br><br>Esta acción no se puede deshacer y se perderán todos los cambios guardados.`;
+    }
+    if (deleteBoardModal) {
+      deleteBoardModal.style.display = 'flex';
+    }
+  }
+
+  function closeDeleteBoardModal() {
+    boardPendingDeletion = null;
+    if (deleteBoardModal) {
+      deleteBoardModal.style.display = 'none';
+    }
+  }
+
+  async function executeDeleteBoard() {
+    if (!boardPendingDeletion) return;
+    const boardId = boardPendingDeletion;
+    closeDeleteBoardModal();
+    await deleteBoard(boardId);
+  }
+
+  btnCloseDeleteModal?.addEventListener('click', closeDeleteBoardModal);
+  btnCancelDeleteBoard?.addEventListener('click', closeDeleteBoardModal);
+  btnConfirmDeleteBoard?.addEventListener('click', executeDeleteBoard);
+  deleteBoardModal?.addEventListener('click', (e) => {
+    if (e.target === deleteBoardModal) closeDeleteBoardModal();
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (deleteBoardModal && deleteBoardModal.style.display === 'flex') {
+      if (e.key === 'Escape') {
+        closeDeleteBoardModal();
+      } else if (e.key === 'Enter') {
+        executeDeleteBoard();
+      }
+    }
+  });
+
+  async function deleteBoard(boardId) {
+    if (boardId === 'dev_ai' || boardId === 'recursos') return;
+    const idx = workspaceBoards.findIndex(b => b.id === boardId);
+    if (idx === -1) return;
+
+    workspaceBoards.splice(idx, 1);
+    saveWorkspaceBoards();
+
+    if (openTabs.includes(boardId)) {
+      const oIdx = openTabs.indexOf(boardId);
+      openTabs.splice(oIdx, 1);
+      if (openTabs.length === 0) openTabs = ['dev_ai'];
+      saveOpenTabs();
+    }
+    renderTabs();
+
+    try {
+      localStorage.removeItem(`miro_board_${boardId}`);
+      await idbDeleteBoard(boardId);
+    } catch (e) {}
+
+    if (currentActiveBoardId === boardId) {
+      await switchBoard(openTabs[0] || 'dev_ai');
+    } else {
+      renderDrawerBoards(inputDrawerSearch ? inputDrawerSearch.value : '');
+    }
+  }
+
   function renderDrawerBoards(filter = '') {
     if (!drawerBoardsList) return;
     drawerBoardsList.innerHTML = '';
@@ -2092,14 +2504,31 @@ document.addEventListener('DOMContentLoaded', () => {
     filtered.forEach(board => {
       const item = document.createElement('div');
       item.className = 'drawer-board-item' + (board.active ? ' active' : '');
+      const canDelete = board.id !== 'dev_ai' && board.id !== 'recursos';
       item.innerHTML = `
-        <div class="drawer-board-icon">${board.icon}</div>
-        <span>${board.title}</span>
+        <div class="drawer-board-icon">${board.icon || '📋'}</div>
+        <span class="drawer-board-title" title="${board.title}">${board.title}</span>
+        ${canDelete ? `
+          <button class="drawer-board-delete-btn" title="Eliminar tablero" data-id="${board.id}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        ` : ''}
       `;
-      item.addEventListener('click', () => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.drawer-board-delete-btn')) return;
         boardControllerDrawer?.classList.remove('open');
-        switchBoard(board.id);
+        openBoardTab(board.id);
       });
+      const delBtn = item.querySelector('.drawer-board-delete-btn');
+      if (delBtn) {
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openDeleteBoardModal(board.id);
+        });
+      }
       drawerBoardsList.appendChild(item);
     });
   }
@@ -2134,29 +2563,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (drawerCalloutBox) drawerCalloutBox.style.display = 'none';
   });
   btnCreateSection?.addEventListener('click', () => {
-    const secName = prompt('Nombre de la nueva sección:');
-    if (secName) {
-      alert(`Sección "${secName}" creada en el espacio Creative.`);
-    }
+    if (drawerCalloutBox) drawerCalloutBox.style.display = 'none';
   });
 
   // Crear nuevo tablero desde el cajón (+)
-  btnDrawerNewBoard?.addEventListener('click', () => {
-    const name = prompt('Nombre del nuevo tablero:');
-    if (name) {
-      const newB = { id: 'board_' + Date.now(), title: name, icon: '📋', active: true };
-      workspaceBoards.forEach(b => b.active = false);
-      workspaceBoards.push(newB);
-      boardTitleInput.value = name;
-      fitBoardTitleWidth();
-      engine.saveSnapshot();
-      engine.items = [];
-      engine.selectedItemIds.clear();
-      engine.fitView();
-      boardControllerDrawer?.classList.remove('open');
-      renderDrawerBoards();
-      autoSaveBoard();
-    }
+  btnDrawerNewBoard?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    createNewBoard();
+  });
+
+  document.getElementById('btn-section-new-board')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    createNewBoard();
   });
 
   // Clic en el logo de Brain Board abre/cierra el drawer lateral
@@ -2177,13 +2595,13 @@ document.addEventListener('DOMContentLoaded', () => {
     boardTitleInput.select();
     fitBoardTitleWidth();
   });
-  menuOptExportJson?.addEventListener('click', () => {
+  menuOptSave?.addEventListener('click', () => {
     boardOptionsMenu?.classList.remove('visible');
-    document.getElementById('btn-save')?.click();
+    saveBoardToFile();
   });
-  menuOptExportPng?.addEventListener('click', () => {
+  menuOptExportHires?.addEventListener('click', () => {
     boardOptionsMenu?.classList.remove('visible');
-    document.getElementById('btn-export-png')?.click();
+    openExportModal();
   });
   menuOptResetZoom?.addEventListener('click', () => {
     boardOptionsMenu?.classList.remove('visible');
@@ -2191,7 +2609,13 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   menuOptClear?.addEventListener('click', () => {
     boardOptionsMenu?.classList.remove('visible');
-    document.getElementById('btn-new')?.click();
+    if (confirm('¿Limpiar todo el contenido del tablero actual?')) {
+      engine.saveSnapshot();
+      engine.items = [];
+      engine.selectedItemIds.clear();
+      engine.fitView();
+      autoSaveBoardImmediately();
+    }
   });
 
   // Cierre de menús flotantes al hacer clic fuera

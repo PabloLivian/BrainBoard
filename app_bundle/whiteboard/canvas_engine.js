@@ -36,6 +36,11 @@ class CanvasEngine {
     this.marqueeBox = null;
     this.currentDrawing = null;
     this.activeConnector = null;
+    this.isConnectingFromPort = false;
+    this.connectorStartItem = null;
+    this.connectorStartPort = null;
+    this.hoveredSnapPort = null;
+    this.hoveredConnectorPort = null;
 
     // Smart Guides magnéticas (Alineación estilo Miro)
     this.smartGuidesEnabled = true;
@@ -431,6 +436,69 @@ class CanvasEngine {
     ];
   }
 
+  // Obtener los 4 puertos de conexión en los puntos medios de los lados estilo Miro
+  getConnectorPorts(it) {
+    if (!it || it.type === 'pen' || it.type === 'connector') return [];
+    const x = it.x;
+    const y = it.y;
+    const w = it.width || 50;
+    const h = it.height || 50;
+
+    return [
+      { name: 'top',    x: x + w / 2, y: y,         position: { x: 0.5, y: 0.0 } },
+      { name: 'right',  x: x + w,     y: y + h / 2, position: { x: 1.0, y: 0.5 } },
+      { name: 'bottom', x: x + w / 2, y: y + h,     position: { x: 0.5, y: 1.0 } },
+      { name: 'left',   x: x,         y: y + h / 2, position: { x: 0.0, y: 0.5 } }
+    ];
+  }
+
+  // Detectar si el clic ocurre en alguno de los 4 puertos circulares de conexión
+  getConnectorPortAt(wx, wy) {
+    if (this.selectedItemIds.size !== 1) return null;
+    const hitRadiusWorld = Math.max(9, 14 / this.camera.zoom);
+
+    for (const it of this.items) {
+      if (this.selectedItemIds.has(it.id)) {
+        const ports = this.getConnectorPorts(it);
+        for (const p of ports) {
+          const dist = Math.hypot(wx - p.x, wy - p.y);
+          if (dist <= hitRadiusWorld) {
+            return { item: it, port: p };
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  // Encontrar el puerto objetivo magnético más cercano en otra caja durante el arrastre de una flecha
+  findTargetSnapPort(wx, wy, excludeItemId) {
+    const tolerance = Math.max(16, 24 / this.camera.zoom);
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      const it = this.items[i];
+      if (it.id === excludeItemId || it.type === 'pen' || it.type === 'connector' || it.type === 'frame') continue;
+      const w = it.width || 50;
+      const h = it.height || 50;
+      if (wx >= it.x - tolerance && wx <= it.x + w + tolerance &&
+          wy >= it.y - tolerance && wy <= it.y + h + tolerance) {
+        const ports = this.getConnectorPorts(it);
+        let closest = null;
+        let minDist = Infinity;
+        ports.forEach(p => {
+          const d = Math.hypot(wx - p.x, wy - p.y);
+          if (d < minDist) {
+            minDist = d;
+            closest = p;
+          }
+        });
+        if (closest) {
+          return { item: it, port: closest };
+        }
+      }
+    }
+    return null;
+  }
+
   isPointInsideItem(wx, wy, it) {
     if (!it) return false;
     const w = it.width || 100;
@@ -438,22 +506,74 @@ class CanvasEngine {
     return wx >= it.x && wx <= it.x + w && wy >= it.y && wy <= it.y + h;
   }
 
+  // Detectar controladores de redimensionamiento: 4 esquinas prioritarias y 4 ejes/bordes
   getResizeHandleAt(wx, wy) {
     if (this.selectedItemIds.size !== 1) return null;
-    const hitRadiusWorld = Math.max(8, 12 / this.camera.zoom);
+    const cornerHitRadius = Math.max(8, 12 / this.camera.zoom);
+    const edgeHitRadius = Math.max(6, 9 / this.camera.zoom);
 
     for (const it of this.items) {
       if (this.selectedItemIds.has(it.id)) {
-        const handles = this.getResizeHandles(it);
-        for (const h of handles) {
-          const dist = Math.hypot(wx - h.x, wy - h.y);
-          if (dist <= hitRadiusWorld) {
-            return { item: it, handle: h.name, cursor: h.cursor };
+        if (it.type === 'pen' || it.type === 'connector') continue;
+        const x = it.x;
+        const y = it.y;
+        const w = it.width || 50;
+        const h = it.height || 50;
+
+        // 1. Prioridad: Comprobar las 4 esquinas primero para agrandar / empequeñecer
+        const corners = [
+          { name: 'nw', x: x, y: y, cursor: 'nwse-resize' },
+          { name: 'ne', x: x + w, y: y, cursor: 'nesw-resize' },
+          { name: 'se', x: x + w, y: y + h, cursor: 'nwse-resize' },
+          { name: 'sw', x: x, y: y + h, cursor: 'nesw-resize' }
+        ];
+        for (const c of corners) {
+          if (Math.hypot(wx - c.x, wy - c.y) <= cornerHitRadius) {
+            return { item: it, handle: c.name, cursor: c.cursor };
           }
+        }
+
+        // 2. Comprobar los 4 ejes / bordes del recuadro para agrandar y empequeñecer tirando de ellos
+        // Borde superior (Norte)
+        if (Math.abs(wy - y) <= edgeHitRadius && wx >= x - edgeHitRadius && wx <= x + w + edgeHitRadius) {
+          return { item: it, handle: 'n', cursor: 'ns-resize' };
+        }
+        // Borde inferior (Sur)
+        if (Math.abs(wy - (y + h)) <= edgeHitRadius && wx >= x - edgeHitRadius && wx <= x + w + edgeHitRadius) {
+          return { item: it, handle: 's', cursor: 'ns-resize' };
+        }
+        // Borde izquierdo (Oeste)
+        if (Math.abs(wx - x) <= edgeHitRadius && wy >= y - edgeHitRadius && wy <= y + h + edgeHitRadius) {
+          return { item: it, handle: 'w', cursor: 'ew-resize' };
+        }
+        // Borde derecho (Este)
+        if (Math.abs(wx - (x + w)) <= edgeHitRadius && wy >= y - edgeHitRadius && wy <= y + h + edgeHitRadius) {
+          return { item: it, handle: 'e', cursor: 'ew-resize' };
         }
       }
     }
     return null;
+  }
+
+  // Actualizar automáticamente los extremos de las flechas/conectores unidos a un elemento que se mueve o redimensiona
+  updateConnectedLinesForItem(movedItem) {
+    if (!movedItem) return;
+    this.items.forEach(it => {
+      if (it.type === 'connector') {
+        if (it.start?.item === movedItem.id) {
+          const posX = it.start.position?.x ?? 0.5;
+          const posY = it.start.position?.y ?? 0.5;
+          it.start.x = movedItem.x + (movedItem.width || 0) * posX;
+          it.start.y = movedItem.y + (movedItem.height || 0) * posY;
+        }
+        if (it.end?.item === movedItem.id) {
+          const posX = it.end.position?.x ?? 0.5;
+          const posY = it.end.position?.y ?? 0.5;
+          it.end.x = movedItem.x + (movedItem.width || 0) * posX;
+          it.end.y = movedItem.y + (movedItem.height || 0) * posY;
+        }
+      }
+    });
   }
 
   isItemInsideFrame(child, frame) {
@@ -790,7 +910,36 @@ class CanvasEngine {
     const world = this.screenToWorld(e.clientX, e.clientY);
 
     if (this.activeTool === 'select') {
-      // 1. Comprobar si se ha pulsado en un controlador de redimensionamiento (Resize Handle)
+      // 1. Comprobar primero si se ha pulsado en un controlador circular de conexión (Miro Connector Port)
+      const portHit = this.getConnectorPortAt(world.x, world.y);
+      if (portHit) {
+        this.saveSnapshot();
+        this.isConnectingFromPort = true;
+        this.connectorStartItem = portHit.item;
+        this.connectorStartPort = portHit.port;
+        this.activeConnector = {
+          id: Date.now().toString(),
+          type: 'connector',
+          start: {
+            x: portHit.port.x,
+            y: portHit.port.y,
+            item: portHit.item.id,
+            snapTo: portHit.port.name,
+            position: portHit.port.position
+          },
+          end: {
+            x: world.x,
+            y: world.y
+          },
+          color: '#333333',
+          strokeWidth: 2
+        };
+        this.items.push(this.activeConnector);
+        this.render();
+        return;
+      }
+
+      // 2. Comprobar si se ha pulsado en un controlador de redimensionamiento (esquinas o ejes)
       const handleHit = this.getResizeHandleAt(world.x, world.y);
       if (handleHit) {
         this.saveSnapshot();
@@ -1063,7 +1212,24 @@ class CanvasEngine {
 
     const world = this.screenToWorld(e.clientX, e.clientY);
 
-    // 1. Redimensionamiento interactivo de elementos
+    // 0. Arrastre de conector/flecha desde un puerto circular (Miro Connector Drag)
+    if (this.isConnectingFromPort && this.activeConnector) {
+      this.canvas.style.cursor = 'crosshair';
+      const snapTarget = this.findTargetSnapPort(world.x, world.y, this.connectorStartItem?.id);
+      if (snapTarget) {
+        this.activeConnector.end.x = snapTarget.port.x;
+        this.activeConnector.end.y = snapTarget.port.y;
+        this.hoveredSnapPort = snapTarget;
+      } else {
+        this.activeConnector.end.x = world.x;
+        this.activeConnector.end.y = world.y;
+        this.hoveredSnapPort = null;
+      }
+      this.render();
+      return;
+    }
+
+    // 1. Redimensionamiento interactivo de elementos (esquinas o ejes)
     if (this.isResizing && this.resizeTargetItem) {
       const it = this.resizeTargetItem;
       const init = this.resizeInitialBounds;
@@ -1111,6 +1277,9 @@ class CanvasEngine {
       it.y = newY;
       it.width = Math.round(newW);
       it.height = Math.round(newH);
+
+      // Actualizar extremos de flechas vinculadas al elemento redimensionado
+      this.updateConnectedLinesForItem(it);
 
       this.render();
       if (this.onCameraChange) this.onCameraChange();
@@ -1171,6 +1340,8 @@ class CanvasEngine {
           } else {
             it.x += moveDx;
             it.y += moveDy;
+            // Actualizar flechas conectadas
+            this.updateConnectedLinesForItem(it);
           }
         }
       });
@@ -1180,8 +1351,20 @@ class CanvasEngine {
       return;
     }
 
-    // 3. Hover sobre handles de redimensionamiento cuando se usa la herramienta select
-    if (!this.isDraggingItem && !this.isPanning && !this.isSelectingMarquee && this.activeTool === 'select') {
+    // 3. Hover sobre puertos de conexión y handles de redimensionamiento cuando se usa la herramienta select
+    if (!this.isDraggingItem && !this.isPanning && !this.isSelectingMarquee && !this.isConnectingFromPort && this.activeTool === 'select') {
+      const portHit = this.getConnectorPortAt(world.x, world.y);
+      if (portHit) {
+        this.canvas.style.cursor = 'crosshair';
+        this.hoveredConnectorPort = portHit;
+        this.render();
+        return;
+      }
+      if (this.hoveredConnectorPort) {
+        this.hoveredConnectorPort = null;
+        this.render();
+      }
+
       const handleHit = this.getResizeHandleAt(world.x, world.y);
       if (handleHit) {
         this.canvas.style.cursor = handleHit.cursor;
@@ -1240,6 +1423,26 @@ class CanvasEngine {
   }
 
   onPointerUp(e) {
+    if (this.isConnectingFromPort && this.activeConnector) {
+      if (this.hoveredSnapPort) {
+        this.activeConnector.end = {
+          x: this.hoveredSnapPort.port.x,
+          y: this.hoveredSnapPort.port.y,
+          item: this.hoveredSnapPort.item.id,
+          snapTo: this.hoveredSnapPort.port.name,
+          position: this.hoveredSnapPort.port.position
+        };
+      }
+      this.isConnectingFromPort = false;
+      this.activeConnector = null;
+      this.hoveredSnapPort = null;
+      this.connectorStartItem = null;
+      this.connectorStartPort = null;
+      if (this.onBoardModified) this.onBoardModified();
+      this.render();
+      return;
+    }
+
     if (this.isPanning) {
       this.isPanning = false;
       this.canvas.style.cursor = this.activeTool === 'hand' ? 'grab' : 'default';
@@ -1954,12 +2157,33 @@ class CanvasEngine {
 
   drawConnector(it) {
     if (!it.start || !it.end) return;
+
+    // Alinear dinámicamente con los elementos conectados si existen
+    if (it.start?.item) {
+      const startItem = this.items.find(x => x.id === it.start.item);
+      if (startItem) {
+        const posX = it.start.position?.x ?? 0.5;
+        const posY = it.start.position?.y ?? 0.5;
+        it.start.x = startItem.x + (startItem.width || 0) * posX;
+        it.start.y = startItem.y + (startItem.height || 0) * posY;
+      }
+    }
+    if (it.end?.item) {
+      const endItem = this.items.find(x => x.id === it.end.item);
+      if (endItem) {
+        const posX = it.end.position?.x ?? 0.5;
+        const posY = it.end.position?.y ?? 0.5;
+        it.end.x = endItem.x + (endItem.width || 0) * posX;
+        it.end.y = endItem.y + (endItem.height || 0) * posY;
+      }
+    }
+
     if (typeof it.start.x !== 'number' || typeof it.start.y !== 'number') return;
     if (typeof it.end.x !== 'number' || typeof it.end.y !== 'number') return;
     if (isNaN(it.start.x) || isNaN(it.start.y) || isNaN(it.end.x) || isNaN(it.end.y)) return;
 
     this.ctx.save();
-    this.ctx.strokeStyle = it.color || '#1a1a1a';
+    this.ctx.strokeStyle = it.color || '#333333';
     this.ctx.lineWidth = it.strokeWidth || 2;
     this.ctx.beginPath();
     this.ctx.moveTo(it.start.x, it.start.y);
@@ -1969,7 +2193,7 @@ class CanvasEngine {
     // Flecha en el final
     const angle = Math.atan2(it.end.y - it.start.y, it.end.x - it.start.x);
     const arrowLen = 12;
-    this.ctx.fillStyle = it.color || '#1a1a1a';
+    this.ctx.fillStyle = it.color || '#333333';
     this.ctx.beginPath();
     this.ctx.moveTo(it.end.x, it.end.y);
     this.ctx.lineTo(it.end.x - arrowLen * Math.cos(angle - Math.PI / 6), it.end.y - arrowLen * Math.sin(angle - Math.PI / 6));
@@ -2117,38 +2341,96 @@ class CanvasEngine {
       const pad = 3 / z;
       this.ctx.strokeRect(it.x - pad, it.y - pad, it.width + pad * 2, it.height + pad * 2);
 
-      // Renderizado de los 8 controladores de redimensionamiento (solo si hay un único elemento seleccionado)
+      // Renderizado de los controladores (solo si hay un único elemento seleccionado)
       if (this.selectedItemIds.size === 1) {
-        const handles = this.getResizeHandles(it);
-        const cornerRadius = 4.5 / z;
+        const x = it.x;
+        const y = it.y;
+        const w = it.width;
+        const h = it.height;
+        const cornerRadius = 5 / z;
         const pillHalfW = 6 / z;
-        const pillHalfH = 2.8 / z;
+        const pillHalfH = 2.5 / z;
 
-        handles.forEach(h => {
-          this.ctx.fillStyle = '#ffffff';
-          this.ctx.strokeStyle = '#4262ff';
-          this.ctx.lineWidth = 1.5 / z;
-
-          if (h.name === 'nw' || h.name === 'ne' || h.name === 'se' || h.name === 'sw') {
-            // Esquinas: círculos blancos con borde azul estilo Miro
-            this.ctx.beginPath();
-            this.ctx.arc(h.x, h.y, cornerRadius, 0, Math.PI * 2);
-            this.ctx.fill();
-            this.ctx.stroke();
-          } else if (h.name === 'n' || h.name === 's') {
-            // Lados superior e inferior: pastillas horizontales
-            this.ctx.beginPath();
-            this.roundRect(this.ctx, h.x - pillHalfW, h.y - pillHalfH, pillHalfW * 2, pillHalfH * 2, 2 / z);
-            this.ctx.fill();
-            this.ctx.stroke();
-          } else if (h.name === 'w' || h.name === 'e') {
-            // Lados izquierdo y derecho: pastillas verticales
-            this.ctx.beginPath();
-            this.roundRect(this.ctx, h.x - pillHalfH, h.y - pillHalfW, pillHalfH * 2, pillHalfW * 2, 2 / z);
-            this.ctx.fill();
-            this.ctx.stroke();
-          }
+        // 1. Controladores de las 4 esquinas para agrandar y empequeñecer (círculos blancos con borde azul)
+        const corners = [
+          { x: x, y: y },
+          { x: x + w, y: y },
+          { x: x + w, y: y + h },
+          { x: x, y: y + h }
+        ];
+        this.ctx.fillStyle = '#ffffff';
+        this.ctx.strokeStyle = '#4262ff';
+        this.ctx.lineWidth = 1.5 / z;
+        corners.forEach(c => {
+          this.ctx.beginPath();
+          this.ctx.arc(c.x, c.y, cornerRadius, 0, Math.PI * 2);
+          this.ctx.fill();
+          this.ctx.stroke();
         });
+
+        // 2. Pastillas en los ejes de los 4 lados para redimensionar tirando de los bordes
+        // Ejes Norte y Sur (pastillas horizontales)
+        this.ctx.beginPath();
+        this.roundRect(this.ctx, x + w / 2 - pillHalfW, y - pillHalfH, pillHalfW * 2, pillHalfH * 2, 2 / z);
+        this.roundRect(this.ctx, x + w / 2 - pillHalfW, y + h - pillHalfH, pillHalfW * 2, pillHalfH * 2, 2 / z);
+        this.ctx.fill();
+        this.ctx.stroke();
+
+        // Ejes Este y Oeste (pastillas verticales)
+        this.ctx.beginPath();
+        this.roundRect(this.ctx, x - pillHalfH, y + h / 2 - pillHalfW, pillHalfH * 2, pillHalfW * 2, 2 / z);
+        this.roundRect(this.ctx, x + w - pillHalfH, y + h / 2 - pillHalfW, pillHalfH * 2, pillHalfW * 2, 2 / z);
+        this.ctx.fill();
+        this.ctx.stroke();
+
+        // 3. Controladores circulares de conexión en el medio de los 4 lados para tirar flechas (Miro Connector Ports)
+        const ports = this.getConnectorPorts(it);
+        const portRadius = 5.5 / z;
+        ports.forEach(p => {
+          const isHovered = this.hoveredConnectorPort && this.hoveredConnectorPort.port.name === p.name;
+          const r = isHovered ? 7.5 / z : portRadius;
+
+          // Halo brillante en hover
+          if (isHovered) {
+            this.ctx.beginPath();
+            this.ctx.arc(p.x, p.y, r + 3.5 / z, 0, Math.PI * 2);
+            this.ctx.fillStyle = 'rgba(66, 98, 255, 0.25)';
+            this.ctx.fill();
+          }
+
+          // Círculo azul exterior
+          this.ctx.beginPath();
+          this.ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+          this.ctx.fillStyle = '#4262ff';
+          this.ctx.fill();
+          this.ctx.strokeStyle = '#ffffff';
+          this.ctx.lineWidth = 1.5 / z;
+          this.ctx.stroke();
+
+          // Punto blanco central
+          this.ctx.beginPath();
+          this.ctx.arc(p.x, p.y, 2.2 / z, 0, Math.PI * 2);
+          this.ctx.fillStyle = '#ffffff';
+          this.ctx.fill();
+        });
+      }
+
+      // 4. Realce visual en el puerto objetivo cuando se está arrastrando una flecha
+      if (this.isConnectingFromPort && this.hoveredSnapPort) {
+        const sp = this.hoveredSnapPort.port;
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.arc(sp.x, sp.y, 10 / z, 0, Math.PI * 2);
+        this.ctx.fillStyle = 'rgba(66, 98, 255, 0.35)';
+        this.ctx.fill();
+        this.ctx.beginPath();
+        this.ctx.arc(sp.x, sp.y, 6.5 / z, 0, Math.PI * 2);
+        this.ctx.fillStyle = '#4262ff';
+        this.ctx.fill();
+        this.ctx.strokeStyle = '#ffffff';
+        this.ctx.lineWidth = 2 / z;
+        this.ctx.stroke();
+        this.ctx.restore();
       }
       this.ctx.restore();
     });

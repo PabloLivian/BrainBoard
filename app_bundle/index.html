@@ -15,6 +15,16 @@
     <!-- Lienzo principal interactivo -->
     <canvas id="viewport-canvas"></canvas>
 
+    <!-- Barra de pestañas horizontal estilo Miro Desktop -->
+    <div id="tabs-bar" class="tabs-bar">
+      <div class="tabs-scroll-area" id="tabs-scroll-area">
+        <div class="tabs-list" id="tabs-list"></div>
+      </div>
+      <button id="btn-tab-new" class="btn-tab-new" title="Abrir nuevo tablero en pestaña (+)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+    </div>
+
     <!-- Barra superior -->
     <div id="top-bar">
       <div class="top-bar-left board-controller-pill">
@@ -48,7 +58,7 @@
           </div>
           <div class="dropdown-item" id="menu-opt-save">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            <span>Guardar</span>
+            <span>Exportar JSON</span>
           </div>
           <div class="dropdown-item" id="menu-opt-export-hires">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
@@ -83,9 +93,6 @@
         <button id="btn-toggle-assets" class="btn" title="Abrir galeria de imagenes del archivo .rtb">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
           <span>Imagenes .RTB (171)</span>
-        </button>
-        <button id="btn-new" class="btn-create-board-mini" title="Nuevo tablero">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
       </div>
     </div>
@@ -299,13 +306,22 @@
       </div>
 
       <!-- Lista de tableros del espacio de trabajo -->
-      <div class="drawer-section-title">TABLEROS</div>
+      <div class="drawer-section-header">
+        <span class="drawer-section-title">TABLEROS</span>
+        <button id="btn-section-new-board" class="btn-section-add" title="Crear nuevo tablero">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
       <div class="drawer-boards-list" id="drawer-boards-list">
         <!-- Generado dinámicamente -->
       </div>
       <div class="drawer-import-item" id="btn-drawer-import" title="Importar tablero desde archivo JSON">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
         <span>Importar</span>
+      </div>
+      <div class="drawer-import-item" id="btn-drawer-backup" title="Exportar copia de seguridad de todos los tableros en formato JSON">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        <span>Hacer copia de seguridad</span>
       </div>
     </div>
 
@@ -407,6 +423,32 @@
         <div class="modal-footer">
           <button id="btn-cancel-export" class="btn">Cancelar</button>
           <button id="btn-confirm-export" class="btn btn-primary">Descargar PNG</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de confirmación para eliminar tablero -->
+    <div id="delete-board-modal" class="modal-backdrop" style="display: none;">
+      <div class="modal-dialog" style="width: 410px;">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <h3>¿Eliminar tablero?</h3>
+          </div>
+          <button id="btn-close-delete-modal" class="btn-mini-close" title="Cerrar">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc" id="delete-board-modal-msg" style="font-size: 13.5px; color: #334155; line-height: 1.5;">
+            ¿Estás seguro de que deseas eliminar este tablero? Esta acción no se puede deshacer y se perderá todo su contenido.
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-cancel-delete-board" class="btn">Cancelar</button>
+          <button id="btn-confirm-delete-board" class="btn btn-danger">Eliminar tablero</button>
         </div>
       </div>
     </div>
