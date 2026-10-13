@@ -1944,25 +1944,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
   window.autoSaveBoardImmediately = autoSaveBoardImmediately;
 
-  function autoSaveBoardImmediately(targetBoardId = currentActiveBoardId) {
+  async function autoSaveBoardImmediately(targetBoardId = currentActiveBoardId) {
+    if (!targetBoardId) return;
     clearTimeout(saveTimeout);
     if (saveStatusText) saveStatusText.innerText = 'Guardando...';
     const cleanItems = engine.getCleanItems ? engine.getCleanItems() : engine.items;
     const boardMeta = workspaceBoards.find(b => b.id === targetBoardId);
     const data = {
       id: targetBoardId,
-      name: boardTitleInput.value || boardMeta?.title || 'DEV / AI',
+      name: (boardTitleInput && currentActiveBoardId === targetBoardId ? boardTitleInput.value : boardMeta?.title) || (targetBoardId === 'dev_ai' ? 'DEV / AI' : 'Tablero'),
       updatedAt: new Date().toISOString(),
       items: cleanItems
     };
 
     // 1. Guardado en IndexedDB indexado por ID de tablero
-    idbSaveBoard(targetBoardId, data);
+    await idbSaveBoard(targetBoardId, data);
 
     // 2. Guardado secundario en LocalStorage
     try {
       localStorage.setItem(`miro_board_${targetBoardId}`, JSON.stringify(data));
-      localStorage.setItem('miro_active_board_id', targetBoardId);
+      if (currentActiveBoardId === targetBoardId) {
+        localStorage.setItem('miro_active_board_id', targetBoardId);
+      }
       if (targetBoardId === 'dev_ai') {
         localStorage.setItem('miro_local_current_board_v3', JSON.stringify(data));
       }
@@ -1975,9 +1978,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function autoSaveBoard() {
     clearTimeout(saveTimeout);
+    const boardToSave = currentActiveBoardId;
     if (saveStatusText) saveStatusText.innerText = 'Guardando...';
     saveTimeout = setTimeout(() => {
-      autoSaveBoardImmediately();
+      if (currentActiveBoardId === boardToSave) {
+        autoSaveBoardImmediately(boardToSave);
+      }
     }, 400);
   }
 
@@ -2055,7 +2061,7 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (e) {}
     }
 
-    if (savedData && Array.isArray(savedData.items) && savedData.items.length > 0) {
+    if (savedData && Array.isArray(savedData.items)) {
       sanitizeEmbedResources(savedData.items);
       engine.items = savedData.items;
       engine.items.forEach(it => {
@@ -2063,8 +2069,9 @@ document.addEventListener('DOMContentLoaded', () => {
           delete it.imgElement;
         }
       });
+      engine.clearHistory();
       const activeMeta = workspaceBoards.find(b => b.id === currentActiveBoardId);
-      boardTitleInput.value = savedData.name || activeMeta?.title || 'DEV / AI';
+      boardTitleInput.value = savedData.name || activeMeta?.title || (currentActiveBoardId === 'dev_ai' ? 'DEV / AI' : 'Tablero');
       fitBoardTitleWidth();
       engine.fitView();
       if (saveStatusText) saveStatusText.innerText = 'Guardado';
@@ -2077,16 +2084,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (res.ok) {
           const board = await res.json();
           engine.items = (board.items && Array.isArray(board.items)) ? board.items : convertMiroToBrainBoard(board);
+          engine.clearHistory();
           boardTitleInput.value = board.name || 'DEV / AI';
           fitBoardTitleWidth();
           engine.fitView();
-          autoSaveBoardImmediately('dev_ai');
+          await autoSaveBoardImmediately('dev_ai');
         }
       } catch (e) {
         console.log('Iniciando con tablero vacio');
       }
     } else {
       engine.items = [];
+      engine.clearHistory();
       engine.fitView();
     }
   }
@@ -2109,6 +2118,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const boardOptionsMenu = document.getElementById('board-options-menu');
   const menuOptRename = document.getElementById('menu-opt-rename');
   const menuOptSave = document.getElementById('menu-opt-save');
+  const menuOptBackup = document.getElementById('menu-opt-backup');
   const menuOptExportHires = document.getElementById('menu-opt-export-hires');
   const menuOptResetZoom = document.getElementById('menu-opt-reset-zoom');
   const menuOptClear = document.getElementById('menu-opt-clear');
@@ -2247,38 +2257,57 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   window.closeBoardTab = closeBoardTab;
 
-  btnTabNew?.addEventListener('click', (e) => {
+  btnTabNew?.addEventListener('click', async (e) => {
     e.stopPropagation();
-    const nb = createNewBoard();
-    if (nb && nb.id) {
-      if (!openTabs.includes(nb.id)) {
-        openTabs.push(nb.id);
-        saveOpenTabs();
-      }
-      renderTabs();
-    }
+    await createNewBoard();
   });
 
   window.switchBoard = switchBoard;
 
   async function switchBoard(targetBoardId) {
+    if (!targetBoardId) return;
     if (targetBoardId === 'recursos') {
       assetsDrawer?.classList.add('visible');
       loadAssetsThumbnails();
       return;
     }
 
-    // 1. Guardar de forma inmediata el tablero actual antes de salir de él
-    if (activeEditingItem) closeInlineEditor();
-    autoSaveBoardImmediately(currentActiveBoardId);
+    // Si ya estamos en el tablero activo y tiene contenido, no reiniciar
+    if (targetBoardId === currentActiveBoardId && engine.items.length > 0) {
+      return;
+    }
 
-    // 2. Establecer el nuevo tablero activo
+    // Cancelar cualquier temporizador pendiente de autoguardado antes de cambiar
+    clearTimeout(saveTimeout);
+
+    // 1. Guardar de forma inmediata el tablero anterior antes de salir de él
+    if (activeEditingItem) closeInlineEditor();
+    const prevBoardId = currentActiveBoardId;
+    if (prevBoardId && prevBoardId !== targetBoardId) {
+      await autoSaveBoardImmediately(prevBoardId);
+    }
+
+    // 2. LIMPIEZA INMEDIATA: Vaciar elementos, selección, conectores e historial
+    // para evitar cualquier contaminación visual o de estado cruzada
+    engine.items = [];
+    engine.selectedItemIds.clear();
+    engine.clearHistory();
+    engine.camera = { x: 0, y: 0, zoom: 1 };
+    engine.activeConnector = null;
+    engine.isConnectingFromPort = false;
+    engine.hoveredSnapPort = null;
+    engine.hoveredConnectorPort = null;
+    engine.render();
+
+    // 3. Establecer el nuevo tablero activo
     currentActiveBoardId = targetBoardId;
     localStorage.setItem('miro_active_board_id', currentActiveBoardId);
     workspaceBoards.forEach(b => b.active = (b.id === targetBoardId));
     const activeMeta = workspaceBoards.find(b => b.id === targetBoardId);
-    boardTitleInput.value = activeMeta?.title || targetBoardId;
-    fitBoardTitleWidth();
+    if (boardTitleInput) {
+      boardTitleInput.value = activeMeta?.title || (targetBoardId === 'dev_ai' ? 'DEV / AI' : 'Tablero');
+      fitBoardTitleWidth();
+    }
 
     if (!openTabs.includes(targetBoardId)) {
       openTabs.push(targetBoardId);
@@ -2287,7 +2316,7 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTabs();
     renderDrawerBoards();
 
-    // 3. Cargar el estado guardado del tablero objetivo desde IndexedDB
+    // 4. Cargar el estado guardado del tablero objetivo desde IndexedDB
     let saved = await idbLoadBoard(targetBoardId);
     if (!saved) {
       try {
@@ -2296,9 +2325,11 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (e) {}
     }
 
+    // Si el usuario cambió de tablero mientras se completaba la carga asíncrona, no sobreescribir
+    if (currentActiveBoardId !== targetBoardId) return;
+
     if (saved && Array.isArray(saved.items)) {
       sanitizeEmbedResources(saved.items);
-      engine.saveSnapshot();
       engine.items = saved.items;
       engine.items.forEach(it => {
         if (it.imgElement && typeof it.imgElement.getAttribute !== 'function') {
@@ -2306,48 +2337,58 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
       engine.selectedItemIds.clear();
-      boardTitleInput.value = saved.name || activeMeta?.title || targetBoardId;
-      fitBoardTitleWidth();
+      engine.clearHistory();
+      if (boardTitleInput) {
+        boardTitleInput.value = saved.name || activeMeta?.title || targetBoardId;
+        fitBoardTitleWidth();
+      }
       engine.fitView();
+      updateMinimap();
       if (saveStatusText) saveStatusText.innerText = 'Guardado';
       return;
     }
 
-    // 4. Si es dev_ai y no tiene datos guardados todavía, sembrar con DEV_AI.json
+    // 5. Si es dev_ai y no tiene datos guardados todavía, sembrar con DEV_AI.json
     if (targetBoardId === 'dev_ai') {
       try {
         const res = await fetch('../boards/DEV_AI.json');
         if (res.ok) {
           const board = await res.json();
-          engine.saveSnapshot();
           engine.items = (board.items && Array.isArray(board.items)) ? board.items : convertMiroToBrainBoard(board);
           engine.selectedItemIds.clear();
-          boardTitleInput.value = board.name || 'DEV / AI';
-          fitBoardTitleWidth();
+          engine.clearHistory();
+          if (boardTitleInput) {
+            boardTitleInput.value = board.name || 'DEV / AI';
+            fitBoardTitleWidth();
+          }
           engine.fitView();
-          autoSaveBoardImmediately('dev_ai');
+          updateMinimap();
+          await autoSaveBoardImmediately('dev_ai');
         }
       } catch (e) {
         engine.items = [];
+        engine.clearHistory();
         engine.fitView();
       }
       return;
     }
 
-    // 5. Para cualquier otro tablero sin contenido previo, iniciar tablero nuevo
-    engine.saveSnapshot();
+    // 6. Para cualquier otro tablero nuevo sin contenido previo, iniciar completamente limpio
     engine.items = [];
     engine.selectedItemIds.clear();
+    engine.clearHistory();
     engine.fitView();
-    autoSaveBoardImmediately(targetBoardId);
+    updateMinimap();
+    await autoSaveBoardImmediately(targetBoardId);
   }
 
   // Crear nuevo tablero en la sección de TABLEROS
-  function createNewBoard(customName) {
+  async function createNewBoard(customName) {
+    clearTimeout(saveTimeout);
     // 1. Guardar de forma inmediata el tablero actual antes de salir de él
     if (activeEditingItem) closeInlineEditor();
     if (currentActiveBoardId) {
-      autoSaveBoardImmediately(currentActiveBoardId);
+      await autoSaveBoardImmediately(currentActiveBoardId);
     }
 
     // 2. Generar nombre de tablero limpio y único
@@ -2369,7 +2410,18 @@ document.addEventListener('DOMContentLoaded', () => {
     const newBoardId = 'board_' + Date.now();
     const newBoard = { id: newBoardId, title: name, icon: '📋', active: true };
 
-    // 4. Marcar inactivos los demás y añadir a la lista del espacio de trabajo
+    // 4. LIMPIEZA ABSOLUTA DEL LIENZO: vaciar items, selección, historial y controles
+    engine.items = [];
+    engine.selectedItemIds.clear();
+    engine.clearHistory();
+    engine.camera = { x: 0, y: 0, zoom: 1 };
+    engine.activeConnector = null;
+    engine.isConnectingFromPort = false;
+    engine.hoveredSnapPort = null;
+    engine.hoveredConnectorPort = null;
+    engine.render();
+
+    // 5. Marcar inactivos los demás y añadir a la lista del espacio de trabajo
     if (Array.isArray(workspaceBoards)) {
       workspaceBoards.forEach(b => b.active = false);
       workspaceBoards.push(newBoard);
@@ -2381,30 +2433,28 @@ document.addEventListener('DOMContentLoaded', () => {
       saveOpenTabs();
     }
 
-    // 5. Establecer como activo
+    // 6. Establecer como activo
     currentActiveBoardId = newBoardId;
     localStorage.setItem('miro_active_board_id', currentActiveBoardId);
 
-    // 6. Actualizar campo de título en la barra superior
+    // 7. Actualizar campo de título en la barra superior
     if (boardTitleInput) {
       boardTitleInput.value = name;
       fitBoardTitleWidth();
     }
-
-    // 7. Limpiar lienzo para el nuevo tablero
-    engine.saveSnapshot();
-    engine.items = [];
-    engine.selectedItemIds.clear();
-    engine.fitView();
 
     // 8. Renderizar de inmediato en la sección de TABLEROS del panel y en pestañas
     renderDrawerBoards();
     renderTabs();
 
     // 9. Guardar inmediatamente el estado inicial en IndexedDB y LocalStorage
-    autoSaveBoardImmediately(newBoardId);
+    await autoSaveBoardImmediately(newBoardId);
 
-    // 10. Mantener el panel abierto y hacer scroll suave al nuevo tablero creado
+    // 10. Ajustar vista y actualizar minimapa
+    engine.fitView();
+    updateMinimap();
+
+    // 11. Mantener el panel abierto y hacer scroll suave al nuevo tablero creado
     setTimeout(() => {
       const activeEl = drawerBoardsList?.querySelector('.drawer-board-item.active');
       if (activeEl) {
@@ -2598,6 +2648,10 @@ document.addEventListener('DOMContentLoaded', () => {
   menuOptSave?.addEventListener('click', () => {
     boardOptionsMenu?.classList.remove('visible');
     saveBoardToFile();
+  });
+  menuOptBackup?.addEventListener('click', () => {
+    boardOptionsMenu?.classList.remove('visible');
+    exportAllBoardsBackup();
   });
   menuOptExportHires?.addEventListener('click', () => {
     boardOptionsMenu?.classList.remove('visible');

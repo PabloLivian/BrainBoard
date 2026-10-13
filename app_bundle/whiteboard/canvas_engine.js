@@ -112,7 +112,11 @@ class CanvasEngine {
     this.undoStack.push(snapshot);
     if (this.undoStack.length > 50) this.undoStack.shift();
     this.redoStack = [];
-    if (this.onBoardModified) this.onBoardModified();
+  }
+
+  clearHistory() {
+    this.undoStack = [];
+    this.redoStack = [];
   }
 
   undo() {
