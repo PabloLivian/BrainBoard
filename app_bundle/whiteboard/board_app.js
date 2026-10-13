@@ -66,71 +66,508 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Paleta de colores Miro
-  const paletteColors = [
+  // =========================================================================
+  // GESTIÓN DE COLORES FAVORITOS Y SELECTOR DE COLOR ESTILO PHOTOSHOP
+  // =========================================================================
+
+  const DEFAULT_FAVORITE_COLORS = [
     '#1a1a1a', '#ffffff', '#475569', '#dc2626',
     '#d97706', '#16a34a', '#2563eb', '#9333ea',
     '#fff9b0', '#d5f692', '#cbf3f9', '#ffcce1',
     '#ffd6a5', '#e1d4f9', '#2d2d2d', '#bbcbd2'
   ];
 
-  // Poblar popover de color de texto
-  if (textColorPopover) {
-    paletteColors.forEach(col => {
-      const swatch = document.createElement('div');
-      swatch.className = 'color-swatch';
-      swatch.style.backgroundColor = col;
-      swatch.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (textColorIndicator) textColorIndicator.style.backgroundColor = col;
-        textColorPopover.classList.remove('visible');
-        if (engine.selectedItemIds.size > 0) {
-          engine.saveSnapshot();
-          engine.items.forEach(it => {
-            if (engine.selectedItemIds.has(it.id)) {
-              it.textColor = col;
-              it.color = col;
-            }
-          });
-          if (activeEditingItem) {
-            activeEditingItem.textColor = col;
-            activeEditingItem.color = col;
-            inlineEditor.style.color = col;
-            inlineEditor.style.caretColor = col;
-          }
-          engine.render();
-          autoSaveBoard();
+  function getFavoriteColors() {
+    try {
+      const raw = localStorage.getItem('brainboard_favorite_colors');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
         }
+      }
+    } catch (err) {
+      console.warn('Error al leer colores favoritos:', err);
+    }
+    return [...DEFAULT_FAVORITE_COLORS];
+  }
+
+  function saveFavoriteColors(colors) {
+    try {
+      localStorage.setItem('brainboard_favorite_colors', JSON.stringify(colors));
+    } catch (err) {
+      console.warn('Error al guardar colores favoritos:', err);
+    }
+  }
+
+  function addFavoriteColor(hex) {
+    if (!hex) return;
+    const normalized = hex.trim().toLowerCase();
+    const current = getFavoriteColors();
+    const existingIndex = current.findIndex(c => c.toLowerCase() === normalized);
+    if (existingIndex !== -1) {
+      current.splice(existingIndex, 1);
+    }
+    current.push(normalized);
+    saveFavoriteColors(current);
+    renderColorPopovers();
+  }
+
+  function removeFavoriteColor(hex) {
+    if (!hex) return;
+    const normalized = hex.trim().toLowerCase();
+    let current = getFavoriteColors();
+    current = current.filter(c => c.toLowerCase() !== normalized);
+    saveFavoriteColors(current);
+    renderColorPopovers();
+  }
+
+  function applyColorToSelection(type, colorHex) {
+    if (type === 'text') {
+      if (textColorIndicator) textColorIndicator.style.backgroundColor = colorHex;
+      if (engine.selectedItemIds.size > 0) {
+        engine.saveSnapshot();
+        engine.items.forEach(it => {
+          if (engine.selectedItemIds.has(it.id)) {
+            it.textColor = colorHex;
+            it.color = colorHex;
+          }
+        });
+        if (activeEditingItem) {
+          activeEditingItem.textColor = colorHex;
+          activeEditingItem.color = colorHex;
+          inlineEditor.style.color = colorHex;
+          inlineEditor.style.caretColor = colorHex;
+        }
+        engine.render();
+        autoSaveBoard();
+      }
+    } else if (type === 'fill') {
+      if (fillColorIndicator) fillColorIndicator.style.backgroundColor = colorHex;
+      if (engine.selectedItemIds.size > 0) {
+        engine.saveSnapshot();
+        engine.items.forEach(it => {
+          if (engine.selectedItemIds.has(it.id)) {
+            if (it.type === 'sticky_note') it.color = colorHex;
+            else if (it.type === 'shape' || it.type === 'text' || it.type === 'frame') it.fillColor = colorHex;
+          }
+        });
+        engine.render();
+        autoSaveBoard();
+      }
+    }
+  }
+
+  function renderColorPopovers() {
+    const favorites = getFavoriteColors();
+
+    function populatePopover(popover, targetMode) {
+      if (!popover) return;
+      popover.innerHTML = '';
+
+      // Encabezado informativo: "Click derecho para Eliminar"
+      const header = document.createElement('div');
+      header.className = 'color-palette-header';
+      header.textContent = 'Click derecho para Eliminar';
+      popover.appendChild(header);
+
+      // Grid de colores favoritos
+      const grid = document.createElement('div');
+      grid.className = 'color-palette-grid';
+
+      favorites.forEach(col => {
+        const swatch = document.createElement('div');
+        swatch.className = 'color-swatch';
+        swatch.style.backgroundColor = col;
+        swatch.title = `${col} (Click derecho para eliminar)`;
+
+        // Clic izquierdo: seleccionar y aplicar color
+        swatch.addEventListener('click', (e) => {
+          e.stopPropagation();
+          applyColorToSelection(targetMode, col);
+          popover.classList.remove('visible');
+        });
+
+        // Clic derecho: eliminar color de favoritos
+        swatch.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          removeFavoriteColor(col);
+        });
+
+        grid.appendChild(swatch);
       });
-      textColorPopover.appendChild(swatch);
+
+      // Botón "+" para abrir el selector de color avanzado estilo Photoshop
+      const addBtn = document.createElement('div');
+      addBtn.className = 'color-swatch-add';
+      addBtn.textContent = '+';
+      addBtn.title = 'Añadir color a favoritos';
+      addBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        popover.classList.remove('visible');
+        const currentColor = targetMode === 'text'
+          ? (textColorIndicator?.style.backgroundColor || '#1a1a1a')
+          : (fillColorIndicator?.style.backgroundColor || '#fff9b0');
+        openPhotoshopColorPicker(targetMode, currentColor);
+      });
+      grid.appendChild(addBtn);
+
+      popover.appendChild(grid);
+    }
+
+    populatePopover(textColorPopover, 'text');
+    populatePopover(fillColorPopover, 'fill');
+  }
+
+  // --- Funciones de Conversión de Color HSV / RGB / HEX ---
+  function parseColorToRgb(str) {
+    if (!str) return [255, 255, 255];
+    str = String(str).trim();
+    if (str.startsWith('rgb')) {
+      const match = str.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+      if (match) {
+        return [parseInt(match[1], 10), parseInt(match[2], 10), parseInt(match[3], 10)];
+      }
+    }
+    let hex = str.replace('#', '');
+    if (hex.length === 3) {
+      hex = hex.split('').map(c => c + c).join('');
+    }
+    if (hex.length === 6) {
+      const num = parseInt(hex, 16);
+      if (!isNaN(num)) {
+        return [(num >> 16) & 255, (num >> 8) & 255, num & 255];
+      }
+    }
+    return [255, 255, 255];
+  }
+
+  function rgbToHex(r, g, b) {
+    return '#' + [r, g, b].map(x => {
+      const hex = Math.max(0, Math.min(255, Math.round(x))).toString(16);
+      return hex.length === 1 ? '0' + hex : hex;
+    }).join('');
+  }
+
+  function rgbToHsv(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const d = max - min;
+    let h = 0;
+    const s = max === 0 ? 0 : d / max;
+    const v = max;
+
+    if (max !== min) {
+      switch (max) {
+        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+        case g: h = (b - r) / d + 2; break;
+        case b: h = (r - g) / d + 4; break;
+      }
+      h *= 60;
+    }
+    return [h, s, v];
+  }
+
+  function hsvToRgb(h, s, v) {
+    const c = v * s;
+    const hp = ((h % 360) + 360) % 360 / 60;
+    const x = c * (1 - Math.abs((hp % 2) - 1));
+    let r = 0, g = 0, b = 0;
+    if (hp >= 0 && hp < 1) { r = c; g = x; b = 0; }
+    else if (hp >= 1 && hp < 2) { r = x; g = c; b = 0; }
+    else if (hp >= 2 && hp < 3) { r = 0; g = c; b = x; }
+    else if (hp >= 3 && hp < 4) { r = 0; g = x; b = c; }
+    else if (hp >= 4 && hp < 5) { r = x; g = 0; b = c; }
+    else if (hp >= 5 && hp < 6) { r = c; g = 0; b = x; }
+    const m = v - c;
+    return [
+      Math.round((r + m) * 255),
+      Math.round((g + m) * 255),
+      Math.round((b + m) * 255)
+    ];
+  }
+
+  // --- Controlador del Selector de Color estilo Photoshop (Modo Saturación) ---
+  const psColorPickerModal = document.getElementById('ps-color-picker-modal');
+  const psPickerBtnClose = document.getElementById('ps-picker-btn-close');
+  const psPicker2DContainer = document.getElementById('ps-picker-2d-container');
+  const psPickerCanvas2D = document.getElementById('ps-picker-canvas-2d');
+  const psPickerCursor2D = document.getElementById('ps-picker-cursor-2d');
+  const psPickerSliderWrapper = document.getElementById('ps-picker-slider-wrapper');
+  const psPickerCanvasSat = document.getElementById('ps-picker-canvas-sat');
+  const psPickerArrowLeft = document.getElementById('ps-picker-slider-arrow-left');
+  const psPickerArrowRight = document.getElementById('ps-picker-slider-arrow-right');
+  const psPickerPreviewNew = document.getElementById('ps-picker-preview-new');
+  const psPickerPreviewCurrent = document.getElementById('ps-picker-preview-current');
+  const psPickerHexInput = document.getElementById('ps-picker-hex-input');
+  const psPickerBtnApply = document.getElementById('ps-picker-btn-apply');
+  const psPickerBtnCancel = document.getElementById('ps-picker-btn-cancel');
+
+  const pickerState = {
+    h: 0,
+    s: 1,
+    v: 1,
+    initialHex: '#FFFFFF',
+    currentHex: '#FFFFFF',
+    mode: 'text'
+  };
+
+  function draw2DCanvas(canvas, s) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(256, 256);
+    const data = new Uint32Array(imgData.data.buffer);
+
+    const baseR = new Float32Array(256);
+    const baseG = new Float32Array(256);
+    const baseB = new Float32Array(256);
+
+    for (let x = 0; x < 256; x++) {
+      const h = (x / 256) * 360;
+      const [r, g, b] = hsvToRgb(h, s, 1.0);
+      baseR[x] = r;
+      baseG[x] = g;
+      baseB[x] = b;
+    }
+
+    for (let y = 0; y < 256; y++) {
+      const v = (255 - y) / 255;
+      const rowOffset = y * 256;
+      for (let x = 0; x < 256; x++) {
+        const r = (baseR[x] * v) | 0;
+        const g = (baseG[x] * v) | 0;
+        const b = (baseB[x] * v) | 0;
+        data[rowOffset + x] = (255 << 24) | (b << 16) | (g << 8) | r;
+      }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+  }
+
+  function drawSatSlider(canvas, h, v) {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0, 0, 0, 256);
+    const [rTop, gTop, bTop] = hsvToRgb(h, 1.0, v);
+    const [rBot, gBot, bBot] = hsvToRgb(h, 0.0, v);
+    grad.addColorStop(0, `rgb(${rTop},${gTop},${bTop})`);
+    grad.addColorStop(1, `rgb(${rBot},${gBot},${bBot})`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 22, 256);
+  }
+
+  function updatePickerUI(update2D = true, updateSat = true, updateHex = true) {
+    const [r, g, b] = hsvToRgb(pickerState.h, pickerState.s, pickerState.v);
+    const hex = rgbToHex(r, g, b).toUpperCase();
+    pickerState.currentHex = hex;
+
+    // Actualizar posición de cursor 2D
+    const curX = Math.round((pickerState.h / 360) * 256);
+    const curY = Math.round((1.0 - pickerState.v) * 256);
+    if (psPickerCursor2D) {
+      psPickerCursor2D.style.left = `${Math.max(0, Math.min(256, curX))}px`;
+      psPickerCursor2D.style.top = `${Math.max(0, Math.min(256, curY))}px`;
+    }
+
+    // Actualizar punteros de la barra de saturación
+    const arrowY = Math.round((1.0 - pickerState.s) * 256);
+    if (psPickerArrowLeft) psPickerArrowLeft.style.top = `${Math.max(0, Math.min(256, arrowY))}px`;
+    if (psPickerArrowRight) psPickerArrowRight.style.top = `${Math.max(0, Math.min(256, arrowY))}px`;
+
+    // Muestra de color nuevo
+    if (psPickerPreviewNew) psPickerPreviewNew.style.backgroundColor = hex;
+
+    // Campo de texto hexadecimal
+    if (updateHex && psPickerHexInput && document.activeElement !== psPickerHexInput) {
+      psPickerHexInput.value = hex.replace('#', '');
+    }
+
+    // Redibujar lienzos según corresponda
+    if (update2D && psPickerCanvas2D) {
+      draw2DCanvas(psPickerCanvas2D, pickerState.s);
+    }
+    if (updateSat && psPickerCanvasSat) {
+      drawSatSlider(psPickerCanvasSat, pickerState.h, pickerState.v);
+    }
+  }
+
+  // Interacción de arrastre en el lienzo 2D
+  if (psPicker2DContainer) {
+    psPicker2DContainer.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      try { psPicker2DContainer.setPointerCapture(e.pointerId); } catch (_) {}
+      function handlePointer(ev) {
+        const rect = psPicker2DContainer.getBoundingClientRect();
+        const x = Math.max(0, Math.min(255, ev.clientX - rect.left));
+        const y = Math.max(0, Math.min(255, ev.clientY - rect.top));
+        pickerState.h = (x / 256) * 360;
+        pickerState.v = 1.0 - (y / 256);
+        updatePickerUI(false, true, true);
+      }
+      handlePointer(e);
+
+      const onPointerMove = (ev) => handlePointer(ev);
+      const onPointerUp = (ev) => {
+        try { psPicker2DContainer.releasePointerCapture(ev.pointerId); } catch (_) {}
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        window.removeEventListener('pointercancel', onPointerUp);
+      };
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerUp);
     });
   }
 
-  // Poblar popover de color de relleno
-  if (fillColorPopover) {
-    paletteColors.forEach(col => {
-      const swatch = document.createElement('div');
-      swatch.className = 'color-swatch';
-      swatch.style.backgroundColor = col;
-      swatch.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (fillColorIndicator) fillColorIndicator.style.backgroundColor = col;
-        fillColorPopover.classList.remove('visible');
-        if (engine.selectedItemIds.size > 0) {
-          engine.saveSnapshot();
-          engine.items.forEach(it => {
-            if (engine.selectedItemIds.has(it.id)) {
-              if (it.type === 'sticky_note') it.color = col;
-              else if (it.type === 'shape' || it.type === 'text' || it.type === 'frame') it.fillColor = col;
-            }
-          });
-          engine.render();
-          autoSaveBoard();
-        }
-      });
-      fillColorPopover.appendChild(swatch);
+  // Interacción de arrastre en el deslizador de Saturación
+  if (psPickerSliderWrapper) {
+    psPickerSliderWrapper.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      try { psPickerSliderWrapper.setPointerCapture(e.pointerId); } catch (_) {}
+      function handlePointer(ev) {
+        const rect = psPickerSliderWrapper.getBoundingClientRect();
+        const y = Math.max(0, Math.min(255, ev.clientY - rect.top));
+        pickerState.s = Math.max(0, Math.min(1, 1.0 - (y / 256)));
+        updatePickerUI(true, false, true);
+      }
+      handlePointer(e);
+
+      const onPointerMove = (ev) => handlePointer(ev);
+      const onPointerUp = (ev) => {
+        try { psPickerSliderWrapper.releasePointerCapture(ev.pointerId); } catch (_) {}
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        window.removeEventListener('pointercancel', onPointerUp);
+      };
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+      window.addEventListener('pointercancel', onPointerUp);
     });
   }
+
+  // Entrada de texto Hexadecimal
+  psPickerHexInput?.addEventListener('input', () => {
+    let val = psPickerHexInput.value.replace(/[^0-9a-fA-F]/g, '').slice(0, 6);
+    psPickerHexInput.value = val.toUpperCase();
+    if (val.length === 6) {
+      const [r, g, b] = parseColorToRgb('#' + val);
+      const [h, s, v] = rgbToHsv(r, g, b);
+      pickerState.h = h;
+      pickerState.s = s;
+      pickerState.v = v;
+      updatePickerUI(true, true, false);
+    }
+  });
+
+  // Clic en color "Actual" para restaurar color original
+  psPickerPreviewCurrent?.addEventListener('click', () => {
+    const [r, g, b] = parseColorToRgb(pickerState.initialHex);
+    const [h, s, v] = rgbToHsv(r, g, b);
+    pickerState.h = h;
+    pickerState.s = s;
+    pickerState.v = v;
+    updatePickerUI(true, true, true);
+  });
+
+  function closePhotoshopColorPicker() {
+    if (psColorPickerModal) psColorPickerModal.style.display = 'none';
+  }
+
+  function openPhotoshopColorPicker(mode, initialColor) {
+    pickerState.mode = mode;
+    const [r, g, b] = parseColorToRgb(initialColor);
+    const [h, s, v] = rgbToHsv(r, g, b);
+    pickerState.h = h;
+    pickerState.s = s;
+    pickerState.v = v;
+    const initialHex = rgbToHex(r, g, b).toUpperCase();
+    pickerState.initialHex = initialHex;
+    pickerState.currentHex = initialHex;
+
+    if (psPickerPreviewCurrent) {
+      psPickerPreviewCurrent.style.backgroundColor = initialHex;
+      psPickerPreviewCurrent.title = `Color anterior: ${initialHex} (Click para restaurar)`;
+    }
+
+    // Resetear posición de la ventana centrada si fue movida
+    const win = document.querySelector('.ps-picker-window');
+    if (win) {
+      win.style.position = '';
+      win.style.left = '';
+      win.style.top = '';
+      win.style.margin = '';
+    }
+
+    updatePickerUI(true, true, true);
+    if (psColorPickerModal) psColorPickerModal.style.display = 'flex';
+  }
+
+  // Botón "Añadir a favoritos"
+  psPickerBtnApply?.addEventListener('click', () => {
+    const hex = pickerState.currentHex;
+    addFavoriteColor(hex);
+    applyColorToSelection(pickerState.mode, hex);
+    closePhotoshopColorPicker();
+  });
+
+  // Botón "Cancelar" y botón de cerrar "✕"
+  psPickerBtnCancel?.addEventListener('click', closePhotoshopColorPicker);
+  psPickerBtnClose?.addEventListener('click', closePhotoshopColorPicker);
+
+  // Cerrar al hacer clic en el backdrop fuera de la ventana
+  psColorPickerModal?.addEventListener('click', (e) => {
+    if (e.target === psColorPickerModal) {
+      closePhotoshopColorPicker();
+    }
+  });
+
+  // Cerrar con Escape
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && psColorPickerModal && psColorPickerModal.style.display !== 'none') {
+      closePhotoshopColorPicker();
+    }
+  });
+
+  // Soporte para arrastrar la ventana modal del selector desde su barra de título
+  const psPickerTitlebar = document.querySelector('.ps-picker-titlebar');
+  const psPickerWindow = document.querySelector('.ps-picker-window');
+  let isDraggingModal = false;
+  let modalDragOffsetX = 0, modalDragOffsetY = 0;
+
+  if (psPickerTitlebar && psPickerWindow) {
+    psPickerTitlebar.style.cursor = 'move';
+    psPickerTitlebar.addEventListener('mousedown', (e) => {
+      if (e.target.id === 'ps-picker-btn-close') return;
+      isDraggingModal = true;
+      const rect = psPickerWindow.getBoundingClientRect();
+      modalDragOffsetX = e.clientX - rect.left;
+      modalDragOffsetY = e.clientY - rect.top;
+
+      psPickerWindow.style.position = 'fixed';
+      psPickerWindow.style.left = `${rect.left}px`;
+      psPickerWindow.style.top = `${rect.top}px`;
+      psPickerWindow.style.margin = '0';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+      if (!isDraggingModal) return;
+      let newX = e.clientX - modalDragOffsetX;
+      let newY = e.clientY - modalDragOffsetY;
+      newX = Math.max(10, Math.min(window.innerWidth - psPickerWindow.offsetWidth - 10, newX));
+      newY = Math.max(10, Math.min(window.innerHeight - psPickerWindow.offsetHeight - 10, newY));
+      psPickerWindow.style.left = `${newX}px`;
+      psPickerWindow.style.top = `${newY}px`;
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDraggingModal = false;
+    });
+  }
+
+  // Inicializar popovers de color
+  renderColorPopovers();
 
   // Toggles de popovers
   btnTextColorTrigger?.addEventListener('click', (e) => {
@@ -1218,8 +1655,8 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   inlineEditor.addEventListener('blur', (e) => {
-    // Si el nuevo elemento enfocado es parte de la barra de propiedades o un popover, no cerrar
-    if (e.relatedTarget && (propertiesBar?.contains(e.relatedTarget) || textColorPopover?.contains(e.relatedTarget) || fillColorPopover?.contains(e.relatedTarget))) {
+    // Si el nuevo elemento enfocado es parte de la barra de propiedades, un popover o el modal de color, no cerrar
+    if (e.relatedTarget && (propertiesBar?.contains(e.relatedTarget) || textColorPopover?.contains(e.relatedTarget) || fillColorPopover?.contains(e.relatedTarget) || psColorPickerModal?.contains(e.relatedTarget))) {
       return;
     }
     closeInlineEditor();

@@ -46,13 +46,13 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
             <span>Renombrar tablero</span>
           </div>
-          <div class="dropdown-item" id="menu-opt-export-json">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            <span>Guardar copia JSON</span>
+          <div class="dropdown-item" id="menu-opt-save">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            <span>Guardar</span>
           </div>
-          <div class="dropdown-item" id="menu-opt-export-png">
+          <div class="dropdown-item" id="menu-opt-export-hires">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-            <span>Exportar imagen PNG</span>
+            <span>Exportar 4K</span>
           </div>
           <div class="dropdown-divider"></div>
           <div class="dropdown-item" id="menu-opt-reset-zoom">
@@ -80,14 +80,12 @@
       </div>
 
       <div class="top-bar-right">
-        <button id="btn-new" class="btn" title="Nuevo tablero en blanco">Nuevo</button>
-        <button id="btn-open" class="btn" title="Abrir tablero desde archivo JSON">Abrir</button>
-        <button id="btn-save" class="btn btn-primary" title="Descargar copia del tablero en JSON">Guardar</button>
-        <button id="btn-export-hires-trigger" class="btn" style="background:#e0e7ff;color:#3730a3;font-weight:600;" title="Exportar PNG en Alta Resolución (4K)">Exportar 4K</button>
-        <button id="btn-load-dev-ai" class="btn" title="Cargar tablero DEV / AI">Tablero DEV / AI</button>
         <button id="btn-toggle-assets" class="btn" title="Abrir galeria de imagenes del archivo .rtb">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
           <span>Imagenes .RTB (171)</span>
+        </button>
+        <button id="btn-new" class="btn-create-board-mini" title="Nuevo tablero">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
       </div>
     </div>
@@ -301,9 +299,13 @@
       </div>
 
       <!-- Lista de tableros del espacio de trabajo -->
-      <div class="drawer-section-title">TABLEROS RECIENTES</div>
+      <div class="drawer-section-title">TABLEROS</div>
       <div class="drawer-boards-list" id="drawer-boards-list">
         <!-- Generado dinámicamente -->
+      </div>
+      <div class="drawer-import-item" id="btn-drawer-import" title="Importar tablero desde archivo JSON">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <span>Importar</span>
       </div>
     </div>
 
@@ -411,6 +413,54 @@
 
     <!-- Editor in-situ para textos y notas -->
     <textarea id="inline-text-editor"></textarea>
+
+    <!-- Modal Selector de Color estilo Photoshop -->
+    <div id="ps-color-picker-modal" class="ps-picker-backdrop" style="display: none;">
+      <div class="ps-picker-window">
+        <div class="ps-picker-titlebar">
+          <span class="ps-picker-title">Selector de color (color frontal)</span>
+          <button id="ps-picker-btn-close" class="ps-picker-close-btn" title="Cerrar">✕</button>
+        </div>
+        <div class="ps-picker-body">
+          <div class="ps-picker-content-row">
+            <!-- Lienzo 2D de espectro HUE vs Brillo -->
+            <div class="ps-picker-canvas-container" id="ps-picker-2d-container">
+              <canvas id="ps-picker-canvas-2d" width="256" height="256"></canvas>
+              <div id="ps-picker-cursor-2d" class="ps-picker-cursor-circle"></div>
+            </div>
+
+            <!-- Deslizador vertical de Saturación con punteros dobles -->
+            <div class="ps-picker-slider-wrapper" id="ps-picker-slider-wrapper">
+              <div id="ps-picker-slider-arrow-left" class="ps-picker-arrow-left"></div>
+              <div class="ps-picker-slider-track">
+                <canvas id="ps-picker-canvas-sat" width="22" height="256"></canvas>
+              </div>
+              <div id="ps-picker-slider-arrow-right" class="ps-picker-arrow-right"></div>
+            </div>
+
+            <!-- Panel lateral con Muestra de Color, Hex y Acciones -->
+            <div class="ps-picker-sidebar">
+              <div class="ps-picker-preview-box">
+                <div class="ps-picker-preview-label">Nuevo</div>
+                <div id="ps-picker-preview-new" class="ps-picker-preview-swatch"></div>
+                <div id="ps-picker-preview-current" class="ps-picker-preview-swatch" title="Hacer clic para restaurar color original"></div>
+                <div class="ps-picker-preview-label">Actual</div>
+              </div>
+
+              <div class="ps-picker-input-group">
+                <label for="ps-picker-hex-input">#</label>
+                <input id="ps-picker-hex-input" type="text" maxlength="6" value="FFFFFF" spellcheck="false" />
+              </div>
+
+              <div class="ps-picker-actions">
+                <button id="ps-picker-btn-apply" class="ps-picker-btn ps-picker-btn-primary">Añadir a favoritos</button>
+                <button id="ps-picker-btn-cancel" class="ps-picker-btn ps-picker-btn-secondary">Cancelar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Input oculto para abrir JSON -->
     <input type="file" id="file-input" accept=".json" style="display: none;" />

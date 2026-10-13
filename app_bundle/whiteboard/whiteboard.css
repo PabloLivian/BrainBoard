@@ -476,15 +476,39 @@ html, body {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
-  padding: 8px;
+  padding: 8px 10px 8px 10px;
   display: none;
-  grid-template-columns: repeat(4, 24px);
+  flex-direction: column;
   gap: 6px;
+  min-width: 130px;
   z-index: 200;
+  box-sizing: border-box;
 }
 
 .color-palette-popover.visible {
+  display: flex;
+}
+
+.color-palette-header {
+  font-size: 10px;
+  font-weight: 600;
+  color: #64748b;
+  text-align: center;
+  user-select: none;
+  white-space: nowrap;
+  letter-spacing: -0.2px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.color-palette-grid {
   display: grid;
+  grid-template-columns: repeat(4, 24px);
+  gap: 6px;
+  justify-content: center;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 2px;
 }
 
 .color-palette-popover .color-swatch {
@@ -493,12 +517,316 @@ html, body {
   border-radius: 4px;
   border: 1px solid rgba(0, 0, 0, 0.15);
   cursor: pointer;
-  transition: transform 0.1s ease;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  box-sizing: border-box;
 }
 
 .color-palette-popover .color-swatch:hover {
   transform: scale(1.15);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+  z-index: 2;
+}
+
+.color-swatch-add {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1.5px dashed #94a3b8;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  line-height: 1;
+  user-select: none;
+  box-sizing: border-box;
+}
+
+.color-swatch-add:hover {
+  border-color: #6366f1;
+  color: #6366f1;
+  background: #eef2ff;
+  transform: scale(1.15);
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.25);
+  z-index: 2;
+}
+
+/* =========================================================
+   Selector de Color estilo Photoshop (Modal y Paneles)
+   ========================================================= */
+
+.ps-picker-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.12s ease;
+}
+
+.ps-picker-window {
+  background: #535353;
+  border-radius: 6px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.35);
+  width: 440px;
+  max-width: 95vw;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  user-select: none;
+}
+
+.ps-picker-titlebar {
+  background: #f0f0f0;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #d4d4d4;
+}
+
+.ps-picker-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.ps-picker-close-btn {
+  background: transparent;
+  border: none;
+  font-size: 13px;
+  color: #666666;
+  cursor: pointer;
+  border-radius: 3px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.1s, color 0.1s;
+}
+
+.ps-picker-close-btn:hover {
+  background: #e5e7eb;
+  color: #111111;
+}
+
+.ps-picker-body {
+  padding: 16px;
+  background: #535353;
+}
+
+.ps-picker-content-row {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.ps-picker-canvas-container {
+  position: relative;
+  width: 256px;
+  height: 256px;
+  border: 1px solid #202020;
+  border-radius: 2px;
+  overflow: hidden;
+  cursor: crosshair;
+  flex-shrink: 0;
+  background: #000000;
+}
+
+#ps-picker-canvas-2d {
+  width: 256px;
+  height: 256px;
+  display: block;
+}
+
+.ps-picker-cursor-circle {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1.5px solid #ffffff;
+  box-shadow: 0 0 2px 1px rgba(0, 0, 0, 0.7);
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  top: 50%;
+  left: 50%;
+}
+
+.ps-picker-slider-wrapper {
+  position: relative;
+  width: 38px;
+  height: 256px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.ps-picker-slider-track {
+  width: 22px;
+  height: 256px;
+  border: 1px solid #202020;
+  border-radius: 2px;
+  overflow: hidden;
+  background: #808080;
+}
+
+#ps-picker-canvas-sat {
+  width: 22px;
+  height: 256px;
+  display: block;
+}
+
+.ps-picker-arrow-left {
+  position: absolute;
+  left: 1px;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid #ffffff;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+  pointer-events: none;
+  transform: translateY(-50%);
+  top: 0%;
+}
+
+.ps-picker-arrow-right {
+  position: absolute;
+  right: 1px;
+  width: 0;
+  height: 0;
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-right: 7px solid #ffffff;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.6));
+  pointer-events: none;
+  transform: translateY(-50%);
+  top: 0%;
+}
+
+.ps-picker-sidebar {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 96px;
+}
+
+.ps-picker-preview-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #383838;
+  padding: 6px 4px;
+}
+
+.ps-picker-preview-label {
+  font-size: 9.5px;
+  color: #a3a3a3;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 3px 0;
+}
+
+.ps-picker-preview-swatch {
+  width: 100%;
+  height: 32px;
+  box-sizing: border-box;
+}
+
+#ps-picker-preview-new {
+  border-radius: 3px 3px 0 0;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+#ps-picker-preview-current {
+  border-radius: 0 0 3px 3px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  border-top: none;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+
+#ps-picker-preview-current:hover {
+  opacity: 0.85;
+}
+
+.ps-picker-input-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background: #383838;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  padding: 4px 6px;
+  color: #e5e5e5;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+#ps-picker-hex-input {
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 700;
+  width: 65px;
+  outline: none;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.ps-picker-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ps-picker-btn {
+  padding: 7px 10px;
+  border-radius: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background 0.12s;
+  text-align: center;
+}
+
+.ps-picker-btn-primary {
+  background: #6366f1;
+  color: #ffffff;
+}
+
+.ps-picker-btn-primary:hover {
+  background: #4f46e5;
+}
+
+.ps-picker-btn-secondary {
+  background: #3f3f46;
+  color: #d4d4d8;
+  border: 1px solid #27272a;
+}
+
+.ps-picker-btn-secondary:hover {
+  background: #27272a;
+  color: #ffffff;
 }
 
 .color-picker-group {
@@ -965,6 +1293,51 @@ html, body {
   justify-content: center;
   font-size: 12px;
   background: #e2e8f0;
+}
+
+.drawer-import-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-top: 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #475569;
+  cursor: pointer;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.drawer-import-item:hover {
+  background: #eef2ff;
+  border-color: #6366f1;
+  color: #4338ca;
+}
+
+.drawer-import-item svg {
+  color: #64748b;
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.drawer-import-item:hover svg {
+  color: #4338ca;
+}
+
+.top-bar-right .btn-create-board-mini {
+  width: 32px;
+  height: 32px;
+  border-radius: 7px;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.2);
+}
+
+.top-bar-right .btn-create-board-mini:hover {
+  box-shadow: 0 3px 6px rgba(37, 99, 235, 0.3);
+  transform: translateY(-1px);
 }
 
 /* =========================================================
