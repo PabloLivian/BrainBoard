@@ -3519,7 +3519,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Carga inicial resiliente
   async function loadInitialBoard() {
-    currentActiveBoardId = localStorage.getItem('brainboard_active_board_id') || localStorage.getItem('miro_active_board_id') || 'dev_ai';
+    currentActiveBoardId = localStorage.getItem('brainboard_active_board_id') || localStorage.getItem('miro_active_board_id') || 'ejemplo';
     workspaceBoards.forEach(b => b.active = (b.id === currentActiveBoardId));
     renderDrawerBoards();
     if (typeof renderTabs === 'function') renderTabs();
@@ -3629,7 +3629,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
     } catch (e) {}
-    return ['Creative', 'Random'];
+    return ['General'];
   }
 
   function saveCategories() {
@@ -3641,23 +3641,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let workspaceCategories = loadCategories();
   window.workspaceCategories = workspaceCategories;
 
-  const DEFAULT_BOARD_THUMBNAILS = {
-    'dev_ai': '../extracted_board/3458764518261592670.png',
-    '3d_software': '../extracted_board/3458764515599856442.png',
-    'concepts': '../extracted_board/3458764515213167678.jpg',
-    'general': '../extracted_board/3458764516713307932.png',
-    'graphics_design': '../extracted_board/3458764517476483056.png',
-    'houdini': '../extracted_board/3458764515521894164.png',
-    'impresion_3d': '../extracted_board/3458764515884288757.png',
-    'industria': '../extracted_board/3458764515589609465.png',
-    'olalla_light_slu': '../extracted_board/3458764516706154583.png',
-    'ordenador': '../extracted_board/3458764515218327607.png',
-    'recursos': '../extracted_board/3458764515541285192.jpg',
-    'space': '../extracted_board/espacio_user_nebula.jpg',
-    'espacio': '../extracted_board/espacio_user_nebula.jpg',
-    'trips': '../extracted_board/3458764516561379465.png',
-    'zbrush': '../extracted_board/3458764515626125193.jpg'
-  };
+  const DEFAULT_BOARD_THUMBNAILS = {};
   window.DEFAULT_BOARD_THUMBNAILS = DEFAULT_BOARD_THUMBNAILS;
 
   function loadWorkspaceBoards() {
@@ -3670,56 +3654,27 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {}
 
     const defaultBoards = [
-      { id: 'dev_ai', title: 'DEV / AI', icon: 'code', thumbnail: DEFAULT_BOARD_THUMBNAILS['dev_ai'], category: 'Creative', lastOpened: 'Hoy', active: false },
-      { id: 'espacio', title: 'Espacio', icon: '🚀', thumbnail: DEFAULT_BOARD_THUMBNAILS['espacio'], category: 'Ciencia & Espacio', lastOpened: 'Hoy', active: false },
-      { id: '3d_software', title: '3D SOFTWARE', icon: 'Ⓜ️', thumbnail: DEFAULT_BOARD_THUMBNAILS['3d_software'], category: 'Random', lastOpened: '19 jun', active: false },
-      { id: 'baile', title: 'Baile', icon: '💃', thumbnail: null, category: 'Random', lastOpened: '14 mar', active: false },
-      { id: 'concepts', title: 'Concepts', icon: '🎨', thumbnail: DEFAULT_BOARD_THUMBNAILS['concepts'], category: 'Random', lastOpened: '22 may', active: false },
-      { id: 'general', title: 'General', icon: '🚀', thumbnail: DEFAULT_BOARD_THUMBNAILS['general'], category: 'Random', lastOpened: '24 may', active: false },
-      { id: 'graphics_design', title: 'Graphics Design', icon: '📊', thumbnail: DEFAULT_BOARD_THUMBNAILS['graphics_design'], category: 'Random', lastOpened: '8 oct', active: false },
-      { id: 'houdini', title: 'Houdini', icon: '⚡', thumbnail: DEFAULT_BOARD_THUMBNAILS['houdini'], category: 'Random', lastOpened: '11 may', active: false },
-      { id: 'impresion_3d', title: 'Impresión 3D', icon: '🗑️', thumbnail: DEFAULT_BOARD_THUMBNAILS['impresion_3d'], category: 'Random', lastOpened: '2 oct', active: false },
-      { id: 'industria', title: 'INDUSTRIA', icon: '🪐', thumbnail: DEFAULT_BOARD_THUMBNAILS['industria'], category: 'Random', lastOpened: '15 jun', active: false },
-      { id: 'olalla_light_slu', title: 'Olalla Light SLU', icon: '💡', thumbnail: DEFAULT_BOARD_THUMBNAILS['olalla_light_slu'], category: 'Random', lastOpened: '12 abr', active: false },
-      { id: 'ordenador', title: 'Ordenador', icon: '💻', thumbnail: DEFAULT_BOARD_THUMBNAILS['ordenador'], category: 'Random', lastOpened: '25 ago', active: false },
-      { id: 'recursos', title: 'Recursos', icon: '📁', thumbnail: DEFAULT_BOARD_THUMBNAILS['recursos'], category: 'Random', lastOpened: '4 sep', active: false },
-      { id: 'space', title: 'Espacio', icon: '🌌', thumbnail: DEFAULT_BOARD_THUMBNAILS['space'], category: 'Ciencia & Espacio', lastOpened: 'Hoy', active: false },
-      { id: 'trips', title: 'TRIPS', icon: '✈️', thumbnail: DEFAULT_BOARD_THUMBNAILS['trips'], category: 'Random', lastOpened: '29 sep', active: false },
-      { id: 'zbrush', title: 'ZBRUSH', icon: '🗿', thumbnail: DEFAULT_BOARD_THUMBNAILS['zbrush'], category: 'Random', lastOpened: '22 jun', active: false }
+      { id: 'ejemplo', title: 'Ejemplo', icon: '✨', thumbnail: null, category: 'General', lastOpened: 'Hoy', active: true }
     ];
 
     if (!Array.isArray(boards) || boards.length === 0) {
       return defaultBoards;
     }
 
-    // Normalizar y migrar datos asegurando categoría, miniatura y fecha de apertura
+    // Normalizar y migrar datos asegurando categoría y fecha de apertura
     boards.forEach(b => {
-      if (b.id === 'dev_ai' || b.title?.trim().toLowerCase() === 'dev / ai') {
-        b.category = 'Creative';
-        if (!b.icon) b.icon = 'code';
-      } else if (!b.category) {
-        b.category = 'Random';
-      }
-      if (!b.thumbnail && DEFAULT_BOARD_THUMBNAILS[b.id]) {
-        b.thumbnail = DEFAULT_BOARD_THUMBNAILS[b.id];
+      if (!b.category) {
+        b.category = 'General';
       }
       if (!b.lastOpened) {
         b.lastOpened = 'Hoy';
       }
     });
 
-    // Agregar tableros de la vista general si faltaban o enriquecer los existentes
-    defaultBoards.forEach(def => {
-      const existing = boards.find(b => b.id === def.id || b.title?.trim().toLowerCase() === def.title.trim().toLowerCase());
-      if (!existing) {
-        boards.push(def);
-      } else {
-        if (!existing.id) existing.id = def.id;
-        if (!existing.category) existing.category = def.category;
-        if (!existing.icon || existing.icon === '📋') existing.icon = def.icon;
-        if (!existing.thumbnail && def.thumbnail) existing.thumbnail = def.thumbnail;
-      }
-    });
+    // Asegurar que el tablero 'ejemplo' esté disponible
+    if (!boards.find(b => b.id === 'ejemplo')) {
+      boards.unshift({ id: 'ejemplo', title: 'Ejemplo', icon: '✨', thumbnail: null, category: 'General', lastOpened: 'Hoy', active: false });
+    }
 
     return boards;
   }
@@ -3747,7 +3702,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     } catch (e) {}
-    return ['dev_ai'];
+    return ['ejemplo'];
   }
 
   let openTabs = loadOpenTabs();
@@ -3765,7 +3720,7 @@ document.addEventListener('DOMContentLoaded', () => {
     tabsList.innerHTML = '';
 
     if (!Array.isArray(openTabs) || openTabs.length === 0) {
-      openTabs = [currentActiveBoardId || 'dev_ai'];
+      openTabs = [currentActiveBoardId || 'ejemplo'];
       saveOpenTabs();
     }
 
@@ -3776,8 +3731,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     openTabs.forEach(boardId => {
       const bMeta = workspaceBoards.find(b => b.id === boardId);
-      const title = bMeta?.title || (boardId === 'dev_ai' ? 'DEV / AI' : 'Tablero');
-      const icon = bMeta?.icon || (boardId === 'dev_ai' ? '🧠' : '📋');
+      const title = bMeta?.title || (boardId === 'ejemplo' ? 'Ejemplo' : 'Tablero');
+      const icon = bMeta?.icon || (boardId === 'ejemplo' ? '✨' : '📋');
       const isActive = (boardId === currentActiveBoardId);
 
       const tabEl = document.createElement('div');

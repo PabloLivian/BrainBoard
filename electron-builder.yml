@@ -8,8 +8,9 @@ directories:
 
 files:
   - "app_bundle/**/*"
-  - "boards/**/*"
-  - "extracted_board/**/*"
+  - "!app_bundle/boards/*"
+  - "app_bundle/boards/ejemplo.json"
+  - "boards/ejemplo.json"
   - "package.json"
 
 asarUnpack:

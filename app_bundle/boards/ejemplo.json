@@ -1,0 +1,83 @@
+{
+  "name": "Ejemplo",
+  "seedVersion": 4,
+  "updatedAt": "2026-10-14T18:12:00.000Z",
+  "items": [
+    {
+      "id": "frame_welcome",
+      "type": "frame",
+      "x": -450,
+      "y": -260,
+      "width": 900,
+      "height": 550,
+      "title": "Tablero de Bienvenida",
+      "fillColor": "#f8fafc"
+    },
+    {
+      "id": "text_title",
+      "type": "text",
+      "x": -400,
+      "y": -210,
+      "width": 800,
+      "height": 48,
+      "text": "¡Bienvenido a Brain Board! 🧠✨",
+      "fontSize": 32,
+      "color": "#0f172a",
+      "textAlign": "center"
+    },
+    {
+      "id": "text_subtitle",
+      "type": "text",
+      "x": -400,
+      "y": -150,
+      "width": 800,
+      "height": 30,
+      "text": "Tu espacio de trabajo infinito: 100% local, ultrarrápido y privado.",
+      "fontSize": 16,
+      "color": "#64748b",
+      "textAlign": "center"
+    },
+    {
+      "id": "note_steps",
+      "type": "sticky_note",
+      "x": -380,
+      "y": -80,
+      "width": 230,
+      "height": 260,
+      "text": "💡 Primeros Pasos\n\n• Rueda: Zoom\n• Espacio + arrastre: Moverse\n• Doble clic: Crear texto\n• Arrastra fotos directamente\n• Tecla Supr: Borrar selección",
+      "color": "#fff9b0"
+    },
+    {
+      "id": "note_privacy",
+      "type": "sticky_note",
+      "x": -115,
+      "y": -80,
+      "width": 230,
+      "height": 260,
+      "text": "🔒 100% Privado y Local\n\n• Todos tus datos residen únicamente en tu propio disco duro.\n• Sin suscripciones ni nubes.\n• Rendimiento fluido a 60 FPS sin tirones.",
+      "color": "#dbeafe"
+    },
+    {
+      "id": "note_features",
+      "type": "sticky_note",
+      "x": 150,
+      "y": -80,
+      "width": 230,
+      "height": 260,
+      "text": "📂 Organización\n\n• Pestañas multitarea en la barra superior.\n• Panel Home para organizar tableros por categorías.\n• Exporta a imagen PNG en cualquier momento.",
+      "color": "#dcfce7"
+    },
+    {
+      "id": "text_footer",
+      "type": "text",
+      "x": -400,
+      "y": 210,
+      "width": 800,
+      "height": 30,
+      "text": "Puedes mover o borrar estas notas de prueba, o crear un tablero nuevo desde la pestaña Inicio.",
+      "fontSize": 13,
+      "color": "#94a3b8",
+      "textAlign": "center"
+    }
+  ]
+}
