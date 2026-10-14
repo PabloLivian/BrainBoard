@@ -1,7 +1,7 @@
 # 🧠 Brain Board
 
 <p align="center">
-  <img src="docs/screenshots/01_dashboard.png" alt="Brain Board Dashboard" width="95%" style="border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);" />
+  <img src="docs/screenshots/01_dashboard.png?v=2" alt="Brain Board Dashboard" width="95%" style="border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15);" />
 </p>
 
 <p align="center">
@@ -32,7 +32,7 @@ Con un motor gráfico 2D acelerado por hardware capaz de gestionar miles de elem
 Administra decenas de tableros organizados en categorías y espacios de trabajo, con búsqueda instantánea y accesos directos:
 
 <p align="center">
-  <img src="docs/screenshots/01_dashboard.png" alt="Dashboard de Brain Board" width="90%" style="border-radius: 8px;" />
+  <img src="docs/screenshots/01_dashboard.png?v=2" alt="Dashboard de Brain Board" width="90%" style="border-radius: 8px;" />
 </p>
 
 ---
