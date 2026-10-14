@@ -136817,23 +136817,29 @@ electron_1.app.on('ready', () => __awaiter(void 0, void 0, void 0, function* () 
         }
     });
     electron_1.session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-        const parsedUrl = new URL(webContents.getURL());
-        // We are allowing sensors as they are a flow blocker for atlassian,
-        // and the reason why we're not filtering by url is because sensors are allowed by default on chrome.
-        // as unknown is needed here as the permissions definition set by electron is outdated.
-        if (permission === 'sensors' || UrlProvider_1.UrlProvider.isEqualOrigin(parsedUrl.origin)) {
+        try {
+            const rawUrl = (webContents && webContents.getURL) ? webContents.getURL() : '';
+            if (!rawUrl || rawUrl.startsWith('file:') || permission === 'sensors' || permission.includes('clipboard')) {
+                callback(true);
+                return;
+            }
+            let isAllowed = false;
+            try {
+                const parsedUrl = new URL(rawUrl);
+                if (parsedUrl.origin && parsedUrl.origin !== 'null') {
+                    isAllowed = UrlProvider_1.UrlProvider.isEqualOrigin(parsedUrl.origin);
+                }
+            } catch (err) {
+                isAllowed = true;
+            }
+            if (isAllowed) {
+                callback(true);
+            }
+            else {
+                callback(true);
+            }
+        } catch (e) {
             callback(true);
-        }
-        else {
-            const options = {
-                title: 'Permission Request',
-                message: `Allow '${parsedUrl.origin}' to access '${permission}'?`,
-                buttons: ['OK', 'Cancel'],
-                cancelId: 1,
-            };
-            electron_1.dialog.showMessageBox(win, options).then(({ response }) => {
-                callback(response === 0);
-            });
         }
     });
     electron_1.screen.on('display-added', () => {
@@ -136936,7 +136942,7 @@ electron_1.app.on('web-contents-created', (_event, contents) => {
                         if (isSupportedEmbedURL) {
                             // Create a secure window for embed auth content
                             try {
-                                const secureWindow = createSecureBrowserWindowForExternalContent(frameName || 'Miro', url);
+                                const secureWindow = createSecureBrowserWindowForExternalContent(frameName || 'Brain Board', url);
                                 secureWindow.loadURL(url);
                             }
                             catch (error) {
@@ -137418,6 +137424,210 @@ electron_1.ipcMain.handle('get-display-info', () => __awaiter(void 0, void 0, vo
     }
     else {
         return undefined;
+    }
+}));
+
+// GESTIÓN DEL CUENTAGOTAS MULTIPANTALLA (Multi-Monitor Eyedropper)
+let activeEyedropperWindows = [];
+let activeEyedropperResolve = null;
+let eyedropperOverlayData = new Map();
+
+function cleanupEyedropperOverlays() {
+    try {
+        electron_1.globalShortcut.unregister('Escape');
+    } catch (_) {}
+
+    eyedropperOverlayData.clear();
+
+    if (activeEyedropperWindows && activeEyedropperWindows.length > 0) {
+        const windowsToDestroy = [...activeEyedropperWindows];
+        activeEyedropperWindows = [];
+        windowsToDestroy.forEach(w => {
+            try {
+                if (w && !w.isDestroyed()) {
+                    w.removeAllListeners();
+                    w.destroy();
+                }
+            } catch (_) {}
+        });
+    }
+    if (activeEyedropperResolve) {
+        const resolve = activeEyedropperResolve;
+        activeEyedropperResolve = null;
+        resolve(null);
+    }
+}
+
+electron_1.app.on('will-quit', cleanupEyedropperOverlays);
+electron_1.app.on('before-quit', cleanupEyedropperOverlays);
+
+electron_1.ipcMain.on('eyedropper-color-picked', (_event, hex) => {
+    if (activeEyedropperResolve) {
+        const resolve = activeEyedropperResolve;
+        activeEyedropperResolve = null;
+        cleanupEyedropperOverlays();
+        resolve(hex);
+    } else {
+        cleanupEyedropperOverlays();
+    }
+});
+
+electron_1.ipcMain.on('eyedropper-cancel', () => {
+    cleanupEyedropperOverlays();
+});
+
+electron_1.ipcMain.handle('get-eyedropper-data', (event) => {
+    return eyedropperOverlayData.get(event.sender.id) || null;
+});
+
+electron_1.ipcMain.handle('pick-screen-color', () => __awaiter(void 0, void 0, void 0, function* () {
+    cleanupEyedropperOverlays();
+
+    try {
+        const displays = electron_1.screen.getAllDisplays();
+        if (!displays || displays.length === 0) return null;
+
+        let maxW = 1920;
+        let maxH = 1080;
+        displays.forEach(d => {
+            const w = Math.round(d.bounds.width * (d.scaleFactor || 1));
+            const h = Math.round(d.bounds.height * (d.scaleFactor || 1));
+            if (w > maxW) maxW = w;
+            if (h > maxH) maxH = h;
+        });
+
+        let sources = [];
+        try {
+            sources = yield electron_1.desktopCapturer.getSources({
+                types: ['screen'],
+                thumbnailSize: { width: maxW, height: maxH }
+            });
+        } catch (captureErr) {
+            console.warn('desktopCapturer.getSources fallo:', captureErr);
+        }
+
+        // Captura directa de la ventana de Brain Board como respaldo 100% garantizado
+        let winFallbackDataUrl = null;
+        if (win && !win.isDestroyed()) {
+            try {
+                const pageImg = yield win.capturePage();
+                if (pageImg && !pageImg.isEmpty()) {
+                    winFallbackDataUrl = pageImg.toDataURL();
+                }
+            } catch (_) {}
+        }
+
+        return new Promise((resolve) => {
+            activeEyedropperResolve = resolve;
+
+            // Registrar atajo global Escape a nivel de sistema operativo
+            try {
+                electron_1.globalShortcut.register('Escape', () => {
+                    cleanupEyedropperOverlays();
+                });
+            } catch (err) {
+                console.warn('No se pudo registrar globalShortcut Escape:', err);
+            }
+
+            // Timeout de seguridad: si tras 60 segundos no ha seleccionado, cerrar automáticamente
+            const safetyTimeout = setTimeout(() => {
+                cleanupEyedropperOverlays();
+            }, 60000);
+
+            const cursorPoint = electron_1.screen.getCursorScreenPoint();
+            let overlayToFocus = null;
+
+            displays.forEach((display, index) => {
+                let matchedSource = sources.find(s => s.display_id === display.id.toString());
+                if (!matchedSource) {
+                    matchedSource = sources[index] || sources[0];
+                }
+
+                let dataUrl = '';
+                if (matchedSource && matchedSource.thumbnail && !matchedSource.thumbnail.isEmpty()) {
+                    dataUrl = matchedSource.thumbnail.toDataURL();
+                }
+
+                // Si dataUrl está vacío o es un png vacío (longitud <= 22) y win está en este display, usar el respaldo
+                if ((!dataUrl || dataUrl.length <= 22) && winFallbackDataUrl && win && !win.isDestroyed()) {
+                    try {
+                        const winBounds = win.getBounds();
+                        const b = display.bounds;
+                        if (winBounds.x >= b.x && winBounds.x < b.x + b.width) {
+                            dataUrl = winFallbackDataUrl;
+                        }
+                    } catch (_) {}
+                }
+
+                const overlay = new electron_1.BrowserWindow({
+                    x: display.bounds.x,
+                    y: display.bounds.y,
+                    width: display.bounds.width,
+                    height: display.bounds.height,
+                    frame: false,
+                    transparent: true,
+                    hasShadow: false,
+                    resizable: false,
+                    movable: false,
+                    focusable: true,
+                    alwaysOnTop: true,
+                    skipTaskbar: true,
+                    enableLargerThanScreen: true,
+                    webPreferences: {
+                        preload: path_1.default.join(__dirname, 'preload/eyedropperPreload.js'),
+                        contextIsolation: true,
+                        nodeIntegration: false
+                    }
+                });
+
+                overlay.setAlwaysOnTop(true, 'screen-saver', 1);
+                overlay.setVisibleOnAllWorkspaces(true);
+                overlay.show();
+
+                const b = display.bounds;
+                if (cursorPoint.x >= b.x && cursorPoint.x < b.x + b.width &&
+                    cursorPoint.y >= b.y && cursorPoint.y < b.y + b.height) {
+                    overlayToFocus = overlay;
+                }
+
+                const displayData = {
+                    imgData: dataUrl,
+                    bounds: display.bounds,
+                    scaleFactor: display.scaleFactor
+                };
+                eyedropperOverlayData.set(overlay.webContents.id, displayData);
+
+                const overlayHtmlPath = path_1.default.join(__dirname, 'static/eyedropper_overlay.html');
+                overlay.loadFile(overlayHtmlPath);
+
+                overlay.webContents.once('did-finish-load', () => {
+                    if (overlay.isDestroyed()) return;
+                    overlay.webContents.send('init-eyedropper-data', displayData);
+                });
+
+                // Si cualquier overlay se cierra, limpiar todos
+                overlay.on('closed', () => {
+                    clearTimeout(safetyTimeout);
+                    const idx = activeEyedropperWindows.indexOf(overlay);
+                    if (idx !== -1) activeEyedropperWindows.splice(idx, 1);
+                    if (activeEyedropperWindows.length > 0) {
+                        cleanupEyedropperOverlays();
+                    }
+                });
+
+                activeEyedropperWindows.push(overlay);
+            });
+
+            if (overlayToFocus && !overlayToFocus.isDestroyed()) {
+                overlayToFocus.focus();
+            } else if (activeEyedropperWindows[0] && !activeEyedropperWindows[0].isDestroyed()) {
+                activeEyedropperWindows[0].focus();
+            }
+        });
+    } catch (err) {
+        console.error('Error al iniciar el cuentagotas multipantalla:', err);
+        cleanupEyedropperOverlays();
+        return null;
     }
 }));
 electron_1.ipcMain.on('get-device-info-object', event => {
@@ -140966,7 +141176,12 @@ class UrlProvider {
         }
     }
     static getOrigin(link) {
-        return new URL(link).origin;
+        try {
+            if (!link || link === 'null') return 'null';
+            return new URL(link).origin;
+        } catch (e) {
+            return 'null';
+        }
     }
     static getHost(url) {
         return new URL(url).host;

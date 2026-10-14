@@ -62167,6 +62167,108 @@ const MIRO_API = {
         writeText: (text) => {
             electron_1.clipboard.writeText(text);
         },
+        readImage: () => {
+            try {
+                const img = electron_1.clipboard.readImage();
+                if (!img || img.isEmpty()) return null;
+                const size = img.getSize();
+                return {
+                    dataUrl: img.toDataURL(),
+                    width: size.width,
+                    height: size.height
+                };
+            } catch (e) {
+                return null;
+            }
+        },
+        readHTML: () => {
+            try {
+                return electron_1.clipboard.readHTML();
+            } catch (e) {
+                return '';
+            }
+        },
+        readBookmark: () => {
+            try {
+                return electron_1.clipboard.readBookmark();
+            } catch (e) {
+                return { title: '', url: '' };
+            }
+        },
+        availableFormats: () => {
+            try {
+                return electron_1.clipboard.availableFormats();
+            } catch (e) {
+                return [];
+            }
+        },
+    },
+    fetchUrlMetadata: async (url) => {
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 7000);
+            const res = await fetch(url, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                },
+                signal: controller.signal
+            });
+            clearTimeout(timeout);
+            const html = await res.text();
+
+            const ogImgMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+                               html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i) ||
+                               html.match(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
+                               html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i) ||
+                               html.match(/<meta[^>]+property=["']og:image:url["'][^>]+content=["']([^"']+)["']/i);
+
+            const ogTitleMatch = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ||
+                                 html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i) ||
+                                 html.match(/<meta[^>]+name=["']twitter:title["'][^>]+content=["']([^"']+)["']/i);
+            const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+
+            const ogDescMatch = html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ||
+                                html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i) ||
+                                html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i);
+
+            let image = ogImgMatch ? ogImgMatch[1] : '';
+            if (image && !/^https?:\/\//i.test(image)) {
+                try { image = new URL(image, url).href; } catch(e){}
+            }
+
+            let title = ogTitleMatch ? ogTitleMatch[1] : (titleMatch ? titleMatch[1] : '');
+            if (title) {
+                title = title.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+            }
+
+            let description = ogDescMatch ? ogDescMatch[1] : '';
+            if (description) {
+                description = description.replace(/&amp;/g, '&').replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').trim();
+            }
+
+            let dataUrl = '';
+            if (image) {
+                try {
+                    const imgRes = await fetch(image, {
+                        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
+                    });
+                    if (imgRes.ok) {
+                        const buffer = await imgRes.arrayBuffer();
+                        const base64 = Buffer.from(buffer).toString('base64');
+                        const mime = imgRes.headers.get('content-type') || 'image/jpeg';
+                        dataUrl = `data:${mime};base64,${base64}`;
+                    }
+                } catch(e) {}
+            }
+
+            return {
+                title: title,
+                image: dataUrl || image,
+                description: description
+            };
+        } catch (err) {
+            return null;
+        }
     },
     openExternal: (url) => {
         electron_1.ipcRenderer.send('open-external', url);
@@ -62187,7 +62289,9 @@ const MIRO_API = {
     getAppSpecs: () => electron_1.ipcRenderer.invoke('get-app-specs'),
     addVisitedWorkspaceCookie: options => electron_1.ipcRenderer.invoke('add-visited-workspace-cookie', options),
     showDialog: options => electron_1.ipcRenderer.invoke('show-dialog', options),
+    pickScreenColor: () => electron_1.ipcRenderer.invoke('pick-screen-color'),
 };
+exposeInMainWorld('brainBoard', MIRO_API);
 exposeInMainWorld('miro', MIRO_API);
 
 

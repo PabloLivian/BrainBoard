@@ -1,94 +1,81 @@
-# Arquitectura Interna de Miro Desktop (v0.11.168)
+# 🏗️ Arquitectura del Sistema - Brain Board
 
-Este documento detalla la ingeniería inversa realizada sobre la aplicación oficial de Miro para escritorio, mapeando sus componentes, puntos de entrada, seguridad y áreas de extensión.
+Este documento describe la arquitectura técnica, los componentes clave y el flujo de datos de **Brain Board**, una aplicación de pizarra infinita de alto rendimiento 100% offline y local.
 
 ---
 
 ## 1. Visión General de la Arquitectura
 
-Miro Desktop es una aplicación híbrida construida sobre **Electron**. No renderiza todo el tablero de forma nativa en Node, sino que crea un contenedor de escritorio con pestañas que carga la aplicación web de Miro dentro de etiquetas `<webview>` fuertemente aisladas.
+Brain Board está desarrollada sobre **Electron** y desacoplada en tres capas principales:
 
 ```
-                           +------------------------+
-                           |     Proceso Main       |
-                           |  (app_bundle/main.js)  |
-                           +-----------+------------+
-                                       |
-                   IPC Channels / Lifecycle / Window State
-                                       |
-                                       v
-                           +------------------------+
-                           |    Proceso Renderer    |
-                           | (app_bundle/renderer.js|
-                           |    + index.html)       |
-                           +-----------+------------+
-                                       |
-                           Gestión de Pestañas (electron-tabs)
-                                       |
-                                       v
-                     +------------------------------------+
-                     |        <webview> (Canvas Miro)     |
-                     |  - Preload: webview-preload.js     |
-                     |  - URL: https://miro.com/app/board |
-                     +------------------------------------+
++-------------------------------------------------------------------+
+|                        Electron Main Process                      |
+|                        (app_bundle/main.js)                       |
+|   - Creación de Ventana Principal (BrowserWindow)                 |
+|   - Gestión de Ciclo de Vida y Atajos Nativos                     |
+|   - Políticas de Seguridad de Red (CSP & webSecurity)             |
++---------------------------------+---------------------------------+
+                                  |
+               IPC / Preload Bridge (app_bundle/preload/preload.js)
+                                  |
+                                  v
++---------------------------------+---------------------------------+
+|                      Renderer Process (UI / DOM)                  |
+|                      (app_bundle/whiteboard/board_app.js)         |
+|   - Dashboard Home (Lista de tableros, búsqueda, categorías)     |
+|   - Sistema de Pestañas Horizontales Multitablero                 |
+|   - Portapapeles Inteligente (Imágenes, Enlaces, Widgets)        |
+|   - Gestor de Persistencia Dual (IndexedDB + JSON en Disco)       |
++---------------------------------+---------------------------------+
+                                  |
+                                  v
++---------------------------------+---------------------------------+
+|                   Motor Gráfico Canvas 2D                         |
+|                   (app_bundle/whiteboard/canvas_engine.js)        |
+|   - Renderizado acelerado a 60+ FPS                               |
+|   - Culling visual y Frustum culling                              |
+|   - Cuadrícula de puntos adaptativa multinivel                     |
+|   - Interacción espacial (Zoom infinito, Paneo, Selección)        |
++-------------------------------------------------------------------+
 ```
 
 ---
 
-## 2. Componentes y Puntos Clave
+## 2. Componentes Principales
 
 ### A. Proceso Principal (`app_bundle/main.js`)
-* **Archivo de origen:** Compilado desde `app/src/main.ts` con Webpack.
-* **Responsabilidades:**
-  * Crea la ventana principal (`BrowserWindow`) con tamaño mínimo `880x660`.
-  * Habilita `<webview>` mediante `webviewTag: true`.
-  * Gestiona argumentos CLI, protocolos personalizados (deep links `rtb://` o `miro://`).
-  * Restricciones de red: **Bloquea activamente** llamadas a `localhost` y rangos de red privada (`127.x`, `192.168.x`, `10.x`, `172.16-31.x`) en `validateUrlForSecurity`.
-  * Telemetría: Envío de métricas y errores mediante `@sentry/electron` y `@opentelemetry`.
-  * Actualizaciones automáticas: Gestionadas por `electron-updater` con configuración en `resources/app-update.yml`.
+* Configura la ventana principal con aceleración por hardware.
+* Define los permisos de seguridad y encabezados de política de contenidos (Content Security Policy) para permitir la carga segura de recursos multimedia locales y remotos.
+* Enlaza la ejecución del script de precarga seguro.
 
-### B. Shell de la Interfaz (`app_bundle/index.html` y `app_bundle/renderer.js`)
-* **`app_bundle/index.html`:** Estructura HTML mínima:
-  * `.etabs-tabgroup`: Barra superior donde residen las pestañas (`.etabs-tabs`) y el botón nueva pestaña (`.etabs-buttons`).
-  * `.etabs-views`: Contenedor donde se insertan dinámicamente las etiquetas `<webview>` de cada tablero.
-  * `#test-environment-warning`: Cartel de aviso cuando se detecta un entorno no oficial.
-* **`app_bundle/renderer.js`:**
-  * Motor de pestañas basado en `electron-tabs`.
-  * Control del ciclo de vida de cada pestaña (`active`, `inactive`, `closing`).
-  * Inyección del preload específico de cada pestaña (`webviewAttributes.preload = './preload/webview-preload.js'`).
+### B. Puente de Precarga (`app_bundle/preload/preload.js`)
+* Expone de manera aislada (`contextBridge.exposeInMainWorld`) la API de Brain Board (`window.brainBoard`).
+* **Portapapeles Nativo del Sistema:** Lectura síncrona y directa de imágenes en mapa de bits y texto mediante `electron.clipboard`.
+* **Extractor de Metadatos Web:** Módulo asíncrono para consultar metadatos Open Graph (`og:image`, `og:title`) y descargar portadas web a Base64 sin problemas de CORS.
 
-### C. Preload Scripts (Puntos de Inyección)
-1. **Preload de la Ventana Principal (`app_bundle/preload/preload.js`):**
-   * Expone a la ventana contenedora el objeto global `window.miro` (`MIRO_API`):
-     * `settings`: Acceso a configuración persistente mediante `electron-store`.
-     * `ipcOn`, `ipcOff`, `logger`: Comunicación con el proceso principal.
-     * `clipboard`, `openExternal`, `showDialog`, etc.
-   * Expone `window.process` (`platform`, `env: { NODE_ENV: 'release' }`).
+### C. Controlador de la Aplicación (`app_bundle/whiteboard/board_app.js`)
+* **Gestión del Dashboard de Inicio:** Búsqueda en tiempo real, categorización de tableros, exportación e importación en formato JSON.
+* **Barra de Pestañas Multitablero:** Permite mantener abiertos varios tableros a la vez y alternar entre ellos sin recargar la aplicación.
+* **Pipeline de Portapapeles:** Detecta inteligentemente si lo que se pega es una imagen (PNG/JPEG/DataURL), un enlace web (tarjeta widget enriquecida) o texto formateado.
 
-2. **Preload del Tablero / Canvas (`app_bundle/preload/webview-preload.js`):**
-   * Este script se ejecuta en el contexto de la página web de Miro dentro del `<webview>`.
-   * Expone:
-     * `window._rtb_app_features_`: Array de características activas (`['MIRO_LOADER', 'MIRO_VISIBILITY_CHANGED_EVENT', 'MIRO_STAT_TRIGGERED_EVENT']`).
-     * `window._rtb_app_actions_`: Acciones nativas como `getDeviceInfo()`, `getAppConfig()`, `getScreenSharingSources()`.
-   * **¡Este es el punto más potente para añadir extensiones o personalizaciones al tablero!**
-
-### D. Estilos CSS (`app_bundle/static/css/`)
-* `app.css`: Estilos globales de la aplicación de escritorio y overlays.
-* `electron-tabs.css`: Aspecto visual de las pestañas (colores, bordes, animaciones, pestañas activas/inactivas).
-* `fonts.css`: Tipografías del sistema (`Formular`, `OpenSans`, `Arial`).
+### D. Motor Gráfico 2D (`app_bundle/whiteboard/canvas_engine.js`)
+* **Canvas Infinito de Alto Rendimiento:** Transforma coordenadas de pantalla a espacio de mundo (`screenToWorld` / `worldToScreen`) gestionando escalas de zoom fluidas.
+* **Culling Visual:** Filtra y descarta elementos fuera del campo visual para garantizar 60 FPS incluso con miles de elementos en pantalla.
+* **Cuadrícula Adaptativa:** Calcula la densidad de puntos según el factor de zoom de la cámara, garantizando que el fondo punteado nunca desaparezca ni se sature.
+* **Renderizado de Elementos:**
+  * Tarjetas de enlace (`embed`) con soporte para previsualizaciones multimedia.
+  * Notas adhesivas (`sticky_note`) con autoajuste de tipografía.
+  * Bloques de código con fondo oscuro.
+  * Formas geométricas (`shape`), líneas y conectores imantados (`connector`).
+  * Trazos vectoriales a mano alzada (`pen`).
 
 ---
 
-## 3. Estrategia para Añadir y Quitar Cosas
+## 3. Arquitectura de Persistencia de Datos
 
-1. **Quitar telemetría y rastreadores (Sentry / OpenTelemetry):**
-   * Desactivar la inicialización de Sentry en `main.js`, `preload.js` y `renderer.js`.
-   * Eliminar o desactivar los reportes de rendimiento y fallos.
-2. **Personalización Visual (Temas / CSS Custom):**
-   * Editar directamente `app_bundle/static/css/electron-tabs.css` y `app.css` para cambiar la apariencia de la barra superior.
-   * Para inyectar CSS en el propio tablero de Miro: agregar una función `insertCSS` dentro de `webview-preload.js`.
-3. **Nuevas Funcionalidades o Atajos:**
-   * Registrar listeners de teclado en `webview-preload.js` o en `main.js` mediante `electron-localshortcut`.
-   * Agregar scripts personalizados que interactúen con la API del tablero de Miro.
-4. **Desbloqueo de URLs locales / servidores propios:**
-   * Modificar `validateUrlForSecurity` en `main.js` para permitir hosts locales o servidores de prueba.
+Para garantizar la máxima integridad y velocidad de acceso, Brain Board utiliza un sistema de **Persistencia Dual**:
+
+1. **IndexedDB (Caché Ultrarrápida):** Guarda inmediatamente cada acción o modificación del usuario en el almacenamiento local del navegador para una carga instantánea.
+2. **Archivos Físicos JSON (`boards/*.json`):** Al guardar un tablero, el motor escribe de inmediato el estado del tablero directamente en disco. De este modo, los tableros son archivos JSON portables, respaldables y versionables mediante Git.
+3. **Bandera de Modificación de Usuario (`userModified`):** Los tableros modificados por el usuario quedan protegidos de sobreescrituras accidentales de plantillas o semillas iniciales.

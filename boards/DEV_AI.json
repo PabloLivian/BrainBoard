@@ -1,6 +1,6 @@
 {
   "name": "DEV / AI",
-  "updatedAt": "2026-10-12T14:16:44.314Z",
+  "updatedAt": "2026-10-14T10:26:31.245Z",
   "items": [
     {
       "id": "3458764652472430280",
@@ -100,7 +100,7 @@
       "y": -245.64138663714593,
       "width": 479.4813710879323,
       "height": 257.72123695976364,
-      "src": "../extracted_board/3458764517873029833.png"
+      "src": "../extracted_board/3458764517876127438.png"
     },
     {
       "id": "3458764668424267749",
@@ -109,7 +109,7 @@
       "y": -503.36262359690875,
       "width": 479.4813710879323,
       "height": 257.72123695976364,
-      "src": "../extracted_board/3458764517873029833.png"
+      "src": "../extracted_board/3458764517876119721.png"
     },
     {
       "id": "3458764668424267044",
@@ -118,7 +118,7 @@
       "y": -761.0838605566726,
       "width": 479.4813710879323,
       "height": 257.72123695976364,
-      "src": "../extracted_board/3458764517873029833.png"
+      "src": "../extracted_board/3458764517876121678.png"
     },
     {
       "id": "3458764668424199137",
@@ -127,7 +127,7 @@
       "y": -1018.8050975164363,
       "width": 479.4813710879323,
       "height": 257.72123695976364,
-      "src": "../extracted_board/3458764517873029833.png"
+      "src": "../extracted_board/3458764517876128362.png"
     },
     {
       "id": "3458764668424141610",
@@ -136,7 +136,7 @@
       "y": -1276.5263344762002,
       "width": 479.4813710879323,
       "height": 257.72123695976364,
-      "src": "../extracted_board/3458764517873029833.png"
+      "src": "../extracted_board/3458764517876140060.png"
     },
     {
       "id": "3458764668424072552",
@@ -145,7 +145,7 @@
       "y": -1534.247571435964,
       "width": 479.4813710879323,
       "height": 257.72123695976364,
-      "src": "../extracted_board/3458764517873029833.png"
+      "src": "../extracted_board/3458764517876129265.png"
     },
     {
       "id": "3458764668424071986",
@@ -154,7 +154,7 @@
       "y": -1791.9688083957271,
       "width": 479.4813710879323,
       "height": 257.72123695976364,
-      "src": "../extracted_board/3458764517873029833.png"
+      "src": "../extracted_board/3458764517876125347.png"
     },
     {
       "id": "3458764668423991277",
@@ -163,7 +163,7 @@
       "y": -2049.690045355491,
       "width": 479.4813710879323,
       "height": 257.72123695976364,
-      "src": "../extracted_board/3458764517873029833.png"
+      "src": "../extracted_board/3458764517876138032.png"
     },
     {
       "id": "3458764668423935383",
@@ -172,7 +172,7 @@
       "y": -2307.4112823152545,
       "width": 479.4813710879323,
       "height": 257.72123695976364,
-      "src": "../extracted_board/3458764517873029833.png"
+      "src": "../extracted_board/3458764517876103906.png"
     },
     {
       "id": "3458764653754289499",
@@ -601,7 +601,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://fal.ai/models/fal-ai/flux-lora-portrait-trainer"
     },
     {
       "id": "3458764686776999191",
@@ -614,7 +615,8 @@
       "fontSize": 14,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://x.com/Yokohara_h"
     },
     {
       "id": "3458764674447903582",
@@ -627,7 +629,8 @@
       "fontSize": 14,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://x.com/wildmindai"
     },
     {
       "id": "3458764674447903370",
@@ -640,7 +643,8 @@
       "fontSize": 14,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://x.com/realrebelai"
     },
     {
       "id": "3458764674290936952",
@@ -692,7 +696,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.actionvfx.com/"
     },
     {
       "id": "3458764670964036717",
@@ -705,7 +710,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://x.com/nekodificador"
     },
     {
       "id": "3458764670310407459",
@@ -731,7 +737,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://beeble.ai/research/switchlight-3-0-is-here"
     },
     {
       "id": "3458764669437352207",
@@ -744,7 +751,8 @@
       "fontSize": 12,
       "fillColor": null,
       "color": "#ff0000",
-      "textAlign": "center"
+      "textAlign": "center",
+      "url": "https://blog.comfy.org/"
     },
     {
       "id": "3458764668971739305",
@@ -757,7 +765,8 @@
       "fontSize": 12,
       "fillColor": null,
       "color": "#000000",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.youtube.com/@comfyorg"
     },
     {
       "id": "3458764668969485785",
@@ -770,7 +779,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#000000",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.linkedin.com/search/results/all/?keywords=Eduardo%20Morales%20Garrido"
     },
     {
       "id": "3458764668684851529",
@@ -783,7 +793,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "center"
+      "textAlign": "center",
+      "url": "https://x.com/RoryFlynn_AI"
     },
     {
       "id": "3458764668683809518",
@@ -809,7 +820,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#2d2d2d",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://x.com/VoxelPlot"
     },
     {
       "id": "3458764668403816273",
@@ -835,7 +847,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://x.com/andrewpprice"
     },
     {
       "id": "3458764668366932355",
@@ -848,7 +861,8 @@
       "fontSize": 64,
       "fillColor": "#bbcbd2",
       "color": "#1a1a1a",
-      "textAlign": "center"
+      "textAlign": "center",
+      "url": "https://www.youtube.com/@stefan_ai_3d/videos"
     },
     {
       "id": "3458764653754062839",
@@ -861,7 +875,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.instagram.com/p/DSMJBdukbs0/"
     },
     {
       "id": "3458764652766591621",
@@ -926,7 +941,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://devdocs.io/"
     },
     {
       "id": "3458764652565848504",
@@ -1004,7 +1020,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "center"
+      "textAlign": "center",
+      "url": "https://www.instagram.com/p/DSFkSXEjqXz/"
     },
     {
       "id": "3458764652472334875",
@@ -1043,7 +1060,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#2d2d2d",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://quickref.me/"
     },
     {
       "id": "3458764652389366559",
@@ -1196,7 +1214,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.youtube.com/watch?v=MxDXleDkVvM"
     },
     {
       "id": "3458764686255107360",
@@ -1222,7 +1241,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.youtube.com/watch?v=MxDXleDkVvM"
     },
     {
       "id": "3458764686255107358",
@@ -1563,7 +1583,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://github.com/visualbruno/ComfyUI-Trellis2"
     },
     {
       "id": "3458764675805492041",
@@ -1589,7 +1610,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://github.com/visualbruno/ComfyUI-Trellis2"
     },
     {
       "id": "3458764675804513967",
@@ -1615,7 +1637,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://github.com/visualbruno/ComfyUI-Trellis2"
     },
     {
       "id": "3458764675676882726",
@@ -1641,7 +1664,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://github.com/visualbruno/ComfyUI-Trellis2"
     },
     {
       "id": "3458764675676814187",
@@ -1667,7 +1691,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://github.com/visualbruno/ComfyUI-Trellis2"
     },
     {
       "id": "3458764675670322785",
@@ -1713,20 +1738,6 @@
       "width": 134.99544830311348,
       "height": 195.4253479361826,
       "src": "../extracted_board/3458764518259157092.png"
-    },
-    {
-      "id": "3458764686641017872",
-      "type": "connector",
-      "start": {
-        "x": 33476.89167410665,
-        "y": 3454.858778889305
-      },
-      "end": {
-        "x": 31510.57354690492,
-        "y": 2257.092136960678
-      },
-      "color": "#333333",
-      "strokeWidth": 2
     },
     {
       "id": "3458764686637051995",
@@ -1808,20 +1819,6 @@
       "textAlign": "left"
     },
     {
-      "id": "3458764686636811799",
-      "type": "connector",
-      "start": {
-        "x": 33258.71962369842,
-        "y": 3696.10412290895
-      },
-      "end": {
-        "x": 33035.049996538844,
-        "y": 3684.2029611060775
-      },
-      "color": "#333333",
-      "strokeWidth": 2
-    },
-    {
       "id": "3458764686622877355",
       "type": "text",
       "x": 32612.71750420146,
@@ -1871,7 +1868,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.youtube.com/watch?v=267y00jaOUc&t=89s"
     },
     {
       "id": "3458764686256179673",
@@ -1906,7 +1904,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.youtube.com/watch?v=267y00jaOUc&t=89s"
     },
     {
       "id": "3458764686255872162",
@@ -1920,20 +1919,6 @@
       "fillColor": null,
       "color": "#f08304",
       "textAlign": "left"
-    },
-    {
-      "id": "3458764686255684041",
-      "type": "connector",
-      "start": {
-        "x": 31255.767972437658,
-        "y": 563.245977686345
-      },
-      "end": {
-        "x": 31355.767972437658,
-        "y": 3893.1544386616515
-      },
-      "color": "#333333",
-      "strokeWidth": 2
     },
     {
       "id": "3458764686211033272",
@@ -2069,7 +2054,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.youtube.com/watch?v=mlpAQOCoy1E"
     },
     {
       "id": "3458764685656930609",
@@ -2170,7 +2156,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://gemini.google.com/gem/25590d2b9bdc?usp=sharing"
     },
     {
       "id": "3458764686319591367",
@@ -2196,7 +2183,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.youtube.com/watch?v=267y00jaOUc&t=89s"
     },
     {
       "id": "3458764685829808155",
@@ -2236,20 +2224,6 @@
       "fillColor": null,
       "color": "#151518",
       "textAlign": "left"
-    },
-    {
-      "id": "3458764676172655341",
-      "type": "connector",
-      "start": {
-        "x": 26830.284198147565,
-        "y": 563.2459776863445
-      },
-      "end": {
-        "x": 26930.284198147565,
-        "y": 3893.1544386616515
-      },
-      "color": "#333333",
-      "strokeWidth": 2
     },
     {
       "id": "3458764676114595083",
@@ -2436,20 +2410,6 @@
       "textAlign": "left"
     },
     {
-      "id": "3458764675534820904",
-      "type": "connector",
-      "start": {
-        "x": 26830.284198147565,
-        "y": 563.2459776863445
-      },
-      "end": {
-        "x": 26930.284198147565,
-        "y": 3893.1544386616515
-      },
-      "color": "#333333",
-      "strokeWidth": 2
-    },
-    {
       "id": "3458764675370082417",
       "type": "text",
       "x": 26938.30499507616,
@@ -2600,7 +2560,8 @@
       "fontSize": 14,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://x.com/Aprilzz423/status/2109294655489868227?s=20"
     },
     {
       "id": "3458764686809278535",
@@ -2622,7 +2583,8 @@
       "fontSize": 14,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://x.com/Yokohara_h/status/2108580996761493865?s=20"
     },
     {
       "id": "3458764686809215195",
@@ -2653,7 +2615,8 @@
       "fontSize": 14,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://x.com/Yokohara_h/status/2098463556849328513?s=20"
     },
     {
       "id": "3458764672258288078",
@@ -2666,7 +2629,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.linkedin.com/posts/sunny-minj-063971b3_3dart-cgenvironment-cinema4d-ugcPost-7460719399759396864-4-Lf/"
     },
     {
       "id": "3458764672258287958",
@@ -2715,258 +2679,6 @@
       "height": 3833.2265525206844,
       "title": "",
       "fillColor": "#bbcbd2"
-    },
-    {
-      "id": "3458764674294252747",
-      "type": "connector",
-      "start": {
-        "x": 43897.92856672472,
-        "y": 4914.118152036241
-      },
-      "end": {
-        "x": 44042.51477698861,
-        "y": 5074.247073837045
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674294252732",
-      "type": "connector",
-      "start": {
-        "x": 43903.400320352965,
-        "y": 4751.722188487219
-      },
-      "end": {
-        "x": 44012.42013203323,
-        "y": 4872.771421107385
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674294252704",
-      "type": "connector",
-      "start": {
-        "x": 43903.40032035296,
-        "y": 4359.641904797597
-      },
-      "end": {
-        "x": 43987.797240706095,
-        "y": 4440.9424022231415
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674294252585",
-      "type": "connector",
-      "start": {
-        "x": 43234.248912906405,
-        "y": 5421.237723583854
-      },
-      "end": {
-        "x": 44319.35900419568,
-        "y": 5905.725684879419
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674289485797",
-      "type": "connector",
-      "start": {
-        "x": 44017.4850241158,
-        "y": 4108.74592691321
-      },
-      "end": {
-        "x": 44140.02518903168,
-        "y": 4259.093650219926
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674289485786",
-      "type": "connector",
-      "start": {
-        "x": 44014.02035051462,
-        "y": 4006.078402984697
-      },
-      "end": {
-        "x": 44116.61550449958,
-        "y": 4132.731922057185
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674289485769",
-      "type": "connector",
-      "start": {
-        "x": 43981.17391279619,
-        "y": 3632.2613225628447
-      },
-      "end": {
-        "x": 44110.643424914415,
-        "y": 3748.0948951624937
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674289485715",
-      "type": "connector",
-      "start": {
-        "x": 42724.24249397148,
-        "y": 5629.380309586477
-      },
-      "end": {
-        "x": 42846.60919591692,
-        "y": 5759.377628486379
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674289485707",
-      "type": "connector",
-      "start": {
-        "x": 42724.92529501628,
-        "y": 5388.556934812466
-      },
-      "end": {
-        "x": 42807.1078775685,
-        "y": 5462.71384059512
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674289485682",
-      "type": "connector",
-      "start": {
-        "x": 42725.17014857396,
-        "y": 4748.513836874134
-      },
-      "end": {
-        "x": 42818.80718318116,
-        "y": 4858.267448158554
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674289485646",
-      "type": "connector",
-      "start": {
-        "x": 42728.15618836654,
-        "y": 3667.752173689787
-      },
-      "end": {
-        "x": 42806.863024010825,
-        "y": 3738.31778420789
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674283015568",
-      "type": "connector",
-      "start": {
-        "x": 41250.630842815495,
-        "y": 6154.091109110176
-      },
-      "end": {
-        "x": 41316.772111633574,
-        "y": 6218.146174412032
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674283015538",
-      "type": "connector",
-      "start": {
-        "x": 41237.34781228201,
-        "y": 5530.323860056121
-      },
-      "end": {
-        "x": 41302.790902032815,
-        "y": 5603.057492567696
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674282996000",
-      "type": "connector",
-      "start": {
-        "x": 41448.66871929295,
-        "y": 5187.396625091502
-      },
-      "end": {
-        "x": 41508.208570457915,
-        "y": 5271.531699724597
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674282889194",
-      "type": "connector",
-      "start": {
-        "x": 41106.69843193017,
-        "y": 4774.403078531616
-      },
-      "end": {
-        "x": 41167.42708780283,
-        "y": 4855.42542611542
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674277140706",
-      "type": "connector",
-      "start": {
-        "x": 41436.77937345736,
-        "y": 4359.372817012132
-      },
-      "end": {
-        "x": 41480.8777042778,
-        "y": 4432.8154115654015
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764674277140540",
-      "type": "connector",
-      "start": {
-        "x": 41452.83940613404,
-        "y": 3670.190643624102
-      },
-      "end": {
-        "x": 41517.70864726313,
-        "y": 3745.179374751891
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
-    },
-    {
-      "id": "3458764673571388160",
-      "type": "connector",
-      "start": {
-        "x": 40565.76827650946,
-        "y": 1812.2593531182538
-      },
-      "end": {
-        "x": 40665.76827650946,
-        "y": 5173.997621798237
-      },
-      "color": "#333333",
-      "strokeWidth": 2
     },
     {
       "id": "3458764673441399408",
@@ -3294,20 +3006,6 @@
       "width": 213.73854569298325,
       "height": 118.4344585979834,
       "src": "../extracted_board/3458764517964622826.png"
-    },
-    {
-      "id": "3458764672835345683",
-      "type": "connector",
-      "start": {
-        "x": 40565.76827650946,
-        "y": 1812.2593531182538
-      },
-      "end": {
-        "x": 40665.76827650946,
-        "y": 5173.997621798237
-      },
-      "color": "#333333",
-      "strokeWidth": 2
     },
     {
       "id": "3458764672835345627",
@@ -3700,20 +3398,6 @@
       "textAlign": "left"
     },
     {
-      "id": "3458764671359324118",
-      "type": "connector",
-      "start": {
-        "x": 40565.76827650946,
-        "y": 1812.2593531182538
-      },
-      "end": {
-        "x": 40665.76827650946,
-        "y": 5173.997621798237
-      },
-      "color": "#333333",
-      "strokeWidth": 2
-    },
-    {
       "id": "3458764671355243875",
       "type": "text",
       "x": 42003.94522434058,
@@ -3725,20 +3409,6 @@
       "fillColor": null,
       "color": "#1a1a1a",
       "textAlign": "left"
-    },
-    {
-      "id": "3458764674289485734",
-      "type": "connector",
-      "start": {
-        "x": 42725.17014857396,
-        "y": 6238.403057389867
-      },
-      "end": {
-        "x": 42842.69550152184,
-        "y": 6346.388266053186
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
     },
     {
       "id": "3458764671355243680",
@@ -3816,7 +3486,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://huggingface.co/JunkyByte/easy_ViTPose/tree/main/onnx/wholebody"
     },
     {
       "id": "3458764671136800463",
@@ -3843,20 +3514,6 @@
       "fillColor": null,
       "color": "#1a1a1a",
       "textAlign": "left"
-    },
-    {
-      "id": "3458764674283015620",
-      "type": "connector",
-      "start": {
-        "x": 41139.743108646326,
-        "y": 6676.237449810354
-      },
-      "end": {
-        "x": 41211.72291728699,
-        "y": 6745.584614820332
-      },
-      "color": "#1a1a1a",
-      "strokeWidth": 2
     },
     {
       "id": "3458764671135281674",
@@ -4015,20 +3672,6 @@
       "textAlign": "left"
     },
     {
-      "id": "3458764670761132798",
-      "type": "connector",
-      "start": {
-        "x": 40565.76827650946,
-        "y": 1812.2593531182538
-      },
-      "end": {
-        "x": 40665.76827650946,
-        "y": 5173.997621798237
-      },
-      "color": "#333333",
-      "strokeWidth": 2
-    },
-    {
       "id": "3458764670761132784",
       "type": "text",
       "x": 40664.42025264251,
@@ -4120,7 +3763,7 @@
       "y": 1519.3999873425187,
       "width": 235,
       "height": 423,
-      "src": "../extracted_board/3458764517924066620.png"
+      "src": "../extracted_board/3458764517924066624.png"
     },
     {
       "id": "3458764631209477523",
@@ -4182,7 +3825,8 @@
       "fontSize": 36,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://github.com/comfyanonymous/ComfyUI/releases"
     },
     {
       "id": "3458764668350610202",
@@ -4204,7 +3848,7 @@
       "y": -412.3664866558306,
       "width": 385.70242400705894,
       "height": 216.95761350397066,
-      "src": "../extracted_board/3458764517875776284.png"
+      "src": "../extracted_board/3458764517885148669.png"
     },
     {
       "id": "3458764668425338574",
@@ -4213,7 +3857,7 @@
       "y": -812.8916292734523,
       "width": 479.66860785824224,
       "height": 269.8135919202613,
-      "src": "../extracted_board/3458764517875776284.png"
+      "src": "../extracted_board/3458764517876132792.png"
     },
     {
       "id": "3458764668423268471",
@@ -4222,7 +3866,7 @@
       "y": -1082.5999005104113,
       "width": 479.48137108792776,
       "height": 269.7082712369594,
-      "src": "../extracted_board/3458764517875776284.png"
+      "src": "../extracted_board/3458764517876107547.png"
     },
     {
       "id": "3458764668404644533",
@@ -4231,7 +3875,7 @@
       "y": -1352.3081717473713,
       "width": 479.48137108792895,
       "height": 269.70827123696006,
-      "src": "../extracted_board/3458764517875776284.png"
+      "src": "../extracted_board/3458764517875788513.png"
     },
     {
       "id": "3458764668403018459",
@@ -4299,20 +3943,6 @@
       "fillColor": "#2d2d2d",
       "color": "#f08304",
       "textAlign": "center"
-    },
-    {
-      "id": "3458764670613541957",
-      "type": "connector",
-      "start": {
-        "x": 24848.55686328737,
-        "y": 2208.2002081739984
-      },
-      "end": {
-        "x": 25944.697129036093,
-        "y": 2248.2002081739984
-      },
-      "color": "#333333",
-      "strokeWidth": 2
     },
     {
       "id": "3458764670613364294",
@@ -4847,7 +4477,8 @@
       "fontSize": 14,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://x.com/Ben__Springer/status/2072618834524070396"
     },
     {
       "id": "3458764674447556381",
@@ -4860,7 +4491,8 @@
       "fontSize": 48,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.youtube.com/watch?v=yQSG_4ukq9Q"
     },
     {
       "id": "3458764674447556351",
@@ -4885,7 +4517,8 @@
       "fontSize": 14,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.michaeltanzillo.com/"
     },
     {
       "id": "3458764674306258887",
@@ -4932,7 +4565,8 @@
       "fontSize": 48,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://jesse-zhou.com"
     },
     {
       "id": "3458764674304661335",
@@ -4981,7 +4615,8 @@
       "fontSize": 48,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://hashgraphvc.com/"
     },
     {
       "id": "3458764674301447893",
@@ -5006,7 +4641,8 @@
       "fontSize": 14,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://vect-standard.com/"
     },
     {
       "id": "3458764673825913561",
@@ -5040,7 +4676,8 @@
       "fontSize": 19,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://x.com/lisaknowsai/status/2045136871072690589"
     },
     {
       "id": "3458764668253576084",
@@ -5053,7 +4690,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#090909",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://lusion.co/"
     },
     {
       "id": "3458764668253335920",
@@ -5102,7 +4740,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#090909",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://iabhinav.me/"
     },
     {
       "id": "3458764668249396544",
@@ -5424,7 +5063,8 @@
       "fontSize": 36,
       "fillColor": null,
       "color": "#2d2d2d",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.jscamp.dev/introduccion-a-react/creando-una-spa-desde-cero"
     },
     {
       "id": "3458764653271430280",
@@ -5801,7 +5441,8 @@
       "fontSize": 96,
       "fillColor": "#2d2d2d",
       "color": "#ffffff",
-      "textAlign": "center"
+      "textAlign": "center",
+      "url": "https://github.com/midudev/jscamp"
     },
     {
       "id": "3458764652329676615",
@@ -6189,7 +5830,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "center"
+      "textAlign": "center",
+      "url": "https://www.instagram.com/p/DRSHAagjR3h/"
     },
     {
       "id": "3458764652478125772",
@@ -6427,7 +6069,8 @@
       "fontSize": 18,
       "fillColor": null,
       "color": "#2d2d2d",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://animejs.com/"
     },
     {
       "id": "3458764653754157484",
@@ -6453,7 +6096,8 @@
       "fontSize": 18,
       "fillColor": null,
       "color": "#2d2d2d",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://gitdocify.com/"
     },
     {
       "id": "3458764653754157354",
@@ -6479,7 +6123,8 @@
       "fontSize": 18,
       "fillColor": null,
       "color": "#2d2d2d",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.scrollxui.dev/"
     },
     {
       "id": "3458764653754062501",
@@ -6505,7 +6150,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://profile-readme-generator.com/es"
     },
     {
       "id": "3458764653754062326",
@@ -6531,7 +6177,8 @@
       "fontSize": 18,
       "fillColor": null,
       "color": "#2d2d2d",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://reactbits.dev/"
     },
     {
       "id": "3458764653754062238",
@@ -6569,7 +6216,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#090909",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.instagram.com/p/DNBCEDVCOH-/"
     },
     {
       "id": "3458764653737301872",
@@ -6594,7 +6242,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://allsvgicons.com/"
     },
     {
       "id": "3458764653046809836",
@@ -6607,7 +6256,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://npmtrends.com/"
     },
     {
       "id": "3458764653046809744",
@@ -6633,7 +6283,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://unavatar.io/"
     },
     {
       "id": "3458764653031465980",
@@ -6680,7 +6331,8 @@
       "width": 450.0000000000003,
       "height": 293.14285714285734,
       "text": "¡Brutal TRUCAZO para tus repositorios de GitHub!\nAccede a una documentación con diagramas y IA.\n\nCambia \"github\" por \"deepwiki\" en la URL y lo verás.",
-      "color": "#fff9b0"
+      "color": "#fff9b0",
+      "url": "https://deepwiki.ai"
     },
     {
       "id": "3458764652439437608",
@@ -6693,7 +6345,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://marketplace.visualstudio.com/items?itemName=usernamehw.errorlens"
     },
     {
       "id": "3458764652439437543",
@@ -6706,7 +6359,8 @@
       "fontSize": 48,
       "fillColor": null,
       "color": "#090909",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.youtube.com/@midudev"
     },
     {
       "id": "3458764652479069584",
@@ -6731,7 +6385,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://owasp.org/www-project-noir/"
     },
     {
       "id": "3458764652442749468",
@@ -6768,7 +6423,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#090909",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://sentry.io"
     },
     {
       "id": "3458764652390361242",
@@ -6781,7 +6437,8 @@
       "fontSize": 48,
       "fillColor": null,
       "color": "#090909",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.instagram.com/p/DQrk1P7DNd-/"
     },
     {
       "id": "3458764652567231430",
@@ -6807,7 +6464,8 @@
       "fontSize": 14,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.hubdev.tools/"
     },
     {
       "id": "3458764652566328625",
@@ -6842,7 +6500,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "center"
+      "textAlign": "center",
+      "url": "https://github.com/x1xhlol/system-prompts-and-models-of-ai-tools"
     },
     {
       "id": "3458764652477713396",
@@ -6894,7 +6553,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "center"
+      "textAlign": "center",
+      "url": "https://uiverse.io/"
     },
     {
       "id": "3458764652440930529",
@@ -6907,7 +6567,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://uiverse.io/"
     },
     {
       "id": "3458764652390111961",
@@ -6932,7 +6593,8 @@
       "fontSize": 48,
       "fillColor": null,
       "color": "#090909",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://www.instagram.com/p/DRNSY-RCOOa/"
     },
     {
       "id": "3458764652390020307",
@@ -6945,7 +6607,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#2d2d2d",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://github.com/lsd-rs/lsd"
     },
     {
       "id": "3458764634763345571",
@@ -7020,7 +6683,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://algorithm-visualizer.org/"
     },
     {
       "id": "3458764650252653806",
@@ -7191,7 +6855,8 @@
       "fontSize": 24,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://algorithm-visualizer.org/"
     },
     {
       "id": "3458764642300129003",
@@ -7612,20 +7277,6 @@
       "textAlign": "left"
     },
     {
-      "id": "3458764633548344745",
-      "type": "connector",
-      "start": {
-        "x": 4311.261795164448,
-        "y": 10598.771073663938
-      },
-      "end": {
-        "x": 4349.851965359532,
-        "y": 10597.955843666496
-      },
-      "color": "#333333",
-      "strokeWidth": 2
-    },
-    {
       "id": "3458764632643141055",
       "type": "text",
       "x": 3970.152498525592,
@@ -7649,7 +7300,8 @@
       "fontSize": 18,
       "fillColor": null,
       "color": "#1a1a1a",
-      "textAlign": "left"
+      "textAlign": "left",
+      "url": "https://manual.cs50.io/"
     },
     {
       "id": "3458764632639506674",
@@ -8087,20 +7739,6 @@
       "title": "React (JSX)",
       "text": "// Componente React Declarativo\nimport React, { useState } from \"react\";\n\nexport function MiComponente() {\n  const [count, setCount] = useState(0);\n  return (\n    <div className=\"card\">\n      <h3>Contador: {count}</h3>\n      <button onClick={() => setCount(count + 1)}>Incrementar</button>\n    </div>\n  );\n}",
       "language": "JSX"
-    },
-    {
-      "id": "3458764652926691861",
-      "type": "connector",
-      "start": {
-        "x": 11431.2211881789,
-        "y": 917.4124030509233
-      },
-      "end": {
-        "x": 11875.901146485274,
-        "y": 933.0333968569348
-      },
-      "color": "#2d2d2d",
-      "strokeWidth": 2
     },
     {
       "id": "3458764652925317416",
@@ -9112,5 +8750,7 @@
       "color": "#ffffff",
       "textAlign": "center"
     }
-  ]
+  ],
+  "seedVersion": 4,
+  "userModified": true
 }

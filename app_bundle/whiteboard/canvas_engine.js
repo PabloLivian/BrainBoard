@@ -1,4 +1,4 @@
-// Motor de Lienzo Infinito 2D estilo Miro
+// Motor de Lienzo Infinito 2D de Brain Board
 class CanvasEngine {
   constructor(canvasElement) {
     this.canvas = canvasElement;
@@ -20,12 +20,13 @@ class CanvasEngine {
     // Herramienta activa: 'select', 'hand', 'sticky_note', 'shape', 'text', 'pen', 'connector', 'frame'
     this.activeTool = 'select';
     this.selectedShapeType = 'rectangle';
-    this.activeColor = '#fff9b0'; // Amarillo por defecto Miro
+    this.activeColor = '#fff9b0'; // Amarillo por defecto
 
     // Estados de interaccion
     this.isPanning = false;
     this.panStart = { x: 0, y: 0 };
     this.isDraggingItem = false;
+    this.isMiddleDragDuplicate = false;
     this.dragStart = { x: 0, y: 0 };
     this.isResizing = false;
     this.activeResizeHandle = null;
@@ -33,6 +34,7 @@ class CanvasEngine {
     this.resizeInitialBounds = null;
     this.resizeStartWorld = null;
     this.isSelectingMarquee = false;
+    this.isMarqueeDeselect = false;
     this.marqueeBox = null;
     this.currentDrawing = null;
     this.activeConnector = null;
@@ -42,12 +44,15 @@ class CanvasEngine {
     this.hoveredSnapPort = null;
     this.hoveredConnectorPort = null;
 
-    // Smart Guides magnéticas (Alineación estilo Miro)
+    // Smart Guides magnéticas (Alineación inteligente)
     this.smartGuidesEnabled = true;
     this.activeGuides = [];
 
     // Minimap bounds
     this.minimapBounds = null;
+
+    // Modo Oscuro / Claro
+    this.isDarkMode = false;
 
     // Callbacks
     this.onSelectionChange = null;
@@ -61,6 +66,10 @@ class CanvasEngine {
     // ID del elemento que se esta editando in-situ (para no duplicar texto)
     this.editingItemId = null;
     this.isSpacePressed = false;
+
+    // Coordenadas del puntero del ratón en el mundo
+    this.lastPointerWorld = null;
+    this.lastPointerScreen = null;
 
     this.initCanvasSize();
     this.bindEvents();
@@ -356,6 +365,26 @@ class CanvasEngine {
     return isInsideOuter && !isInsideInner;
   }
 
+  // Comprueba si las coordenadas (wx, wy) se encuentran sobre alguno de los elementos actualmente seleccionados
+  isPointerOverSelection(wx, wy) {
+    if (this.selectedItemIds.size === 0) return false;
+
+    // 1. Elemento regular seleccionado (notas, formas, textos, embeds, imágenes, conectores)
+    const hitItem = this.getItemAt(wx, wy, true);
+    if (hitItem) {
+      if (this.selectedItemIds.has(hitItem.id)) return true;
+      if (hitItem.parentId && this.selectedItemIds.has(hitItem.parentId)) return true;
+    }
+
+    // 2. Marco contenedor seleccionado
+    const hitFrame = this.getItemAt(wx, wy, false);
+    if (hitFrame && hitFrame.type === 'frame' && this.selectedItemIds.has(hitFrame.id)) {
+      return true;
+    }
+
+    return false;
+  }
+
   // Comprueba si un elemento intersecta o está contenido dentro del recuadro de selección Marquee
   itemIntersectsBox(it, minX, minY, maxX, maxY) {
     if (!it) return false;
@@ -418,7 +447,7 @@ class CanvasEngine {
     return Math.hypot(p.x - (v.x + t * (w.x - v.x)), p.y - (v.y + t * (w.y - v.y)));
   }
 
-  // Obtener los 8 puntos de anclaje de redimensionamiento estilo Miro
+  // Obtener los 8 puntos de anclaje de redimensionamiento
   getResizeHandles(it) {
     if (!it || it.type === 'pen' || it.type === 'connector') return [];
     const x = it.x;
@@ -440,7 +469,7 @@ class CanvasEngine {
     ];
   }
 
-  // Obtener los 4 puertos de conexión en los puntos medios de los lados estilo Miro
+  // Obtener los 4 puertos de conexión en los puntos medios de los lados
   getConnectorPorts(it) {
     if (!it || it.type === 'pen' || it.type === 'connector') return [];
     const x = it.x;
@@ -599,13 +628,65 @@ class CanvasEngine {
   openExternalUrl(url) {
     if (!url) return;
     try {
-      if (window.require) {
-        const { shell } = window.require('electron');
-        shell.openExternal(url);
-        return;
+      const req = window.require || (typeof require !== 'undefined' ? require : null);
+      if (req) {
+        const { shell } = req('electron');
+        if (shell && shell.openExternal) {
+          shell.openExternal(url);
+          return;
+        }
       }
     } catch (e) {}
     window.open(url, '_blank');
+  }
+
+  setDarkMode(isDark) {
+    this.isDarkMode = Boolean(isDark);
+    this.render();
+  }
+
+  isDarkColor(color) {
+    if (!color || typeof color !== 'string') return true;
+    const c = color.trim().toLowerCase();
+    if (c === '#1a1a1a' || c === '#151518' || c === '#2d2d2d' || c === '#000000' || c === '#333333' || c === '#0f172a' || c === 'black') return true;
+    if (c.startsWith('#')) {
+      const hex = c.replace('#', '');
+      let r = 0, g = 0, b = 0;
+      if (hex.length === 3) {
+        r = parseInt(hex[0] + hex[0], 16) || 0;
+        g = parseInt(hex[1] + hex[1], 16) || 0;
+        b = parseInt(hex[2] + hex[2], 16) || 0;
+      } else if (hex.length === 6) {
+        r = parseInt(hex.substring(0, 2), 16) || 0;
+        g = parseInt(hex.substring(2, 4), 16) || 0;
+        b = parseInt(hex.substring(4, 6), 16) || 0;
+      }
+      const lum = (0.299 * r + 0.587 * g + 0.114 * b);
+      return lum < 95;
+    }
+    return false;
+  }
+
+  isLightColor(color) {
+    if (!color || typeof color !== 'string') return false;
+    const c = color.trim().toLowerCase();
+    if (c === '#ffffff' || c === '#bbcbd2' || c === '#f8f9fa' || c === '#f1f5f9' || c === '#eef2f5' || c === '#d9ddff' || c === '#a4c0dd' || c === '#aebfbe' || c === '#fefae0' || c === 'white') return true;
+    if (c.startsWith('#')) {
+      const hex = c.replace('#', '');
+      let r = 0, g = 0, b = 0;
+      if (hex.length === 3) {
+        r = parseInt(hex[0] + hex[0], 16) || 0;
+        g = parseInt(hex[1] + hex[1], 16) || 0;
+        b = parseInt(hex[2] + hex[2], 16) || 0;
+      } else if (hex.length === 6) {
+        r = parseInt(hex.substring(0, 2), 16) || 0;
+        g = parseInt(hex.substring(2, 4), 16) || 0;
+        b = parseInt(hex.substring(4, 6), 16) || 0;
+      }
+      const lum = (0.299 * r + 0.587 * g + 0.114 * b);
+      return lum > 175;
+    }
+    return false;
   }
 
   // =========================================================
@@ -708,7 +789,7 @@ class CanvasEngine {
     const mh = miniCanvas.height;
 
     mctx.clearRect(0, 0, mw, mh);
-    mctx.fillStyle = '#f8f9fa';
+    mctx.fillStyle = this.isDarkMode ? '#181b20' : '#f8f9fa';
     mctx.fillRect(0, 0, mw, mh);
 
     if (this.items.length === 0) return;
@@ -744,9 +825,9 @@ class CanvasEngine {
       const ih = Math.max(1.5, (it.height || 20) * scale);
 
       if (it.type === 'frame') {
-        mctx.fillStyle = it.fillColor || '#cbd5e1';
+        mctx.fillStyle = this.isDarkMode ? '#23262d' : (it.fillColor || '#cbd5e1');
         mctx.fillRect(ix, iy, iw, ih);
-        mctx.strokeStyle = '#94a3b8';
+        mctx.strokeStyle = this.isDarkMode ? '#333842' : '#94a3b8';
         mctx.lineWidth = 0.5;
         mctx.strokeRect(ix, iy, iw, ih);
       } else if (it.type === 'code') {
@@ -833,7 +914,7 @@ class CanvasEngine {
     // Fondo limpio
     octx.scale(scale, scale);
     octx.translate(-minX, -minY);
-    octx.fillStyle = '#f8f9fa';
+    octx.fillStyle = this.isDarkMode ? '#0f1316' : '#f8f9fa';
     octx.fillRect(minX, minY, expW, expH);
 
     const origCtx = this.ctx;
@@ -874,7 +955,7 @@ class CanvasEngine {
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
-      // Zoom directo con rueda centrado en el cursor (estilo Miro)
+      // Zoom directo con rueda centrado en el cursor
       const factor = e.deltaY < 0 ? 1.12 : 0.88;
       this.zoomAt(e.clientX, e.clientY, factor);
     }, { passive: false });
@@ -885,6 +966,12 @@ class CanvasEngine {
         this.isSpacePressed = true;
         if (!this.isPanning) this.canvas.style.cursor = 'grab';
       }
+      if ((e.key === 'Control' || e.key === 'Meta') && !e.shiftKey && this.activeTool === 'select' && !this.isDraggingItem && !this.isPanning && !this.isSelectingMarquee) {
+        if (this.hoveredConnectorPort) {
+          this.hoveredConnectorPort = null;
+          this.render();
+        }
+      }
     });
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Space') {
@@ -893,6 +980,8 @@ class CanvasEngine {
       }
     });
 
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.canvas.addEventListener('auxclick', (e) => e.preventDefault());
     this.canvas.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     window.addEventListener('pointermove', (e) => this.onPointerMove(e));
     window.addEventListener('pointerup', (e) => this.onPointerUp(e));
@@ -903,18 +992,135 @@ class CanvasEngine {
       this.onEditingFinish();
     }
 
-    // Clic central, derecho, herramienta mano o barra espaciadora = Pan
-    if (e.button === 1 || e.button === 2 || this.activeTool === 'hand' || this.isSpacePressed) {
+    const world = this.screenToWorld(e.clientX, e.clientY);
+    this.lastPointerWorld = world;
+    this.lastPointerScreen = { x: e.clientX, y: e.clientY };
+
+    // =========================================================
+    // CLIC CENTRAL (Rueda del ratón, e.button === 1):
+    // Solo se duplica si el ratón está encima de alguno de los objetos seleccionados.
+    // Si no está encima, con la rueda se navega (Pan) sobre el lienzo.
+    // =========================================================
+    if (e.button === 1) {
+      e.preventDefault();
+
+      const isOverSelected = this.isPointerOverSelection(world.x, world.y);
+
+      // Si está encima de la selección -> DUPLICAR Y ARRASTRAR
+      if (isOverSelected) {
+        this.saveSnapshot();
+
+        // 1. Recopilar todos los elementos a duplicar (incluyendo hijos de marcos seleccionados)
+        const itemsToDuplicateIds = new Set(this.selectedItemIds);
+        this.items.forEach(it => {
+          if (this.selectedItemIds.has(it.id) && it.type === 'frame') {
+            const frame = it;
+            this.items.forEach(child => {
+              if (child.id !== frame.id && (child.parentId === frame.id || this.isItemInsideFrame(child, frame))) {
+                itemsToDuplicateIds.add(child.id);
+              }
+            });
+          }
+        });
+
+        // 2. Mapear IDs viejos a nuevos y clonar
+        const idMap = new Map();
+        const newItems = [];
+        this.items.forEach(it => {
+          if (itemsToDuplicateIds.has(it.id)) {
+            const copy = JSON.parse(JSON.stringify(it));
+            copy.id = it.type + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+            idMap.set(it.id, copy.id);
+            newItems.push(copy);
+          }
+        });
+
+        // 3. Remapear parentId y conectores si apuntan a elementos dentro de la selección
+        newItems.forEach(copy => {
+          if (copy.parentId && idMap.has(copy.parentId)) {
+            copy.parentId = idMap.get(copy.parentId);
+          }
+          if (copy.type === 'connector') {
+            if (copy.start?.item && idMap.has(copy.start.item)) {
+              copy.start.item = idMap.get(copy.start.item);
+            }
+            if (copy.end?.item && idMap.has(copy.end.item)) {
+              copy.end.item = idMap.get(copy.end.item);
+            }
+          }
+        });
+
+        // 4. Agregar copias al lienzo y seleccionarlas
+        this.items.push(...newItems);
+        this.selectedItemIds.clear();
+        newItems.forEach(copy => {
+          this.selectedItemIds.add(copy.id);
+        });
+
+        if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
+
+        // 5. Iniciar arrastre inmediato con la rueda del ratón
+        this.isDraggingItem = true;
+        this.isMiddleDragDuplicate = true;
+        this.dragStart = { x: world.x, y: world.y };
+        this.dragStartScreen = { x: e.clientX, y: e.clientY };
+        this.hasMovedItem = false;
+        this.canvas.style.cursor = 'move';
+        this.render();
+        return;
+      }
+
+      // Si no hay elementos seleccionados ni bajo el cursor, clic central = Pan
       this.isPanning = true;
       this.panStart = { x: e.clientX, y: e.clientY };
       this.canvas.style.cursor = 'grabbing';
       return;
     }
 
-    const world = this.screenToWorld(e.clientX, e.clientY);
+    // Clic derecho, herramienta mano o barra espaciadora = Pan
+    if (e.button === 2 || this.activeTool === 'hand' || this.isSpacePressed) {
+      this.isPanning = true;
+      this.panStart = { x: e.clientX, y: e.clientY };
+      this.canvas.style.cursor = 'grabbing';
+      return;
+    }
 
     if (this.activeTool === 'select') {
-      // 1. Comprobar primero si se ha pulsado en un controlador circular de conexión (Miro Connector Port)
+      const isCtrl = (e.ctrlKey || e.metaKey) && !e.shiftKey;
+
+      if (isCtrl) {
+        // Modo Deselección (Estilo Autodesk Maya: Ctrl + Clic deselecciona, Ctrl + Área deselecciona elementos en recuadro)
+        const clickedItem = this.getItemAt(world.x, world.y, true);
+        let targetItem = clickedItem;
+        if (!targetItem) {
+          const frameUnder = this.getItemAt(world.x, world.y, false);
+          if (frameUnder && frameUnder.type === 'frame') {
+            const isFrameSelected = this.selectedItemIds.has(frameUnder.id);
+            const onHeaderOrBorder = this.isPointOnFrameHeaderOrBorder(frameUnder, world.x, world.y);
+            if (isFrameSelected || onHeaderOrBorder) {
+              targetItem = frameUnder;
+            }
+          }
+        }
+
+        // Si se hizo clic sobre un elemento o marco seleccionado, deseleccionarlo de inmediato
+        if (targetItem && this.selectedItemIds.has(targetItem.id)) {
+          this.selectedItemIds.delete(targetItem.id);
+          if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
+        }
+
+        // Iniciar recuadro de deselección por área (Marquee Deselect)
+        this.isSelectingMarquee = true;
+        this.isMarqueeDeselect = true;
+        this.marqueeBox = { startX: world.x, startY: world.y, currentX: world.x, currentY: world.y };
+        this.marqueeInitialSelection = new Set(this.selectedItemIds);
+        this.dragStartScreen = { x: e.clientX, y: e.clientY };
+        this.potentialFrameClick = null;
+        this.render();
+        return;
+      }
+
+      // 1. Comprobar primero si se ha pulsado en un controlador circular de conexión (Connector Port)
       const portHit = this.getConnectorPortAt(world.x, world.y);
       if (portHit) {
         this.saveSnapshot();
@@ -987,11 +1193,23 @@ class CanvasEngine {
           }
         }
 
+        // Si se pulsa con Ctrl / Cmd (sin Shift) sobre cualquier elemento que posea URL, abrir enlace directamente
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+          const itemUrl = this.extractUrlFromItem(clickedItem);
+          if (itemUrl) {
+            this.openExternalUrl(itemUrl);
+            return;
+          }
+        }
+
         if (!e.shiftKey) {
           if (!this.selectedItemIds.has(clickedItem.id)) {
             this.selectedItemIds.clear();
             this.selectedItemIds.add(clickedItem.id);
           }
+        } else if (e.ctrlKey || e.metaKey) {
+          // Estilo Maya: Ctrl + Shift añade directamente a la selección
+          this.selectedItemIds.add(clickedItem.id);
         } else {
           if (this.selectedItemIds.has(clickedItem.id)) {
             this.selectedItemIds.delete(clickedItem.id);
@@ -1021,6 +1239,9 @@ class CanvasEngine {
               this.selectedItemIds.clear();
               this.selectedItemIds.add(frameUnder.id);
             }
+          } else if (e.ctrlKey || e.metaKey) {
+            // Estilo Maya: Ctrl + Shift añade directamente a la selección
+            this.selectedItemIds.add(frameUnder.id);
           } else {
             if (isFrameSelected) {
               this.selectedItemIds.delete(frameUnder.id);
@@ -1215,8 +1436,10 @@ class CanvasEngine {
     }
 
     const world = this.screenToWorld(e.clientX, e.clientY);
+    this.lastPointerWorld = world;
+    this.lastPointerScreen = { x: e.clientX, y: e.clientY };
 
-    // 0. Arrastre de conector/flecha desde un puerto circular (Miro Connector Drag)
+    // 0. Arrastre de conector/flecha desde un puerto circular (Connector Drag)
     if (this.isConnectingFromPort && this.activeConnector) {
       this.canvas.style.cursor = 'crosshair';
       const snapTarget = this.findTargetSnapPort(world.x, world.y, this.connectorStartItem?.id);
@@ -1297,7 +1520,9 @@ class CanvasEngine {
         if (screenDist < 4) {
           return;
         }
-        this.saveSnapshot();
+        if (!this.isMiddleDragDuplicate) {
+          this.saveSnapshot();
+        }
         this.hasMovedItem = true;
       }
       const dx = world.x - this.dragStart.x;
@@ -1357,6 +1582,21 @@ class CanvasEngine {
 
     // 3. Hover sobre puertos de conexión y handles de redimensionamiento cuando se usa la herramienta select
     if (!this.isDraggingItem && !this.isPanning && !this.isSelectingMarquee && !this.isConnectingFromPort && this.activeTool === 'select') {
+      const isCtrl = (e.ctrlKey || e.metaKey) && !e.shiftKey;
+      if (isCtrl) {
+        if (this.hoveredConnectorPort) {
+          this.hoveredConnectorPort = null;
+          this.render();
+        }
+        const itemUnder = this.getItemAt(world.x, world.y, true) || this.getItemAt(world.x, world.y, false);
+        if (itemUnder && this.selectedItemIds.has(itemUnder.id)) {
+          this.canvas.style.cursor = 'pointer';
+        } else {
+          this.canvas.style.cursor = 'crosshair';
+        }
+        return;
+      }
+
       const portHit = this.getConnectorPortAt(world.x, world.y);
       if (portHit) {
         this.canvas.style.cursor = 'crosshair';
@@ -1404,7 +1644,11 @@ class CanvasEngine {
       const newSelection = new Set(this.marqueeInitialSelection || []);
       this.items.forEach(it => {
         if (this.itemIntersectsBox(it, minX, minY, maxX, maxY)) {
-          newSelection.add(it.id);
+          if (this.isMarqueeDeselect) {
+            newSelection.delete(it.id);
+          } else {
+            newSelection.add(it.id);
+          }
         }
       });
       this.selectedItemIds = newSelection;
@@ -1447,6 +1691,34 @@ class CanvasEngine {
       return;
     }
 
+    if (this.isMiddleDragDuplicate) {
+      if (!this.hasMovedItem) {
+        // Clic central rápido sin arrastrar: desplazar +30, +30 para que no quede solapado exactamente encima
+        this.items.forEach(it => {
+          if (this.selectedItemIds.has(it.id)) {
+            if (it.type === 'connector') {
+              it.start.x += 30; it.start.y += 30;
+              it.end.x += 30; it.end.y += 30;
+            } else if (it.type === 'pen') {
+              it.points.forEach(p => { p.x += 30; p.y += 30; });
+            } else {
+              it.x += 30;
+              it.y += 30;
+            }
+          }
+        });
+      }
+      this.isMiddleDragDuplicate = false;
+      this.isDraggingItem = false;
+      this.hasMovedItem = false;
+      this.dragStartScreen = null;
+      this.activeGuides = [];
+      this.canvas.style.cursor = this.activeTool === 'hand' ? 'grab' : 'default';
+      if (this.onBoardModified) this.onBoardModified();
+      this.render();
+      return;
+    }
+
     if (this.isPanning) {
       this.isPanning = false;
       this.canvas.style.cursor = this.activeTool === 'hand' ? 'grab' : 'default';
@@ -1471,6 +1743,8 @@ class CanvasEngine {
         if (!e.shiftKey) {
           this.selectedItemIds.clear();
           this.selectedItemIds.add(this.potentialFrameClick.id);
+        } else if (e.ctrlKey || e.metaKey) {
+          this.selectedItemIds.add(this.potentialFrameClick.id);
         } else {
           if (this.selectedItemIds.has(this.potentialFrameClick.id)) {
             this.selectedItemIds.delete(this.potentialFrameClick.id);
@@ -1481,6 +1755,7 @@ class CanvasEngine {
         this.potentialFrameClick = null;
       }
       this.isSelectingMarquee = false;
+      this.isMarqueeDeselect = false;
       this.marqueeBox = null;
       if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
     }
@@ -1505,7 +1780,7 @@ class CanvasEngine {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
     // Fondo solido limpio del lienzo
-    this.ctx.fillStyle = '#f8f9fa';
+    this.ctx.fillStyle = this.isDarkMode ? '#0f1316' : '#f8f9fa';
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
     // 2. Escala de resolucion de pantalla (HiDPI)
@@ -1578,7 +1853,7 @@ class CanvasEngine {
         try { this.drawPen(it); } catch (e) { console.error('Error al dibujar trazo:', e); }
       });
 
-      // 7. Comentarios estilo Miro (Pin burbuja)
+      // 7. Comentarios (Pin burbuja)
       this.items.filter(it => it.type === 'comment' && isVisible(it)).forEach(it => {
         try { this.drawComment(it); } catch (e) { console.error('Error al dibujar comentario:', e); }
       });
@@ -1595,22 +1870,113 @@ class CanvasEngine {
   }
 
   drawDotGrid() {
-    const spacing = 32 * this.camera.zoom;
-    if (spacing < 12) return; // Muy alejado, no dibujar para rendimiento
+    const zoom = this.camera.zoom;
+    if (!zoom || isNaN(zoom) || zoom <= 0) return;
 
-    const offsetX = (this.width / 2 + this.camera.x * this.camera.zoom) % spacing;
-    const offsetY = (this.height / 2 + this.camera.y * this.camera.zoom) % spacing;
+    // Cuadrícula infinita adaptativa multinivel (estilo Miro):
+    // Mantiene la cuadrícula de puntos visible de forma nítida y elegante a cualquier escala,
+    // garantizando que tanto de cerca como alejado (vista general) se vea siempre con el espaciado cómodo base.
+    const p = Math.floor(-Math.log2(zoom));
+    const worldMajor = 32 * Math.pow(2, p + 1);
+    const screenMajor = worldMajor * zoom; // Rango acotado: [32px, 64px]
+    const screenMinor = screenMajor / 2;   // Rango acotado: [16px, 32px]
 
-    this.ctx.fillStyle = '#d0d0d6';
-    const dotSize = Math.max(1, Math.min(2, 1.5 * this.camera.zoom));
+    // Transición suave (fade) de puntos secundarios para evitar saltos bruscos durante el zoom
+    const minorAlpha = Math.max(0, Math.min(1, (screenMinor - 18) / 10));
 
-    for (let x = offsetX; x < this.width; x += spacing) {
-      for (let y = offsetY; y < this.height; y += spacing) {
-        this.ctx.beginPath();
-        this.ctx.arc(x, y, dotSize, 0, Math.PI * 2);
-        this.ctx.fill();
+    const originX = this.width / 2 + this.camera.x * zoom;
+    const originY = this.height / 2 + this.camera.y * zoom;
+
+    // Colores fieles según tema (claro / oscuro)
+    const baseRgb = this.isDarkMode ? [35, 40, 50] : [208, 208, 214]; // #232832 / #d0d0d6
+    const majorColor = `rgb(${baseRgb[0]}, ${baseRgb[1]}, ${baseRgb[2]})`;
+    const dotRadius = 1.35; // Radio nítido y consistente en píxeles de pantalla
+
+    let offsetMajorX = originX % screenMajor;
+    if (offsetMajorX < 0) offsetMajorX += screenMajor;
+    let offsetMajorY = originY % screenMajor;
+    if (offsetMajorY < 0) offsetMajorY += screenMajor;
+
+    let offsetMinorX = originX % screenMinor;
+    if (offsetMinorX < 0) offsetMinorX += screenMinor;
+    let offsetMinorY = originY % screenMinor;
+    if (offsetMinorY < 0) offsetMinorY += screenMinor;
+
+    if (minorAlpha < 0.05) {
+      // Zoom alejado en este tramo: dibujamos la cuadrícula principal
+      this.ctx.fillStyle = majorColor;
+      this.ctx.beginPath();
+      for (let x = offsetMajorX; x < this.width; x += screenMajor) {
+        for (let y = offsetMajorY; y < this.height; y += screenMajor) {
+          this.ctx.moveTo(x + dotRadius, y);
+          this.ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+        }
       }
+      this.ctx.fill();
+    } else if (minorAlpha >= 0.95) {
+      // Tramo donde todos los puntos menores están al 100%
+      this.ctx.fillStyle = majorColor;
+      this.ctx.beginPath();
+      for (let x = offsetMinorX; x < this.width; x += screenMinor) {
+        for (let y = offsetMinorY; y < this.height; y += screenMinor) {
+          this.ctx.moveTo(x + dotRadius, y);
+          this.ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+        }
+      }
+      this.ctx.fill();
+    } else {
+      // Transición progresiva: puntos mayores al 100% y puntos menores con opacidad proporcional
+      const majorColPhase = Math.abs(offsetMajorX - offsetMinorX) < 0.01 ? 0 : 1;
+      const majorRowPhase = Math.abs(offsetMajorY - offsetMinorY) < 0.01 ? 0 : 1;
+
+      const pathMajor = new Path2D();
+      const pathMinor = new Path2D();
+
+      for (let x = offsetMinorX, col = 0; x < this.width; x += screenMinor, col++) {
+        const isMajorCol = (col % 2 === majorColPhase);
+        for (let y = offsetMinorY, row = 0; y < this.height; y += screenMinor, row++) {
+          const isMajorRow = (row % 2 === majorRowPhase);
+          const targetPath = (isMajorCol && isMajorRow) ? pathMajor : pathMinor;
+          targetPath.moveTo(x + dotRadius, y);
+          targetPath.arc(x, y, dotRadius, 0, Math.PI * 2);
+        }
+      }
+
+      this.ctx.fillStyle = majorColor;
+      this.ctx.fill(pathMajor);
+
+      this.ctx.fillStyle = `rgba(${baseRgb[0]}, ${baseRgb[1]}, ${baseRgb[2]}, ${minorAlpha.toFixed(3)})`;
+      this.ctx.fill(pathMinor);
     }
+  }
+
+  extractUrlFromItem(it) {
+    if (!it) return null;
+    if (it.url === '') return null; // Eliminado explícitamente por el usuario
+    if (it.url && typeof it.url === 'string' && it.url.trim()) {
+      let u = it.url.trim();
+      if (!/^https?:\/\//i.test(u)) u = 'https://' + u;
+      return u;
+    }
+    const rawText = typeof it.text === 'string' ? it.text : (typeof it.title === 'string' ? it.title : '');
+    if (!rawText) return null;
+
+    const httpMatch = rawText.match(/https?:\/\/[^\s<>"'\)\]]+/i);
+    if (httpMatch) return httpMatch[0].replace(/[.,;:)]+$/, '');
+
+    const wwwMatch = rawText.match(/(?:^|\s)(www\.[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+(?:\/[^\s<>"'\)\]]*)?)/i);
+    if (wwwMatch) return 'https://' + wwwMatch[1].replace(/[.,;:)]+$/, '');
+
+    const domainOnly = rawText.trim().match(/^([a-zA-Z0-9-]+\.(?:com|org|io|dev|app|net|co|ai|tools|es|xyz|me|tv|gl|sh|build|info)(?:\/[^\s]*)?)$/i);
+    if (domainOnly) return 'https://' + domainOnly[1].replace(/[.,;:)]+$/, '');
+
+    const enlaceMatch = rawText.match(/(?:enlace|link|web|url)\s*:\s*([a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+(?:\/[^\s<>"'\)\]]*)?)/i);
+    if (enlaceMatch) {
+      let clean = enlaceMatch[1].replace(/[.,;:)]+$/, '');
+      if (!/^https?:\/\//i.test(clean)) clean = 'https://' + clean;
+      return clean;
+    }
+    return null;
   }
 
   drawStickyNote(it) {
@@ -1631,7 +1997,7 @@ class CanvasEngine {
 
     this.ctx.shadowColor = 'transparent';
 
-    // Doblez de esquina inferior derecha estilo Miro
+    // Doblez de esquina inferior derecha
     const fold = 16;
     this.ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
     this.ctx.beginPath();
@@ -1646,8 +2012,8 @@ class CanvasEngine {
       const fontSize = it.fontSize || 15;
       const fontFamily = it.fontFamily || 'OpenSans, -apple-system, sans-serif';
       const isBold = it.isBold ? '700 ' : '400 ';
-      const fontStyle = it.isItalic ? 'italic ' : '';
-      this.ctx.fillStyle = it.textColor || '#1a1a1a';
+      const hasUrl = Boolean(this.extractUrlFromItem(it));
+      this.ctx.fillStyle = hasUrl ? '#1d4ed8' : (it.textColor || '#1a1a1a');
       this.ctx.font = `${fontStyle}${isBold}${fontSize}px ${fontFamily}`;
       this.ctx.textAlign = it.textAlign || 'center';
       this.ctx.textBaseline = 'middle';
@@ -1659,8 +2025,20 @@ class CanvasEngine {
 
   drawShape(it) {
     this.ctx.save();
-    this.ctx.fillStyle = it.fillColor || '#ffffff';
-    this.ctx.strokeStyle = it.strokeColor || '#1a1a1a';
+    let fillColor = it.fillColor || '#ffffff';
+    let strokeColor = it.strokeColor || '#1a1a1a';
+
+    if (this.isDarkMode) {
+      if (this.isLightColor(fillColor)) {
+        fillColor = '#23262d';
+      }
+      if (this.isDarkColor(strokeColor)) {
+        strokeColor = '#333842';
+      }
+    }
+
+    this.ctx.fillStyle = fillColor;
+    this.ctx.strokeStyle = strokeColor;
     this.ctx.lineWidth = it.strokeWidth || 2;
 
     this.ctx.beginPath();
@@ -1688,8 +2066,10 @@ class CanvasEngine {
 
     if (it.text && this.editingItemId !== it.id) {
       let isDarkBg = false;
-      if (it.fillColor && it.fillColor.startsWith('#')) {
-        const hex = it.fillColor.replace('#', '');
+      if (this.isDarkMode) {
+        isDarkBg = true;
+      } else if (fillColor && fillColor.startsWith('#')) {
+        const hex = fillColor.replace('#', '');
         const r = parseInt(hex.substring(0, 2), 16) || 0;
         const g = parseInt(hex.substring(2, 4), 16) || 0;
         const b = parseInt(hex.substring(4, 6), 16) || 0;
@@ -1701,7 +2081,15 @@ class CanvasEngine {
       const fontFamily = it.fontFamily || 'OpenSans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       const isBold = it.isBold !== undefined ? it.isBold : true;
       const fontStyle = it.isItalic ? 'italic ' : '';
-      this.ctx.fillStyle = it.textColor || (isDarkBg ? '#ffffff' : (it.strokeColor || '#1a1a1a'));
+
+      let textColor = it.textColor;
+      if (!textColor) {
+        textColor = isDarkBg ? '#ffffff' : (strokeColor || '#1a1a1a');
+      } else if (this.isDarkMode && this.isDarkColor(textColor)) {
+        textColor = '#f1f5f9';
+      }
+
+      this.ctx.fillStyle = textColor;
       this.ctx.font = `${fontStyle}${isBold ? '700 ' : '400 '}${fontSize}px ${fontFamily}`;
       this.ctx.textAlign = it.textAlign || 'center';
       this.ctx.textBaseline = 'middle';
@@ -1715,15 +2103,31 @@ class CanvasEngine {
     this.ctx.save();
     const hasFill = Boolean(it.fillColor && it.fillColor !== 'transparent');
 
+    let textFillColor = it.fillColor;
+    if (this.isDarkMode && hasFill) {
+      if (it.fillColor === '#2d2d2d' || it.fillColor === '#1a1a1a' || it.fillColor === '#40414c') {
+        // En modo oscuro (como en la imagen del usuario), los banners destacados oscuros se convierten en banners plateados claros #EEF2F5 con texto oscuro
+        textFillColor = '#eef2f5';
+      } else if (this.isLightColor(it.fillColor)) {
+        textFillColor = '#23262d';
+      }
+    }
+
     // Si tiene relleno, dibujar la caja / banner / tarjeta
-    if (hasFill) {
-      this.ctx.fillStyle = it.fillColor;
+    if (hasFill && textFillColor) {
+      this.ctx.fillStyle = textFillColor;
       const radius = Math.min(8, it.height / 4);
       this.ctx.beginPath();
       this.roundRect(this.ctx, it.x, it.y, it.width, it.height, radius);
       this.ctx.fill();
 
-      if (it.fillColor === '#bbcbd2') {
+      if (this.isDarkMode) {
+        if (textFillColor === '#23262d') {
+          this.ctx.strokeStyle = '#333842';
+          this.ctx.lineWidth = 1;
+          this.ctx.stroke();
+        }
+      } else if (it.fillColor === '#bbcbd2') {
         this.ctx.strokeStyle = '#94a3b8';
         this.ctx.lineWidth = 1;
         this.ctx.stroke();
@@ -1742,12 +2146,26 @@ class CanvasEngine {
     const fontStyle = it.isItalic ? 'italic ' : '';
     this.ctx.font = `${fontStyle}${isBold ? '700 ' : '400 '}${fontSize}px ${fontFamily}`;
 
+    const hasUrl = Boolean(this.extractUrlFromItem(it));
+
     let textColor = it.textColor || it.color || '#1a1a1a';
-    if (hasFill) {
-      if (it.fillColor === '#2d2d2d' || it.fillColor === '#40414c' || it.fillColor === '#1a1a1a') {
-        textColor = it.textColor || it.color || '#ffffff';
-      } else if (it.fillColor === '#bbcbd2') {
-        textColor = it.textColor || it.color || '#1a1a1a';
+    if (this.isDarkMode) {
+      if (hasUrl) {
+        textColor = (hasFill && textFillColor === '#eef2f5') ? '#1d4ed8' : '#60a5fa';
+      } else if (hasFill && textFillColor === '#eef2f5') {
+        textColor = '#0f172a';
+      } else if (this.isDarkColor(textColor)) {
+        textColor = '#f1f5f9';
+      }
+    } else {
+      if (hasUrl) {
+        textColor = (hasFill && (it.fillColor === '#2d2d2d' || it.fillColor === '#40414c' || it.fillColor === '#1a1a1a')) ? '#60a5fa' : '#1d4ed8';
+      } else if (hasFill) {
+        if (it.fillColor === '#2d2d2d' || it.fillColor === '#40414c' || it.fillColor === '#1a1a1a') {
+          textColor = it.textColor || it.color || '#ffffff';
+        } else if (it.fillColor === '#bbcbd2') {
+          textColor = it.textColor || it.color || '#1a1a1a';
+        }
       }
     }
     this.ctx.fillStyle = textColor;
@@ -1790,7 +2208,7 @@ class CanvasEngine {
     const r = 8;
     const headerH = 30;
 
-    // Caja oscura del bloque de código estilo Miro
+    // Caja oscura del bloque de código
     this.ctx.fillStyle = '#1e1e24';
     this.ctx.strokeStyle = '#32323a';
     this.ctx.lineWidth = 1;
@@ -1939,9 +2357,15 @@ class CanvasEngine {
   }
 
   drawEmbed(it) {
+    if (!it.src && it.url) {
+      const ytId = this.extractYouTubeVideoId(it.url);
+      if (ytId) {
+        it.src = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+      }
+    }
     this.ctx.save();
     const r = 10;
-    const isCompact = !it.src || it.height <= 300;
+    const isCompact = !it.src || it.height < 120;
     const thumbH = isCompact ? 0 : Math.max(60, Math.round(it.height * 0.52));
 
     // 1. Sombra suave de la tarjeta widget
@@ -1949,14 +2373,14 @@ class CanvasEngine {
     this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
     this.ctx.shadowBlur = 8 / this.camera.zoom;
     this.ctx.shadowOffsetY = 3 / this.camera.zoom;
-    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillStyle = this.isDarkMode ? '#1E222B' : '#ffffff';
     this.ctx.beginPath();
     this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
     this.ctx.fill();
     this.ctx.restore();
 
     // Borde exterior sutil
-    this.ctx.strokeStyle = '#e2e8f0';
+    this.ctx.strokeStyle = this.isDarkMode ? '#333842' : '#e2e8f0';
     this.ctx.lineWidth = 1;
     this.ctx.beginPath();
     this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
@@ -2013,7 +2437,7 @@ class CanvasEngine {
       this.ctx.restore();
 
       // Línea divisoria bajo la miniatura
-      this.ctx.strokeStyle = '#f1f5f9';
+      this.ctx.strokeStyle = this.isDarkMode ? '#2D323B' : '#f1f5f9';
       this.ctx.lineWidth = 1;
       this.ctx.beginPath();
       this.ctx.moveTo(it.x, it.y + thumbH);
@@ -2021,7 +2445,7 @@ class CanvasEngine {
       this.ctx.stroke();
     }
 
-    // 3. Insignia flotante / Favicon de la plataforma (estilo Miro exacto)
+    // 3. Insignia flotante / Favicon de la plataforma
     const badgeX = it.x + 12;
     const badgeY = it.y + 12;
     const badgeSize = isCompact ? 24 : 26;
@@ -2029,11 +2453,11 @@ class CanvasEngine {
     this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
     this.ctx.shadowBlur = 4;
     this.ctx.shadowOffsetY = 1;
-    this.ctx.fillStyle = '#ffffff';
+    this.ctx.fillStyle = this.isDarkMode ? '#262A34' : '#ffffff';
     this.ctx.beginPath();
     this.roundRect(this.ctx, badgeX, badgeY, badgeSize, badgeSize, 5);
     this.ctx.fill();
-    this.ctx.strokeStyle = '#e2e8f0';
+    this.ctx.strokeStyle = this.isDarkMode ? '#3A404F' : '#e2e8f0';
     this.ctx.lineWidth = 1;
     this.ctx.stroke();
     this.ctx.restore();
@@ -2053,7 +2477,7 @@ class CanvasEngine {
       this.ctx.closePath();
       this.ctx.fill();
     } else if (domain.includes('GITHUB')) {
-      this.ctx.fillStyle = '#181717';
+      this.ctx.fillStyle = this.isDarkMode ? '#F1F5F9' : '#181717';
       this.ctx.font = '700 12px sans-serif';
       this.ctx.textAlign = 'center';
       this.ctx.textBaseline = 'middle';
@@ -2068,7 +2492,7 @@ class CanvasEngine {
 
     // Para tarjetas compactas, mostrar el dominio al lado del badge en la cabecera
     if (isCompact) {
-      this.ctx.fillStyle = '#64748b';
+      this.ctx.fillStyle = this.isDarkMode ? '#94A3B8' : '#64748b';
       this.ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       this.ctx.textAlign = 'left';
       this.ctx.textBaseline = 'middle';
@@ -2080,16 +2504,16 @@ class CanvasEngine {
     const btnY = it.y + 10;
     const btnSize = 22;
     this.ctx.save();
-    this.ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    this.ctx.fillStyle = this.isDarkMode ? '#262A34' : 'rgba(255, 255, 255, 0.95)';
     this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
     this.ctx.shadowBlur = 3;
     this.ctx.beginPath();
     this.ctx.arc(btnX + btnSize / 2, btnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
     this.ctx.fill();
-    this.ctx.strokeStyle = '#e2e8f0';
+    this.ctx.strokeStyle = this.isDarkMode ? '#3A404F' : '#e2e8f0';
     this.ctx.lineWidth = 1;
     this.ctx.stroke();
-    this.ctx.fillStyle = '#475569';
+    this.ctx.fillStyle = this.isDarkMode ? '#E2E8F0' : '#475569';
     this.ctx.font = '700 11px sans-serif';
     this.ctx.textAlign = 'center';
     this.ctx.textBaseline = 'middle';
@@ -2101,7 +2525,7 @@ class CanvasEngine {
     let curTextY = contentStartY;
 
     if (!isCompact) {
-      this.ctx.fillStyle = '#64748b';
+      this.ctx.fillStyle = this.isDarkMode ? '#94A3B8' : '#64748b';
       this.ctx.font = '600 10.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       this.ctx.textAlign = 'left';
       this.ctx.textBaseline = 'top';
@@ -2110,7 +2534,7 @@ class CanvasEngine {
     }
 
     const title = it.title || this.extractTitle(it.url) || domain;
-    this.ctx.fillStyle = '#0f172a';
+    this.ctx.fillStyle = this.isDarkMode ? '#F1F5F9' : '#0f172a';
     this.ctx.font = '700 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     this.ctx.textAlign = 'left';
     this.ctx.textBaseline = 'top';
@@ -2118,7 +2542,7 @@ class CanvasEngine {
     curTextY += (linesUsed || 1) * 16 + 4;
 
     if (it.description && curTextY < it.y + it.height - 20) {
-      this.ctx.fillStyle = '#64748b';
+      this.ctx.fillStyle = this.isDarkMode ? '#94A3B8' : '#64748b';
       this.ctx.font = '400 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       this.ctx.textAlign = 'left';
       this.ctx.textBaseline = 'top';
@@ -2126,7 +2550,7 @@ class CanvasEngine {
       const maxDescLines = Math.max(1, Math.floor(availableH / 14));
       this.wrapText(this.ctx, it.description, it.x + 14, curTextY, it.width - 28, 14, 'top', maxDescLines);
     } else if (isCompact && !it.description && it.url) {
-      this.ctx.fillStyle = '#94a3b8';
+      this.ctx.fillStyle = this.isDarkMode ? '#60A5FA' : '#94a3b8';
       this.ctx.font = '400 10.5px -apple-system, BlinkMacSystemFont, sans-serif';
       this.ctx.textAlign = 'left';
       this.ctx.textBaseline = 'top';
@@ -2145,7 +2569,11 @@ class CanvasEngine {
   drawPen(it) {
     if (!it.points || it.points.length < 2) return;
     this.ctx.save();
-    this.ctx.strokeStyle = it.color || '#1a1a1a';
+    let strokeColor = it.color || '#1a1a1a';
+    if (this.isDarkMode && this.isDarkColor(strokeColor)) {
+      strokeColor = '#F1F5F9';
+    }
+    this.ctx.strokeStyle = strokeColor;
     this.ctx.lineWidth = it.strokeWidth || 3;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
@@ -2187,7 +2615,11 @@ class CanvasEngine {
     if (isNaN(it.start.x) || isNaN(it.start.y) || isNaN(it.end.x) || isNaN(it.end.y)) return;
 
     this.ctx.save();
-    this.ctx.strokeStyle = it.color || '#333333';
+    let connectorColor = it.color || '#333333';
+    if (this.isDarkMode && this.isDarkColor(connectorColor)) {
+      connectorColor = '#94A3B8';
+    }
+    this.ctx.strokeStyle = connectorColor;
     this.ctx.lineWidth = it.strokeWidth || 2;
     this.ctx.beginPath();
     this.ctx.moveTo(it.start.x, it.start.y);
@@ -2197,7 +2629,7 @@ class CanvasEngine {
     // Flecha en el final
     const angle = Math.atan2(it.end.y - it.start.y, it.end.x - it.start.x);
     const arrowLen = 12;
-    this.ctx.fillStyle = it.color || '#333333';
+    this.ctx.fillStyle = connectorColor;
     this.ctx.beginPath();
     this.ctx.moveTo(it.end.x, it.end.y);
     this.ctx.lineTo(it.end.x - arrowLen * Math.cos(angle - Math.PI / 6), it.end.y - arrowLen * Math.sin(angle - Math.PI / 6));
@@ -2211,13 +2643,26 @@ class CanvasEngine {
   drawFrame(it) {
     this.ctx.save();
 
-    // Relleno sólido/suave del marco: en Miro las columnas usan #bbcbd2
-    const fillColor = it.fillColor || '#bbcbd2';
+    let fillColor = it.fillColor || '#bbcbd2';
+    let borderColor = '#94a3b8';
+    let tabColor = '#475569';
+    let tabTextColor = '#ffffff';
+
+    if (this.isDarkMode) {
+      if (this.isLightColor(fillColor) || fillColor.toLowerCase() === '#bbcbd2') {
+        fillColor = '#23262D';
+      }
+      borderColor = '#333842';
+      tabColor = '#2D323E';
+      tabTextColor = '#E2E8F0';
+    }
+
+    // Relleno sólido/suave del marco
     this.ctx.fillStyle = fillColor;
     this.ctx.fillRect(it.x, it.y, it.width, it.height);
 
     // Borde limpio y elegante
-    this.ctx.strokeStyle = '#94a3b8';
+    this.ctx.strokeStyle = borderColor;
     this.ctx.lineWidth = 1;
     this.ctx.strokeRect(it.x, it.y, it.width, it.height);
 
@@ -2229,12 +2674,18 @@ class CanvasEngine {
       const tabWidth = Math.max(70, textWidth + 24);
       const tabHeight = 26;
 
-      this.ctx.fillStyle = '#475569';
+      this.ctx.fillStyle = tabColor;
       this.ctx.beginPath();
       this.roundRect(this.ctx, it.x, it.y - tabHeight, tabWidth, tabHeight, 4);
       this.ctx.fill();
 
-      this.ctx.fillStyle = '#ffffff';
+      if (this.isDarkMode) {
+        this.ctx.strokeStyle = borderColor;
+        this.ctx.lineWidth = 1;
+        this.ctx.stroke();
+      }
+
+      this.ctx.fillStyle = tabTextColor;
       this.ctx.textAlign = 'left';
       this.ctx.textBaseline = 'middle';
       this.ctx.fillText(it.title, it.x + 12, it.y - tabHeight / 2);
@@ -2254,6 +2705,43 @@ class CanvasEngine {
     }
     if (it.imgElement && it.imgElement.complete && it.imgElement.naturalWidth > 0) {
       this.ctx.drawImage(it.imgElement, it.x, it.y, it.width, it.height);
+      if (it.url) {
+        this.ctx.save();
+        const badgeSize = Math.max(16, Math.min(24, 20 / this.camera.zoom));
+        const pad = 6 / this.camera.zoom;
+        const bx = it.x + it.width - badgeSize - pad;
+        const by = it.y + pad;
+        if (this.isDarkMode) {
+          this.ctx.fillStyle = 'rgba(24, 27, 32, 0.9)';
+          this.ctx.strokeStyle = '#3b82f6';
+          this.ctx.lineWidth = 1.5 / this.camera.zoom;
+          this.ctx.beginPath();
+          this.roundRect(this.ctx, bx, by, badgeSize, badgeSize, 4 / this.camera.zoom);
+          this.ctx.fill();
+          this.ctx.stroke();
+
+          this.ctx.fillStyle = '#60a5fa';
+          this.ctx.font = `bold ${Math.round(badgeSize * 0.6)}px sans-serif`;
+          this.ctx.textAlign = 'center';
+          this.ctx.textBaseline = 'middle';
+          this.ctx.fillText('↗', bx + badgeSize / 2, by + badgeSize / 2);
+        } else {
+          this.ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+          this.ctx.strokeStyle = '#93c5fd';
+          this.ctx.lineWidth = 1.5 / this.camera.zoom;
+          this.ctx.beginPath();
+          this.roundRect(this.ctx, bx, by, badgeSize, badgeSize, 4 / this.camera.zoom);
+          this.ctx.fill();
+          this.ctx.stroke();
+
+          this.ctx.fillStyle = '#2563eb';
+          this.ctx.font = `bold ${Math.round(badgeSize * 0.6)}px sans-serif`;
+          this.ctx.textAlign = 'center';
+          this.ctx.textBaseline = 'middle';
+          this.ctx.fillText('↗', bx + badgeSize / 2, by + badgeSize / 2);
+        }
+        this.ctx.restore();
+      }
     }
   }
 
@@ -2264,7 +2752,7 @@ class CanvasEngine {
     const r = 16;
     const isResolved = it.resolved;
     const isSelected = this.selectedItemIds.has(it.id);
-    const bg = isResolved ? '#10b981' : '#f59e0b'; // Verde o Naranja Miro
+    const bg = isResolved ? '#10b981' : '#f59e0b'; // Verde o Naranja
 
     this.ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
     this.ctx.shadowBlur = 6;
@@ -2312,7 +2800,7 @@ class CanvasEngine {
   drawSmartGuides() {
     if (!this.activeGuides || this.activeGuides.length === 0) return;
     this.ctx.save();
-    this.ctx.strokeStyle = '#ff007a'; // Magenta guía Miro
+    this.ctx.strokeStyle = '#ff007a'; // Magenta guía
     this.ctx.lineWidth = 1.2 / this.camera.zoom;
     this.ctx.setLineDash([5 / this.camera.zoom, 4 / this.camera.zoom]);
 
@@ -2339,7 +2827,7 @@ class CanvasEngine {
       this.ctx.save();
       const z = this.camera.zoom;
 
-      // Rectángulo delimitador exterior con color azul Miro
+      // Rectángulo delimitador exterior con color azul
       this.ctx.strokeStyle = '#4262ff';
       this.ctx.lineWidth = 1.5 / z;
       const pad = 3 / z;
@@ -2387,7 +2875,7 @@ class CanvasEngine {
         this.ctx.fill();
         this.ctx.stroke();
 
-        // 3. Controladores circulares de conexión en el medio de los 4 lados para tirar flechas (Miro Connector Ports)
+        // 3. Controladores circulares de conexión en el medio de los 4 lados para tirar flechas (Connector Ports)
         const ports = this.getConnectorPorts(it);
         const portRadius = 5.5 / z;
         ports.forEach(p => {
@@ -2449,9 +2937,16 @@ class CanvasEngine {
     if (maxX - minX < 2 && maxY - minY < 2) return;
 
     this.ctx.save();
-    this.ctx.fillStyle = 'rgba(66, 98, 255, 0.08)';
-    this.ctx.strokeStyle = '#4262ff';
-    this.ctx.lineWidth = 1 / this.camera.zoom;
+    if (this.isMarqueeDeselect) {
+      this.ctx.fillStyle = 'rgba(239, 68, 68, 0.08)';
+      this.ctx.strokeStyle = '#ef4444';
+      this.ctx.lineWidth = 1.5 / this.camera.zoom;
+      this.ctx.setLineDash([5 / this.camera.zoom, 4 / this.camera.zoom]);
+    } else {
+      this.ctx.fillStyle = 'rgba(66, 98, 255, 0.08)';
+      this.ctx.strokeStyle = '#4262ff';
+      this.ctx.lineWidth = 1 / this.camera.zoom;
+    }
     this.ctx.fillRect(minX, minY, maxX - minX, maxY - minY);
     this.ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
     this.ctx.restore();
@@ -2549,6 +3044,23 @@ class CanvasEngine {
     this.render();
   }
 
+  extractYouTubeVideoId(url) {
+    if (!url) return '';
+    try {
+      const u = new URL(url);
+      const host = u.hostname.toLowerCase();
+      if (host.includes('youtube.com')) {
+        const v = u.searchParams.get('v');
+        if (v) return v;
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts[0] === 'embed' || parts[0] === 'shorts' || parts[0] === 'v') return parts[1] || '';
+      } else if (host.includes('youtu.be')) {
+        return u.pathname.replace(/^\//, '').split('?')[0] || '';
+      }
+    } catch (e) {}
+    return '';
+  }
+
   extractDomain(url) {
     if (!url) return 'ENLACE';
     try {
@@ -2585,5 +3097,12 @@ class CanvasEngine {
     } catch (e) {
       return url;
     }
+  }
+
+  selectAll() {
+    this.selectedItemIds.clear();
+    this.items.forEach(it => this.selectedItemIds.add(it.id));
+    if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
+    this.render();
   }
 }

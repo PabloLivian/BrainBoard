@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta
     http-equiv="Content-Security-Policy"
-    content="default-src 'self' file: data: blob: 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob:; connect-src 'self' file: data: blob:;"
+    content="default-src 'self' file: data: blob: https: http: 'unsafe-inline'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: blob: https: http:; connect-src 'self' file: data: blob: https: http:;"
   />
   <title>Brain Board</title>
   <link rel="stylesheet" href="static/css/fonts.css" />
@@ -12,35 +12,134 @@
 </head>
 <body>
   <div id="app-container">
+    <!-- ========================================== -->
+    <!-- PANTALLA DE INICIO (HOME DASHBOARD)        -->
+    <!-- ========================================== -->
+    <div id="home-screen" class="home-screen" style="display: flex;">
+      <!-- Menú lateral izquierdo (siempre abierto en la pantalla de inicio) -->
+      <aside class="home-sidebar">
+        <div class="home-sidebar-header">
+          <div class="home-brand" id="home-brand-logo" title="Brain Board">
+            <svg class="home-brand-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-5.04z"/>
+              <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-5.04z"/>
+            </svg>
+            <span class="home-brand-text">Brain Board</span>
+          </div>
+        </div>
+
+        <button id="btn-home-new-board" class="btn-home-primary-action" title="Crear un nuevo tablero">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span>Nuevo tablero</span>
+        </button>
+
+        <div class="home-search-box">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="input-home-search" placeholder="Buscar tableros..." />
+        </div>
+
+        <nav class="home-nav-section">
+          <div class="home-nav-item active" data-category="all" id="home-nav-all">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+            <span class="home-nav-label">Todos los tableros</span>
+            <span class="home-nav-count" id="home-count-all">0</span>
+          </div>
+        </nav>
+
+        <div class="home-categories-header">
+          <span class="home-section-title">CATEGORÍAS</span>
+          <button id="btn-home-add-category" class="btn-category-add" title="Crear nueva categoría">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+        </div>
+
+        <div class="home-categories-list" id="home-categories-list">
+          <!-- Categorías generadas dinámicamente -->
+        </div>
+
+        <div class="home-sidebar-footer">
+          <div class="home-footer-item" id="btn-home-import" title="Importar tablero desde archivo JSON">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Importar JSON</span>
+          </div>
+          <div class="home-footer-item" id="btn-home-backup" title="Exportar copia de seguridad completa">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            <span>Copia de seguridad</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Área principal de contenido (centrado y estructurado con el menú siempre abierto a la izquierda) -->
+      <main class="home-main-area">
+        <div class="home-main-inner">
+          <header class="home-header-row">
+            <div class="home-header-titles">
+              <h1 class="home-view-title" id="home-view-title">Todos los tableros</h1>
+              <span class="home-view-subtitle" id="home-view-subtitle">0 tableros</span>
+            </div>
+            <div class="home-header-actions" style="display: flex; align-items: center; gap: 8px;">
+              <button id="btn-home-toggle-theme" class="btn btn-icon btn-theme-toggle" title="Cambiar a Modo Oscuro / Claro" style="width: 36px; height: 36px; border-radius: 8px;">
+                <svg id="home-theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+                <svg id="home-theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+              </button>
+              <button id="btn-home-create-board-top" class="btn btn-primary btn-home-create">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>Nuevo tablero</span>
+              </button>
+            </div>
+          </header>
+
+          <!-- Tabla de tableros estilo Miro -->
+          <div class="home-table-container">
+            <table class="home-boards-table">
+              <thead>
+                <tr>
+                  <th class="th-name">Nombre</th>
+                  <th class="th-space">Espacio</th>
+                  <th class="th-opened">Abierto por última vez</th>
+                  <th class="th-actions"></th>
+                </tr>
+              </thead>
+              <tbody id="home-boards-tbody">
+                <!-- Filas generadas dinámicamente -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </main>
+    </div>
+
     <!-- Lienzo principal interactivo -->
     <canvas id="viewport-canvas"></canvas>
 
-    <!-- Barra de pestañas horizontal estilo Miro Desktop -->
-    <div id="tabs-bar" class="tabs-bar">
+    <!-- Barra de pestañas horizontal Brain Board -->
+    <div id="tabs-bar" class="tabs-bar" style="display: none;">
+      <button id="btn-tab-home" class="btn-tab-home" title="Pantalla de inicio (Vista general)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        <span>Inicio</span>
+      </button>
       <div class="tabs-scroll-area" id="tabs-scroll-area">
         <div class="tabs-list" id="tabs-list"></div>
       </div>
-      <button id="btn-tab-new" class="btn-tab-new" title="Abrir nuevo tablero en pestaña (+)">
+      <button id="btn-tab-new" class="btn-tab-new" title="Pantalla de inicio (+)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
     </div>
 
     <!-- Barra superior -->
-    <div id="top-bar">
+    <div id="top-bar" style="display: none;">
       <div class="top-bar-left board-controller-pill">
         <button id="btn-toggle-board-drawer" class="btn btn-icon btn-hamburger" title="Espacios de trabajo y tableros">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
-        <div class="brainboard-logo-brand" title="Brain Board">
+        <div class="brainboard-logo-brand" id="btn-brand-home" title="Ir a la pantalla de Inicio" style="cursor: pointer;">
           <svg class="brainboard-logo-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-5.04z"/>
             <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-5.04z"/>
           </svg>
           <span class="brainboard-logo-text">Brain Board</span>
         </div>
-        <div class="board-thumbnail-mini">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#6366f1" stroke-width="2.2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-        </div>
+        <div class="board-thumbnail-mini" id="board-thumbnail-mini"></div>
         <input type="text" id="board-title" value="DEV / AI" title="Haz clic para renombrar el tablero" />
         <button id="btn-board-options-trigger" class="btn btn-icon btn-three-dots" title="Opciones de tablero">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="12" cy="19" r="2.2"/></svg>
@@ -69,10 +168,6 @@
             <span>Exportar 4K</span>
           </div>
           <div class="dropdown-divider"></div>
-          <div class="dropdown-item" id="menu-opt-reset-zoom">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
-            <span>Ajustar vista al contenido</span>
-          </div>
           <div class="dropdown-item text-danger" id="menu-opt-clear">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             <span>Limpiar tablero</span>
@@ -87,22 +182,55 @@
         <button id="btn-redo" class="btn btn-icon" title="Rehacer (Ctrl+Y)">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>
         </button>
-        <div class="top-bar-divider" style="height: 18px; width: 1px; background: #e2e8f0; margin: 0 4px;"></div>
+      </div>
+
+      <div class="top-bar-right" style="position: relative;">
+        <!-- Buscador movido aquí -->
         <button id="btn-board-search-trigger" class="btn btn-icon" title="Buscar en el tablero (Ctrl+F)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         </button>
-      </div>
 
-      <div class="top-bar-right">
-        <button id="btn-toggle-assets" class="btn" title="Abrir galeria de imagenes del archivo .rtb">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
-          <span>Imagenes .RTB (171)</span>
+        <!-- Ajustar vista al contenido -->
+        <button id="btn-reset-zoom" class="btn btn-icon" title="Ajustar vista al contenido">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
         </button>
+
+        <!-- Galería de imágenes .RTB (solo icono) -->
+        <button id="btn-toggle-assets" class="btn btn-icon" title="Imágenes .RTB">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        </button>
+
+        <!-- Alternador Modo Oscuro / Claro -->
+        <button id="btn-toggle-theme" class="btn btn-icon" title="Cambiar a Modo Oscuro / Claro">
+          <svg id="theme-icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display: none;"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+
+        <div class="top-bar-divider" style="height: 18px; width: 1px; background: #e2e8f0; margin: 0 2px;"></div>
+
+        <!-- Menú de Opciones de Desarrollador -->
+        <div style="position: relative;">
+          <button id="btn-dev-options-trigger" class="btn btn-icon" title="Opciones de desarrollador">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          </button>
+          
+          <div id="dev-options-menu" class="board-dropdown-menu dev-dropdown-menu">
+            <div style="padding: 6px 12px; font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px;">Herramientas Dev</div>
+            <div class="dropdown-item" id="dev-opt-select-arrows">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              <span>Seleccionar todas las flechas</span>
+            </div>
+            <div class="dropdown-item" id="dev-opt-select-frames">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+              <span>Seleccionar todos los marcos</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
     <!-- Barra de herramientas lateral izquierda -->
-    <div id="left-toolbar">
+    <div id="left-toolbar" style="display: none;">
       <button class="tool-btn active" data-tool="select" title="Puntero de seleccion (V)">
         <svg viewBox="0 0 24 24"><path d="M3 3l7 18 3-7 7-3L3 3z"/></svg>
       </button>
@@ -119,7 +247,7 @@
           <span class="flyout-arrow"></span>
         </button>
 
-        <!-- Menú desplegable estilo Photoshop / Miro -->
+        <!-- Menú desplegable de formas -->
         <div class="tool-flyout-menu" id="shape-flyout-menu" style="display: none;">
           <div class="flyout-title">FORMAS</div>
           <div class="flyout-item active" data-shape="rectangle" title="Rectángulo (S)">
@@ -162,7 +290,7 @@
       </button>
     </div>
 
-    <!-- Barra flotante contextual estilo Miro sobre el elemento seleccionado -->
+    <!-- Barra flotante contextual sobre el elemento seleccionado -->
     <div id="properties-bar">
       <!-- Selector de Tipo / Fuente -->
       <div class="prop-group font-family-group">
@@ -235,6 +363,14 @@
         <div id="fill-color-popover" class="color-palette-popover"></div>
       </div>
 
+      <!-- Añadir / Editar URL -->
+      <button id="btn-prop-url" class="btn btn-icon" title="Añadir o editar URL">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+        </svg>
+      </button>
+
       <div class="divider"></div>
 
       <!-- Duplicar y Borrar -->
@@ -246,8 +382,20 @@
       </button>
     </div>
 
+    <!-- Botoncito flotante interactivo al lado del elemento seleccionado con enlace -->
+    <div id="floating-item-url-badge" class="floating-item-url-badge" style="display: none;">
+      <div class="floating-url-btn-inner" id="btn-open-floating-url" title="Abrir página web en el navegador">
+        <svg class="floating-url-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+          <polyline points="15 3 21 3 21 9"/>
+          <line x1="10" y1="14" x2="21" y2="3"/>
+        </svg>
+        <span class="floating-url-text" id="floating-url-display-text">Ir al enlace</span>
+      </div>
+    </div>
+
     <!-- Controles de zoom abajo a la derecha -->
-    <div id="zoom-controls">
+    <div id="zoom-controls" style="display: none;">
       <button id="btn-zoom-out" class="btn btn-icon" title="Alejar (-)">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </button>
@@ -261,7 +409,7 @@
       </button>
     </div>
 
-    <!-- Panel lateral estilo Miro: Controlador y Navegador de Tableros -->
+    <!-- Panel lateral: Controlador y Navegador de Tableros -->
     <div id="board-controller-drawer" class="board-drawer">
       <div class="drawer-top-actions">
         <button id="btn-drawer-search" class="drawer-icon-btn" title="Buscar tableros">
@@ -299,7 +447,7 @@
         </div>
       </div>
 
-      <!-- Callout informativo estilo Miro -->
+      <!-- Callout informativo -->
       <div class="drawer-callout-card" id="drawer-callout-box">
         <button class="callout-close-btn" id="btn-close-callout">✕</button>
         <p class="callout-text">Ordena tu espacio con secciones para ayudarte a organizar y navegar por tu contenido más fácilmente.</p>
@@ -360,7 +508,7 @@
       <button id="btn-search-close" class="btn-search-close" title="Cerrar (Esc)">✕</button>
     </div>
 
-    <!-- Popover de comentario estilo Miro -->
+    <!-- Popover de comentario -->
     <div id="comment-popover" class="comment-popover-card" style="display: none;">
       <div class="comment-popover-header">
         <div class="comment-author-badge">
@@ -493,6 +641,15 @@
                 <div class="ps-picker-preview-label">Actual</div>
               </div>
 
+              <!-- Botón Cuentagotas (Pantalla completa / Externa) -->
+              <button id="ps-picker-btn-eyedropper" class="ps-picker-eyedropper-btn" type="button" title="Cuentagotas: Tomar color de cualquier parte de la pantalla (tecla I)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="m14 7 3 3m-9.5 9.5 7.5-7.5-3-3L4.5 13.5A2.12 2.12 0 0 0 4 15v5h5a2.12 2.12 0 0 0 1.5-.5Z"/>
+                  <path d="M14.5 6.5 17 4a2.12 2.12 0 1 1 3 3l-2.5 2.5"/>
+                </svg>
+                <span>Cuentagotas</span>
+              </button>
+
               <div class="ps-picker-input-group">
                 <label for="ps-picker-hex-input">#</label>
                 <input id="ps-picker-hex-input" type="text" maxlength="6" value="FFFFFF" spellcheck="false" />
@@ -505,6 +662,175 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- Modal para Renombrar Tablero -->
+    <div id="rename-board-modal" class="modal-backdrop" style="display: none;">
+      <div class="modal-dialog" style="width: 380px;">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            <h3>Renombrar tablero</h3>
+          </div>
+          <button id="btn-close-rename-modal" class="btn-mini-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <label style="font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 6px;">Nombre del tablero</label>
+          <input type="text" id="input-rename-board-title" class="home-modal-input" placeholder="Nombre del tablero" />
+        </div>
+        <div class="modal-footer">
+          <button id="btn-cancel-rename" class="btn">Cancelar</button>
+          <button id="btn-confirm-rename" class="btn btn-primary">Guardar</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal para Cambiar Miniatura del Tablero -->
+    <div id="change-thumbnail-modal" class="modal-backdrop" style="display: none;">
+      <div class="modal-dialog" style="width: 440px;">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8b5cf6" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+            <h3>Cambiar miniatura</h3>
+          </div>
+          <button id="btn-close-thumb-modal" class="btn-mini-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 16px;">
+            <div id="thumb-modal-preview" style="width: 52px; height: 52px; border-radius: 8px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; font-size: 24px; border: 1px solid #cbd5e1; overflow: hidden; flex-shrink: 0;">
+              📋
+            </div>
+            <div style="flex: 1;">
+              <button id="btn-upload-thumb-image" class="btn" style="width: 100%; margin-bottom: 6px; font-size: 13px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span>Subir imagen personalizada</span>
+              </button>
+              <input type="file" id="input-thumb-file" accept="image/*" style="display: none;" />
+              <button id="btn-reset-thumb" class="btn-link" style="font-size: 12px; color: #64748b; background: none; border: none; cursor: pointer; padding: 0;">Restaurar predeterminado</button>
+            </div>
+          </div>
+
+          <label style="font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 8px;">O elige un icono rápido:</label>
+          <div class="thumb-icons-grid" id="thumb-icons-grid">
+            <!-- Iconos generados -->
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-cancel-thumb" class="btn">Cancelar</button>
+          <button id="btn-confirm-thumb" class="btn btn-primary">Guardar cambios</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal para Mover de Categoría -->
+    <div id="move-category-modal" class="modal-backdrop" style="display: none;">
+      <div class="modal-dialog" style="width: 380px;">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <h3>Mover de categoría</h3>
+          </div>
+          <button id="btn-close-move-cat-modal" class="btn-mini-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="font-size: 13px; color: #64748b; margin-bottom: 12px;" id="move-cat-modal-desc">Selecciona la categoría para este tablero:</p>
+          <div class="move-cat-options-list" id="move-cat-options-list">
+            <!-- Radio list de categorías disponibles -->
+          </div>
+          <div style="margin-top: 14px; border-top: 1px solid #f1f5f9; padding-top: 12px;">
+            <div style="display: flex; gap: 6px;">
+              <input type="text" id="input-inline-new-cat" placeholder="Nueva categoría..." class="home-modal-input" style="flex: 1;" />
+              <button id="btn-inline-add-cat" class="btn" style="white-space: nowrap;">Añadir</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-cancel-move-cat" class="btn">Cancelar</button>
+          <button id="btn-confirm-move-cat" class="btn btn-primary">Mover</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal para Crear Nueva Categoría -->
+    <div id="new-category-modal" class="modal-backdrop" style="display: none;">
+      <div class="modal-dialog" style="width: 360px;">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            <h3>Nueva categoría</h3>
+          </div>
+          <button id="btn-close-new-cat-modal" class="btn-mini-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <label style="font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 6px;">Nombre de la categoría</label>
+          <input type="text" id="input-new-cat-name" class="home-modal-input" placeholder="Ej. Creativo, Diseño, 3D..." />
+        </div>
+        <div class="modal-footer">
+          <button id="btn-cancel-new-cat" class="btn">Cancelar</button>
+          <button id="btn-confirm-new-cat" class="btn btn-primary">Crear categoría</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal para Añadir / Editar URL en cajas de texto o imágenes -->
+    <div id="modal-edit-url" class="modal-backdrop" style="display: none;">
+      <div class="modal-dialog" style="max-width: 440px;">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            <h3 id="url-modal-title">Añadir URL</h3>
+          </div>
+          <button id="btn-close-url-modal" class="btn-mini-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <label style="font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 6px;">Enlace web (URL):</label>
+          <input type="text" id="input-item-url" class="home-modal-input" placeholder="https://ejemplo.com o www.ejemplo.com" />
+          <p style="font-size: 11.5px; color: #64748b; margin-top: 6px; line-height: 1.4;">
+            Al asignar una URL, el texto aparecerá en azul y podrás pulsar un botón directo al lado para abrir la página en tu navegador.
+          </p>
+        </div>
+        <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+          <button id="btn-remove-url" class="btn" style="color: #ef4444; border: 1px solid #fee2e2; background: #fff5f5; display: none;">
+            Quitar URL
+          </button>
+          <div style="display: flex; gap: 8px; margin-left: auto;">
+            <button id="btn-cancel-url" class="btn">Cancelar</button>
+            <button id="btn-save-url" class="btn btn-primary">Guardar URL</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Menú desplegable flotante de opciones de fila en la Pantalla de Inicio -->
+    <div id="home-row-options-menu" class="home-row-dropdown-menu" style="display: none;">
+      <div class="dropdown-item" id="home-opt-rename">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        <span>Cambiar nombre del tablero</span>
+      </div>
+      <div class="dropdown-item" id="home-opt-thumbnail">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        <span>Cambiar miniatura</span>
+      </div>
+      <div class="dropdown-item" id="home-opt-export-hires">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        <span>Exportar 4K</span>
+      </div>
+      <div class="dropdown-item" id="home-opt-export-json">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        <span>Exportar JSON</span>
+      </div>
+      <div class="dropdown-item" id="home-opt-move-cat">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <span>Mover de categoría</span>
+      </div>
+      <div class="dropdown-divider"></div>
+      <div class="dropdown-item text-danger" id="home-opt-delete">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+        <span>Eliminar</span>
       </div>
     </div>
 
