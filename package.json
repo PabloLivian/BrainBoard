@@ -12,7 +12,8 @@
   "main": "app_bundle/main.js",
   "scripts": {
     "start": "npx electron .",
-    "build": "node scripts/pack_asar.js"
+    "build": "node scripts/pack_asar.js",
+    "pack:installer": "npx electron-builder --config electron-builder.yml"
   },
   "config": {
     "appName": "Brain Board"

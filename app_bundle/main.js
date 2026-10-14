@@ -137781,6 +137781,135 @@ electron_1.ipcMain.handle('export-image-file', (_event, options) => __awaiter(vo
         return { error: err ? err.message : String(err) };
     }
 }));
+
+// ==========================================
+// Integración AutoUpdater (Brain Board)
+// ==========================================
+let brainAutoUpdater = null;
+try {
+    const updaterPkg = require('electron-updater');
+    brainAutoUpdater = updaterPkg.autoUpdater;
+} catch (e) {
+    console.warn('[BrainBoard Updater] No se pudo cargar electron-updater:', e.message);
+}
+
+if (brainAutoUpdater) {
+    try {
+        const updaterLog = require('electron-log');
+        brainAutoUpdater.logger = updaterLog;
+        if (brainAutoUpdater.logger && brainAutoUpdater.logger.transports && brainAutoUpdater.logger.transports.file) {
+            brainAutoUpdater.logger.transports.file.level = 'info';
+        }
+    } catch (_logErr) {
+        brainAutoUpdater.logger = console;
+    }
+
+    brainAutoUpdater.autoDownload = true;
+    brainAutoUpdater.autoInstallOnAppQuit = true;
+
+    brainAutoUpdater.on('checking-for-update', () => {
+        console.log('[BrainBoard Updater] Comprobando si hay actualizaciones en GitHub...');
+        const targetWin = electron_1.BrowserWindow.getFocusedWindow() || win;
+        if (targetWin && targetWin.webContents) {
+            targetWin.webContents.send('updater-message', { status: 'checking', text: 'Buscando actualizaciones...' });
+        }
+    });
+
+    brainAutoUpdater.on('update-available', (info) => {
+        console.log('[BrainBoard Updater] Nueva versión disponible:', info.version);
+        const targetWin = electron_1.BrowserWindow.getFocusedWindow() || win;
+        if (targetWin && targetWin.webContents) {
+            targetWin.webContents.send('updater-message', {
+                status: 'available',
+                version: info.version,
+                text: `Nueva versión v${info.version} encontrada. Descargando en segundo plano...`
+            });
+        }
+    });
+
+    brainAutoUpdater.on('update-not-available', (info) => {
+        console.log('[BrainBoard Updater] Aplicación al día:', info ? info.version : '');
+        const targetWin = electron_1.BrowserWindow.getFocusedWindow() || win;
+        if (targetWin && targetWin.webContents) {
+            targetWin.webContents.send('updater-message', {
+                status: 'not-available',
+                text: 'Brain Board está al día.'
+            });
+        }
+    });
+
+    brainAutoUpdater.on('download-progress', (progressObj) => {
+        const percent = Math.round(progressObj.percent || 0);
+        console.log(`[BrainBoard Updater] Descarga: ${percent}%`);
+        const targetWin = electron_1.BrowserWindow.getFocusedWindow() || win;
+        if (targetWin && targetWin.webContents) {
+            targetWin.webContents.send('updater-message', {
+                status: 'downloading',
+                percent: percent,
+                text: `Descargando actualización: ${percent}%`
+            });
+        }
+    });
+
+    brainAutoUpdater.on('update-downloaded', (info) => {
+        console.log('[BrainBoard Updater] Descarga completada:', info.version);
+        const targetWin = electron_1.BrowserWindow.getFocusedWindow() || win;
+        if (targetWin && targetWin.webContents) {
+            targetWin.webContents.send('updater-message', {
+                status: 'downloaded',
+                version: info.version,
+                text: `Versión v${info.version} descargada y lista para instalar.`
+            });
+        }
+
+        electron_1.dialog.showMessageBox(targetWin || win, {
+            type: 'info',
+            title: 'Actualización lista - Brain Board',
+            message: `La versión v${info.version} de Brain Board se ha descargado correctamente.`,
+            detail: '¿Deseas reiniciar la aplicación ahora para instalar la actualización?',
+            buttons: ['Reiniciar y actualizar', 'Más tarde'],
+            defaultId: 0,
+            cancelId: 1
+        }).then(result => {
+            if (result.response === 0) {
+                brainAutoUpdater.quitAndInstall();
+            }
+        });
+    });
+
+    brainAutoUpdater.on('error', (err) => {
+        console.warn('[BrainBoard Updater] Error:', err ? err.message : err);
+        const targetWin = electron_1.BrowserWindow.getFocusedWindow() || win;
+        if (targetWin && targetWin.webContents) {
+            targetWin.webContents.send('updater-message', {
+                status: 'error',
+                error: err ? err.message : String(err),
+                text: 'Error al comprobar actualizaciones'
+            });
+        }
+    });
+
+    // Comprobación automática 5 segundos después del arranque si está empaquetada
+    setTimeout(() => {
+        if (electron_1.app.isPackaged) {
+            brainAutoUpdater.checkForUpdates().catch(e => {
+                console.warn('[BrainBoard Updater] Fallo comprobación inicial:', e.message);
+            });
+        }
+    }, 5000);
+}
+
+electron_1.ipcMain.handle('check-for-updates', async () => {
+    if (!brainAutoUpdater) {
+        return { success: false, error: 'AutoUpdater no disponible en este entorno.' };
+    }
+    try {
+        const result = await brainAutoUpdater.checkForUpdates();
+        return { success: true, updateInfo: result ? result.updateInfo : null };
+    } catch (err) {
+        return { success: false, error: err ? err.message : String(err) };
+    }
+});
 electron_1.ipcMain.handle('get-screen-sharing-sources', (_event, options) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         logger.debug(`IPC 'get-screen-sharing-sources' request received`);

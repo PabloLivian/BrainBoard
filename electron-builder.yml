@@ -1,0 +1,35 @@
+appId: com.brainboard.app
+productName: Brain Board
+copyright: Copyright © 2026 Brain Board
+electronVersion: 31.2.0
+
+directories:
+  output: dist_setup
+
+files:
+  - "app_bundle/**/*"
+  - "boards/**/*"
+  - "extracted_board/**/*"
+  - "package.json"
+
+asarUnpack:
+  - "node_modules/offline-js/**/*"
+
+publish:
+  provider: github
+  owner: PabloLivian
+  repo: BrainBoard
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: "Brain Board"
+  runAfterFinish: true

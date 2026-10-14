@@ -2089,6 +2089,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 2400);
   }
 
+  // Listener para actualizaciones automáticas de Brain Board
+  try {
+    if (typeof window !== 'undefined' && window.require) {
+      const electronModule = window.require('electron');
+      if (electronModule && electronModule.ipcRenderer) {
+        electronModule.ipcRenderer.on('updater-message', (_event, data) => {
+          if (data && data.text) {
+            showDevToast(data.text);
+          }
+        });
+      }
+    }
+  } catch (_e) {}
+
   // =========================================================
   // SISTEMA PROFESIONAL DE COPIAR Y PEGAR (TIPO MIRO)
   // Soporte entre tableros, grupos, conectores, marcos y multimedia
