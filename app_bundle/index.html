@@ -623,7 +623,7 @@
           <button id="btn-close-delete-modal" class="btn-mini-close" title="Cerrar">✕</button>
         </div>
         <div class="modal-body">
-          <p class="modal-desc" id="delete-board-modal-msg" style="font-size: 13.5px; color: #334155; line-height: 1.5;">
+          <p class="modal-desc" id="delete-board-modal-msg" style="font-size: 13.5px; line-height: 1.5;">
             ¿Estás seguro de que deseas eliminar este tablero? Esta acción no se puede deshacer y se perderá todo su contenido.
           </p>
         </div>
@@ -705,7 +705,7 @@
           <button id="btn-close-rename-modal" class="btn-mini-close">✕</button>
         </div>
         <div class="modal-body">
-          <label style="font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 6px;">Nombre del tablero</label>
+          <label class="modal-label" style="display: block; margin-bottom: 6px;">Nombre del tablero</label>
           <input type="text" id="input-rename-board-title" class="home-modal-input" placeholder="Nombre del tablero" />
         </div>
         <div class="modal-footer">
@@ -727,20 +727,20 @@
         </div>
         <div class="modal-body">
           <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 16px;">
-            <div id="thumb-modal-preview" style="width: 52px; height: 52px; border-radius: 8px; background: #f1f5f9; display: flex; align-items: center; justify-content: center; font-size: 24px; border: 1px solid #cbd5e1; overflow: hidden; flex-shrink: 0;">
+            <div id="thumb-modal-preview" class="thumb-modal-preview">
               📋
             </div>
             <div style="flex: 1;">
-              <button id="btn-upload-thumb-image" class="btn" style="width: 100%; margin-bottom: 6px; font-size: 13px;">
+              <button id="btn-upload-thumb-image" class="btn btn-upload-thumb">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                 <span>Subir imagen personalizada</span>
               </button>
               <input type="file" id="input-thumb-file" accept="image/*" style="display: none;" />
-              <button id="btn-reset-thumb" class="btn-link" style="font-size: 12px; color: #64748b; background: none; border: none; cursor: pointer; padding: 0;">Restaurar predeterminado</button>
+              <button id="btn-reset-thumb" class="btn-link btn-thumb-reset">Restaurar predeterminado</button>
             </div>
           </div>
 
-          <label style="font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 8px;">O elige un icono rápido:</label>
+          <label class="modal-label" style="display: block; margin-bottom: 8px;">O elige un icono rápido:</label>
           <div class="thumb-icons-grid" id="thumb-icons-grid">
             <!-- Iconos generados -->
           </div>
@@ -767,7 +767,7 @@
           <div class="move-cat-options-list" id="move-cat-options-list">
             <!-- Radio list de categorías disponibles -->
           </div>
-          <div style="margin-top: 14px; border-top: 1px solid #f1f5f9; padding-top: 12px;">
+          <div class="move-cat-divider" style="margin-top: 14px; border-top: 1px solid #f1f5f9; padding-top: 12px;">
             <div style="display: flex; gap: 6px;">
               <input type="text" id="input-inline-new-cat" placeholder="Nueva categoría..." class="home-modal-input" style="flex: 1;" />
               <button id="btn-inline-add-cat" class="btn" style="white-space: nowrap;">Añadir</button>
@@ -792,7 +792,7 @@
           <button id="btn-close-new-cat-modal" class="btn-mini-close">✕</button>
         </div>
         <div class="modal-body">
-          <label style="font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 6px;">Nombre de la categoría</label>
+          <label class="modal-label" style="display: block; margin-bottom: 6px;">Nombre de la categoría</label>
           <input type="text" id="input-new-cat-name" class="home-modal-input" placeholder="Ej. Creativo, Diseño, 3D..." />
         </div>
         <div class="modal-footer">
@@ -816,14 +816,14 @@
           <button id="btn-close-url-modal" class="btn-mini-close">✕</button>
         </div>
         <div class="modal-body">
-          <label style="font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 6px;">Enlace web (URL):</label>
+          <label class="modal-label" style="display: block; margin-bottom: 6px;">Enlace web (URL):</label>
           <input type="text" id="input-item-url" class="home-modal-input" placeholder="https://ejemplo.com o www.ejemplo.com" />
-          <p style="font-size: 11.5px; color: #64748b; margin-top: 6px; line-height: 1.4;">
+          <p class="modal-desc" style="font-size: 11.5px; margin-top: 6px; line-height: 1.4;">
             Al asignar una URL, el texto aparecerá en azul y podrás pulsar un botón directo al lado para abrir la página en tu navegador.
           </p>
         </div>
         <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
-          <button id="btn-remove-url" class="btn" style="color: #ef4444; border: 1px solid #fee2e2; background: #fff5f5; display: none;">
+          <button id="btn-remove-url" class="btn btn-remove-url" style="display: none;">
             Quitar URL
           </button>
           <div style="display: flex; gap: 8px; margin-left: auto;">

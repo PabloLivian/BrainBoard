@@ -1955,8 +1955,8 @@ html, body {
 
 .modal-dialog,
 .home-modal-card {
-  background: #ffffff !important;
-  background-color: #ffffff !important;
+  background: #ffffff;
+  background-color: #ffffff;
   isolation: isolate;
   border-radius: 12px;
   box-shadow: 0 20px 45px rgba(0, 0, 0, 0.3);
@@ -2598,6 +2598,12 @@ html, body {
 }
 
 /* Modales adicionales para Inicio */
+.modal-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
 .home-modal-input {
   width: 100%;
   padding: 8px 12px;
@@ -2612,6 +2618,54 @@ html, body {
 .home-modal-input:focus {
   border-color: #3b82f6;
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.thumb-modal-preview {
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  border: 1px solid #cbd5e1;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: all 0.15s ease;
+}
+
+.btn-upload-thumb {
+  width: 100%;
+  margin-bottom: 6px;
+  font-size: 13px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  color: #334155;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-upload-thumb:hover {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+  color: #0f172a;
+}
+
+.btn-thumb-reset {
+  font-size: 12px;
+  color: #64748b;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.15s ease;
+}
+
+.btn-thumb-reset:hover {
+  color: #3b82f6;
+  text-decoration: underline;
 }
 
 .thumb-icons-grid {
@@ -3071,27 +3125,46 @@ body.dark-theme .modal-backdrop {
 }
 
 body.dark-theme .modal-dialog,
+body.dark-theme .home-modal-card,
 body.dark-theme .modal-content {
-  background: #1e222b;
-  border-color: #2d323b;
+  background: #1e222b !important;
+  background-color: #1e222b !important;
+  border: 1px solid #2d323b;
   box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
   color: #f1f5f9;
 }
 
+body.dark-theme .modal-header {
+  border-bottom: 1px solid #2d323b;
+}
+
+body.dark-theme .modal-title-row h3,
 body.dark-theme .modal-header h3 {
   color: #f1f5f9;
 }
 
-body.dark-theme .modal-close {
+body.dark-theme .modal-desc,
+body.dark-theme .modal-body p {
   color: #94a3b8;
 }
 
-body.dark-theme .modal-close:hover {
+body.dark-theme .modal-body label {
+  color: #94a3b8 !important;
+}
+
+body.dark-theme .modal-close,
+body.dark-theme .btn-mini-close {
+  color: #94a3b8;
+}
+
+body.dark-theme .modal-close:hover,
+body.dark-theme .btn-mini-close:hover {
   background: #282e3a;
   color: #ffffff;
 }
 
 body.dark-theme .modal-input,
+body.dark-theme .home-modal-input,
 body.dark-theme .modal-body input[type="text"],
 body.dark-theme .modal-body input[type="url"],
 body.dark-theme .modal-body textarea {
@@ -3101,13 +3174,26 @@ body.dark-theme .modal-body textarea {
 }
 
 body.dark-theme .modal-input:focus,
+body.dark-theme .home-modal-input:focus,
 body.dark-theme .modal-body input:focus {
   border-color: #6366f1;
   box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
 }
 
 body.dark-theme .modal-footer {
-  border-top-color: #2d323b;
+  background: #181b21 !important;
+  border-top: 1px solid #2d323b;
+}
+
+body.dark-theme .modal-footer .btn:not(.btn-primary):not(.btn-danger) {
+  background: #282e3a;
+  border: 1px solid #383e4c;
+  color: #e2e8f0;
+}
+
+body.dark-theme .modal-footer .btn:not(.btn-primary):not(.btn-danger):hover {
+  background: #323a48;
+  color: #ffffff;
 }
 
 body.dark-theme .btn-secondary {
@@ -3119,6 +3205,379 @@ body.dark-theme .btn-secondary {
 body.dark-theme .btn-secondary:hover {
   background: #323a48;
   color: #ffffff;
+}
+
+/* Modales específicos del dashboard y home en Dark Theme */
+body.dark-theme .move-cat-option-item {
+  color: #cbd5e1;
+}
+
+body.dark-theme .move-cat-option-item:hover {
+  background: #282e3a;
+  color: #f1f5f9;
+}
+
+body.dark-theme .move-cat-option-item.selected {
+  background: rgba(59, 130, 246, 0.2);
+  color: #60a5fa;
+}
+
+body.dark-theme .move-cat-option-item.selected svg {
+  stroke: #60a5fa;
+}
+
+body.dark-theme .move-cat-check {
+  color: #60a5fa !important;
+}
+
+body.dark-theme .move-cat-divider {
+  border-top-color: #2d323b !important;
+}
+
+body.dark-theme #btn-inline-add-cat {
+  background: #282e3a;
+  border: 1px solid #383e4c;
+  color: #e2e8f0;
+}
+
+body.dark-theme #btn-inline-add-cat:hover {
+  background: #323a48;
+  color: #ffffff;
+}
+
+/* Modal de confirmación para eliminar tablero (Dark Theme) */
+body.dark-theme #delete-board-modal .modal-dialog {
+  background: #1e222b !important;
+  background-color: #1e222b !important;
+  border: 1px solid #2d323b !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #delete-board-modal .modal-header {
+  border-bottom: 1px solid #2d323b !important;
+}
+
+body.dark-theme #delete-board-modal .modal-title-row h3 {
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #delete-board-modal #btn-close-delete-modal {
+  color: #94a3b8 !important;
+}
+
+body.dark-theme #delete-board-modal #btn-close-delete-modal:hover {
+  background: #282e3a !important;
+  color: #ffffff !important;
+}
+
+body.dark-theme #delete-board-modal #delete-board-modal-msg {
+  color: #cbd5e1 !important;
+}
+
+body.dark-theme #delete-board-modal #delete-board-modal-msg strong {
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+body.dark-theme #delete-board-modal .modal-footer {
+  background: #181b21 !important;
+  border-top: 1px solid #2d323b !important;
+}
+
+body.dark-theme #delete-board-modal #btn-cancel-delete-board {
+  background: #282e3a !important;
+  border: 1px solid #383e4c !important;
+  color: #e2e8f0 !important;
+}
+
+body.dark-theme #delete-board-modal #btn-cancel-delete-board:hover {
+  background: #323a48 !important;
+  color: #ffffff !important;
+}
+
+
+/* Modal para Cambiar Miniatura del Tablero (Dark Theme) */
+body.dark-theme #change-thumbnail-modal .modal-dialog {
+  background: #1e222b !important;
+  background-color: #1e222b !important;
+  border: 1px solid #2d323b !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6) !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #change-thumbnail-modal .modal-header {
+  border-bottom: 1px solid #2d323b !important;
+}
+
+body.dark-theme #change-thumbnail-modal .modal-title-row h3 {
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #change-thumbnail-modal #btn-close-thumb-modal {
+  color: #94a3b8 !important;
+}
+
+body.dark-theme #change-thumbnail-modal #btn-close-thumb-modal:hover {
+  background: #282e3a !important;
+  color: #ffffff !important;
+}
+
+body.dark-theme #change-thumbnail-modal .modal-body {
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #change-thumbnail-modal .modal-label,
+body.dark-theme #change-thumbnail-modal .modal-body label {
+  color: #cbd5e1 !important;
+}
+
+body.dark-theme #change-thumbnail-modal .thumb-modal-preview,
+body.dark-theme #change-thumbnail-modal #thumb-modal-preview {
+  background: #14171c !important;
+  border: 1px solid #2d323b !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #change-thumbnail-modal .btn-upload-thumb,
+body.dark-theme #change-thumbnail-modal #btn-upload-thumb-image {
+  background: #252a35 !important;
+  border: 1px solid #383e4c !important;
+  color: #e2e8f0 !important;
+}
+
+body.dark-theme #change-thumbnail-modal .btn-upload-thumb:hover,
+body.dark-theme #change-thumbnail-modal #btn-upload-thumb-image:hover {
+  background: #2e3543 !important;
+  border-color: #4b5563 !important;
+  color: #ffffff !important;
+}
+
+body.dark-theme #change-thumbnail-modal .btn-thumb-reset,
+body.dark-theme #change-thumbnail-modal #btn-reset-thumb {
+  color: #94a3b8 !important;
+}
+
+body.dark-theme #change-thumbnail-modal .btn-thumb-reset:hover,
+body.dark-theme #change-thumbnail-modal #btn-reset-thumb:hover {
+  color: #cbd5e1 !important;
+  text-decoration: underline !important;
+}
+
+body.dark-theme #change-thumbnail-modal .thumb-icon-choice {
+  background: #14171c !important;
+  border: 1px solid #2d323b !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #change-thumbnail-modal .thumb-icon-choice:hover {
+  background: #232832 !important;
+  border-color: #6366f1 !important;
+  transform: scale(1.05);
+}
+
+body.dark-theme #change-thumbnail-modal .thumb-icon-choice.selected {
+  border-color: #818cf8 !important;
+  background: #2b3348 !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.4) !important;
+}
+
+body.dark-theme #change-thumbnail-modal .modal-footer {
+  background: #181b21 !important;
+  border-top: 1px solid #2d323b !important;
+}
+
+body.dark-theme #change-thumbnail-modal #btn-cancel-thumb {
+  background: #282e3a !important;
+  border: 1px solid #383e4c !important;
+  color: #e2e8f0 !important;
+}
+
+body.dark-theme #change-thumbnail-modal #btn-cancel-thumb:hover {
+  background: #323a48 !important;
+  border-color: #475569 !important;
+  color: #ffffff !important;
+}
+
+/* Modal para Renombrar Tablero (Dark Theme) */
+body.dark-theme #rename-board-modal .modal-dialog {
+  background: #1e222b !important;
+  background-color: #1e222b !important;
+  border: 1px solid #2d323b !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6) !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #rename-board-modal .modal-header {
+  border-bottom: 1px solid #2d323b !important;
+}
+
+body.dark-theme #rename-board-modal .modal-title-row h3 {
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #rename-board-modal #btn-close-rename-modal {
+  color: #94a3b8 !important;
+}
+
+body.dark-theme #rename-board-modal #btn-close-rename-modal:hover {
+  background: #282e3a !important;
+  color: #ffffff !important;
+}
+
+body.dark-theme #rename-board-modal .modal-footer {
+  background: #181b21 !important;
+  border-top: 1px solid #2d323b !important;
+}
+
+body.dark-theme #rename-board-modal #btn-cancel-rename {
+  background: #282e3a !important;
+  border: 1px solid #383e4c !important;
+  color: #e2e8f0 !important;
+}
+
+body.dark-theme #rename-board-modal #btn-cancel-rename:hover {
+  background: #323a48 !important;
+  color: #ffffff !important;
+}
+
+/* Modal para Mover de Categoría (Dark Theme) */
+body.dark-theme #move-category-modal .modal-dialog {
+  background: #1e222b !important;
+  background-color: #1e222b !important;
+  border: 1px solid #2d323b !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6) !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #move-category-modal .modal-header {
+  border-bottom: 1px solid #2d323b !important;
+}
+
+body.dark-theme #move-category-modal .modal-title-row h3 {
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #move-category-modal #btn-close-move-cat-modal {
+  color: #94a3b8 !important;
+}
+
+body.dark-theme #move-category-modal #btn-close-move-cat-modal:hover {
+  background: #282e3a !important;
+  color: #ffffff !important;
+}
+
+body.dark-theme #move-category-modal #move-cat-modal-desc {
+  color: #94a3b8 !important;
+}
+
+body.dark-theme #move-category-modal .modal-footer {
+  background: #181b21 !important;
+  border-top: 1px solid #2d323b !important;
+}
+
+body.dark-theme #move-category-modal #btn-cancel-move-cat {
+  background: #282e3a !important;
+  border: 1px solid #383e4c !important;
+  color: #e2e8f0 !important;
+}
+
+body.dark-theme #move-category-modal #btn-cancel-move-cat:hover {
+  background: #323a48 !important;
+  color: #ffffff !important;
+}
+
+/* Modal para Crear Nueva Categoría (Dark Theme) */
+body.dark-theme #new-category-modal .modal-dialog {
+  background: #1e222b !important;
+  background-color: #1e222b !important;
+  border: 1px solid #2d323b !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6) !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #new-category-modal .modal-header {
+  border-bottom: 1px solid #2d323b !important;
+}
+
+body.dark-theme #new-category-modal .modal-title-row h3 {
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #new-category-modal #btn-close-new-cat-modal {
+  color: #94a3b8 !important;
+}
+
+body.dark-theme #new-category-modal #btn-close-new-cat-modal:hover {
+  background: #282e3a !important;
+  color: #ffffff !important;
+}
+
+body.dark-theme #new-category-modal .modal-footer {
+  background: #181b21 !important;
+  border-top: 1px solid #2d323b !important;
+}
+
+body.dark-theme #new-category-modal #btn-cancel-new-cat {
+  background: #282e3a !important;
+  border: 1px solid #383e4c !important;
+  color: #e2e8f0 !important;
+}
+
+body.dark-theme #new-category-modal #btn-cancel-new-cat:hover {
+  background: #323a48 !important;
+  color: #ffffff !important;
+}
+
+/* Modal URL (Dark Theme) */
+body.dark-theme #modal-edit-url .modal-dialog {
+  background: #1e222b !important;
+  background-color: #1e222b !important;
+  border: 1px solid #2d323b !important;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6) !important;
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #modal-edit-url .modal-header {
+  border-bottom: 1px solid #2d323b !important;
+}
+
+body.dark-theme #modal-edit-url .modal-title-row h3 {
+  color: #f1f5f9 !important;
+}
+
+body.dark-theme #modal-edit-url #btn-close-url-modal {
+  color: #94a3b8 !important;
+}
+
+body.dark-theme #modal-edit-url #btn-close-url-modal:hover {
+  background: #282e3a !important;
+  color: #ffffff !important;
+}
+
+body.dark-theme #modal-edit-url .modal-footer {
+  background: #181b21 !important;
+  border-top: 1px solid #2d323b !important;
+}
+
+body.dark-theme #modal-edit-url #btn-cancel-url {
+  background: #282e3a !important;
+  border: 1px solid #383e4c !important;
+  color: #e2e8f0 !important;
+}
+
+body.dark-theme #modal-edit-url #btn-cancel-url:hover {
+  background: #323a48 !important;
+  color: #ffffff !important;
+}
+
+body.dark-theme #btn-remove-url {
+  background: rgba(239, 68, 68, 0.15) !important;
+  border-color: rgba(239, 68, 68, 0.35) !important;
+  color: #f87171 !important;
+}
+
+body.dark-theme #btn-remove-url:hover {
+  background: rgba(239, 68, 68, 0.25) !important;
 }
 
 /* Botón flotante URL Badge */

@@ -20,9 +20,9 @@
 
 ## ✨ ¿Qué es Brain Board?
 
-**Brain Board** es un entorno de trabajo visual infinito para escritorio diseñado desde cero para ser **completamente local, rápido y sin dependencias de la nube**. Olvídate de suscripciones mensuales, caídas de servidores o pérdidas de privacidad: todos tus tableros, notas, esquemas, tarjetas interactivas y galerías de imágenes residen exclusivamente en tu propio disco duro.
+**Brain Board** es un tablero digital de escritorio para tomar apuntes, estructurar ideas y organizar galerías de imágenes en un lienzo infinito.
 
-Con un motor gráfico 2D acelerado por hardware capaz de gestionar miles de elementos sin tirones a 60 FPS, Brain Board combina la libertad de una pizarra física con la potencia de un gestor de proyectos visual para arquitectura de software, diseño de sistemas, diagramación y documentación técnica.
+Funciona de manera 100% local en tu equipo, lo que asegura que la carga y navegación sean instantáneas, fluidas y sin depender de internet. Cuenta con un motor gráfico optimizado capaz de gestionar y renderizar miles de elementos en pantalla a 60 FPS estables.
 
 ---
 

@@ -5361,7 +5361,7 @@ document.addEventListener('DOMContentLoaded', () => {
       item.innerHTML = `
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
         <span style="flex:1;">${cat}</span>
-        ${tempTargetCategory === cat ? '<span style="color:#2563eb;font-weight:700;">✓</span>' : ''}
+        ${tempTargetCategory === cat ? '<span class="move-cat-check" style="color:#2563eb;font-weight:700;">✓</span>' : ''}
       `;
       item.addEventListener('click', () => {
         tempTargetCategory = cat;
