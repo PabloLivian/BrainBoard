@@ -3321,7 +3321,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (seedData && typeof seedData.seedVersion === 'number') {
         const savedVer = typeof savedData?.seedVersion === 'number' ? savedData.seedVersion : 0;
         // El trabajo del usuario es sagrado: solo considerar desactualizada una plantilla si el usuario NO la ha editado
-        if (!savedData?.userModified && seedData.seedVersion > savedVer) {
+        if ((!savedData?.userModified && seedData.seedVersion > savedVer) || (currentActiveBoardId === 'space' && seedData.seedVersion >= 5 && savedVer < 5)) {
           isOutdatedCache = true;
         }
       }
@@ -3461,7 +3461,7 @@ document.addEventListener('DOMContentLoaded', () => {
       { id: 'olalla_light_slu', title: 'Olalla Light SLU', icon: '💡', thumbnail: DEFAULT_BOARD_THUMBNAILS['olalla_light_slu'], category: 'Random', lastOpened: '12 abr', active: false },
       { id: 'ordenador', title: 'Ordenador', icon: '💻', thumbnail: DEFAULT_BOARD_THUMBNAILS['ordenador'], category: 'Random', lastOpened: '25 ago', active: false },
       { id: 'recursos', title: 'Recursos', icon: '📁', thumbnail: DEFAULT_BOARD_THUMBNAILS['recursos'], category: 'Random', lastOpened: '4 sep', active: false },
-      { id: 'space', title: 'SPACE', icon: '🌌', thumbnail: DEFAULT_BOARD_THUMBNAILS['space'], category: 'Random', lastOpened: '16 jul', active: false },
+      { id: 'space', title: 'SPACE', icon: '🌌', thumbnail: DEFAULT_BOARD_THUMBNAILS['space'], category: 'Ciencia & Espacio', lastOpened: 'Hoy', active: false },
       { id: 'trips', title: 'TRIPS', icon: '✈️', thumbnail: DEFAULT_BOARD_THUMBNAILS['trips'], category: 'Random', lastOpened: '29 sep', active: false },
       { id: 'zbrush', title: 'ZBRUSH', icon: '🗿', thumbnail: DEFAULT_BOARD_THUMBNAILS['zbrush'], category: 'Random', lastOpened: '22 jun', active: false }
     ];
@@ -3693,7 +3693,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (seedData && typeof seedData.seedVersion === 'number') {
         const savedVer = typeof saved?.seedVersion === 'number' ? saved.seedVersion : 0;
         // El trabajo del usuario es sagrado: solo considerar desactualizada una plantilla si el usuario NO la ha editado
-        if (!saved?.userModified && seedData.seedVersion > savedVer) {
+        if ((!saved?.userModified && seedData.seedVersion > savedVer) || (targetBoardId === 'space' && seedData.seedVersion >= 5 && savedVer < 5)) {
           isOutdatedCache = true;
         }
       }
