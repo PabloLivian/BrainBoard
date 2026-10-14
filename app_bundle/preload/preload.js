@@ -62271,6 +62271,12 @@ const MIRO_API = {
         }
     },
     openExternal: (url) => {
+        try {
+            if (electron_1.shell && typeof electron_1.shell.openExternal === 'function') {
+                electron_1.shell.openExternal(url);
+                return;
+            }
+        } catch (e) {}
         electron_1.ipcRenderer.send('open-external', url);
     },
     updateMenuItemsEnabled: (config) => {
@@ -62290,6 +62296,7 @@ const MIRO_API = {
     addVisitedWorkspaceCookie: options => electron_1.ipcRenderer.invoke('add-visited-workspace-cookie', options),
     showDialog: options => electron_1.ipcRenderer.invoke('show-dialog', options),
     pickScreenColor: () => electron_1.ipcRenderer.invoke('pick-screen-color'),
+    exportImage: (options) => electron_1.ipcRenderer.invoke('export-image-file', options),
 };
 exposeInMainWorld('brainBoard', MIRO_API);
 exposeInMainWorld('miro', MIRO_API);

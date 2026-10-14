@@ -69,6 +69,24 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnCloseUrlModal = document.getElementById('btn-close-url-modal');
   let itemPendingUrlEdit = null;
 
+  // Modal de propiedades del componente (Inspector JSON)
+  const btnPropInspect = document.getElementById('btn-prop-inspect');
+  const modalItemProperties = document.getElementById('modal-item-properties');
+  const propModalBadge = document.getElementById('prop-modal-badge');
+  const propModalId = document.getElementById('prop-modal-id');
+  const statItemType = document.getElementById('stat-item-type');
+  const statItemPos = document.getElementById('stat-item-pos');
+  const statItemSize = document.getElementById('stat-item-size');
+  const propItemJsonTextarea = document.getElementById('prop-item-json-textarea');
+  const propModalErrorMsg = document.getElementById('prop-modal-error-msg');
+  const btnCopyItemJson = document.getElementById('btn-copy-item-json');
+  const btnCopyItemJsonLabel = document.getElementById('btn-copy-item-json-label');
+  const iconCopyItemJson = document.getElementById('icon-copy-item-json');
+  const btnClosePropertiesModal = document.getElementById('btn-close-properties-modal');
+  const btnCloseProperties = document.getElementById('btn-close-properties');
+  const btnApplyItemJson = document.getElementById('btn-apply-item-json');
+  let itemPendingProperties = null;
+
   let activeEditingItem = null;
 
   // Evitar que el clic en la barra flotante desfoque el editor de texto
@@ -864,7 +882,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Alineación
-    const align = first.textAlign || (first.type === 'shape' || first.type === 'sticky_note' || (first.fillColor && first.fillColor !== 'transparent') ? 'center' : 'left');
+    const align = first.textAlign || (first.type === 'shape' || first.type === 'sticky_note' || (first.fillColor && first.fillColor !== 'transparent' && (!first.text || !first.text.includes('\n'))) ? 'center' : 'left');
     btnAlignLeft?.classList.toggle('active', align === 'left');
     btnAlignCenter?.classList.toggle('active', align === 'center');
     btnAlignRight?.classList.toggle('active', align === 'right');
@@ -1089,12 +1107,20 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   window.extractUrlFromItem = extractUrlFromItem;
 
-  // Helper para abrir enlaces externos de forma segura
+  // Helper para abrir enlaces externos en el navegador predeterminado del sistema
   function openExternalUrl(rawUrl) {
     if (!rawUrl) return;
     let url = rawUrl.trim();
     if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
     try {
+      if (window.brainBoard && typeof window.brainBoard.openExternal === 'function') {
+        window.brainBoard.openExternal(url);
+        return;
+      }
+      if (window.miro && typeof window.miro.openExternal === 'function') {
+        window.miro.openExternal(url);
+        return;
+      }
       const req = window.require || (typeof require !== 'undefined' ? require : null);
       if (req) {
         const { shell } = req('electron');
@@ -1297,6 +1323,183 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (e.key === 'Escape') {
       e.preventDefault();
       closeUrlModal();
+    }
+  });
+
+  // =========================================================
+  // MODAL DE PROPIEDADES DEL COMPONENTE (INSPECTOR JSON)
+  // =========================================================
+
+  function getCleanItemForInspector(it) {
+    if (!it) return {};
+    const copy = { ...it };
+    if ('imgElement' in copy) delete copy.imgElement;
+    return copy;
+  }
+
+  function openPropertiesModal(item) {
+    if (!item) {
+      item = activeEditingItem || engine.items.find(i => engine.selectedItemIds.has(i.id));
+      if (!item) return;
+    }
+    if (activeEditingItem) {
+      closeInlineEditor();
+    }
+    itemPendingProperties = item;
+
+    // Actualizar badges y estadísticas rápidas
+    const typeStr = (item.type || 'COMPONENTE').toUpperCase();
+    if (propModalBadge) propModalBadge.textContent = typeStr;
+    if (propModalId) propModalId.textContent = `#${item.id || ''}`;
+    if (statItemType) statItemType.textContent = item.type || '-';
+    if (statItemPos) statItemPos.textContent = `X: ${Math.round(item.x || 0)}, Y: ${Math.round(item.y || 0)}`;
+    if (statItemSize) statItemSize.textContent = `${Math.round(item.width || 0)} × ${Math.round(item.height || 0)} px`;
+
+    // Ocultar mensaje de error
+    if (propModalErrorMsg) {
+      propModalErrorMsg.textContent = '';
+      propModalErrorMsg.style.display = 'none';
+    }
+
+    // Resetear botón de copiar
+    resetCopyJsonBtn();
+
+    // Formatear JSON limpio
+    const cleanItem = getCleanItemForInspector(item);
+    if (propItemJsonTextarea) {
+      propItemJsonTextarea.value = JSON.stringify(cleanItem, null, 2);
+    }
+
+    if (modalItemProperties) {
+      modalItemProperties.style.display = 'flex';
+      setTimeout(() => {
+        if (propItemJsonTextarea) {
+          propItemJsonTextarea.focus();
+        }
+      }, 50);
+    }
+  }
+
+  function closePropertiesModal() {
+    itemPendingProperties = null;
+    if (modalItemProperties) modalItemProperties.style.display = 'none';
+    if (propModalErrorMsg) {
+      propModalErrorMsg.textContent = '';
+      propModalErrorMsg.style.display = 'none';
+    }
+    resetCopyJsonBtn();
+  }
+
+  let copyTimeout = null;
+  function resetCopyJsonBtn() {
+    if (copyTimeout) clearTimeout(copyTimeout);
+    if (btnCopyItemJsonLabel) btnCopyItemJsonLabel.textContent = 'Copiar JSON';
+    if (iconCopyItemJson) {
+      iconCopyItemJson.innerHTML = `
+        <rect x="9" y="9" width="13" height="13" rx="2"/>
+        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+      `;
+    }
+  }
+
+  function copyPropertiesJson() {
+    if (!propItemJsonTextarea) return;
+    const text = propItemJsonTextarea.value;
+    navigator.clipboard.writeText(text).then(() => {
+      if (btnCopyItemJsonLabel) btnCopyItemJsonLabel.textContent = '¡Copiado! ✓';
+      if (iconCopyItemJson) {
+        iconCopyItemJson.innerHTML = '<polyline points="20 6 9 17 4 12"/>';
+      }
+      if (copyTimeout) clearTimeout(copyTimeout);
+      copyTimeout = setTimeout(resetCopyJsonBtn, 2000);
+    }).catch(err => {
+      console.error('Error al copiar JSON:', err);
+    });
+  }
+
+  function applyPropertiesJson() {
+    if (!itemPendingProperties || !propItemJsonTextarea) return;
+    let parsed;
+    try {
+      parsed = JSON.parse(propItemJsonTextarea.value);
+    } catch (e) {
+      if (propModalErrorMsg) {
+        propModalErrorMsg.textContent = `Error JSON: ${e.message}`;
+        propModalErrorMsg.style.display = 'inline';
+      }
+      return;
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      if (propModalErrorMsg) {
+        propModalErrorMsg.textContent = 'El JSON debe ser un objeto válido {...}';
+        propModalErrorMsg.style.display = 'inline';
+      }
+      return;
+    }
+
+    // Guardar snapshot de historial para deshacer con Ctrl+Z
+    engine.saveSnapshot();
+
+    // Actualizar propiedades del objeto manteniendo id consistente
+    const targetItem = itemPendingProperties;
+    const origId = targetItem.id;
+    const hadImgElement = targetItem.imgElement;
+
+    // Eliminar propiedades viejas que no estén en el nuevo objeto excepto id e imgElement
+    for (const key of Object.keys(targetItem)) {
+      if (!(key in parsed) && key !== 'id' && key !== 'imgElement') {
+        delete targetItem[key];
+      }
+    }
+    Object.assign(targetItem, parsed);
+    targetItem.id = origId; // Preservar id para no desvincular selección o conectores
+    if (hadImgElement && targetItem.type === 'image') {
+      targetItem.imgElement = hadImgElement;
+    }
+
+    closePropertiesModal();
+
+    // Re-seleccionar y re-renderizar
+    if (targetItem && !engine.selectedItemIds.has(targetItem.id)) {
+      engine.selectedItemIds.clear();
+      engine.selectedItemIds.add(targetItem.id);
+    }
+
+    engine.render();
+    updateFloatingUrlBadge();
+    syncPropertiesBarWithSelection();
+    updateMinimap();
+
+    if (window.autoSaveBoardImmediately) {
+      autoSaveBoardImmediately();
+    } else {
+      autoSaveBoard();
+    }
+  }
+
+  btnPropInspect?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const it = activeEditingItem || engine.items.find(i => engine.selectedItemIds.has(i.id));
+    if (it) openPropertiesModal(it);
+  });
+
+  btnCopyItemJson?.addEventListener('click', copyPropertiesJson);
+  btnApplyItemJson?.addEventListener('click', applyPropertiesJson);
+  btnCloseProperties?.addEventListener('click', closePropertiesModal);
+  btnClosePropertiesModal?.addEventListener('click', closePropertiesModal);
+
+  modalItemProperties?.addEventListener('click', (e) => {
+    if (e.target === modalItemProperties) closePropertiesModal();
+  });
+
+  propItemJsonTextarea?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closePropertiesModal();
+    } else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      applyPropertiesJson();
     }
   });
 
@@ -2347,7 +2550,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } catch (e) {}
 
-    if (!title) {
+    if (!title || title.toLowerCase().includes('antes de ir a youtube') || title.toLowerCase().includes('before you continue to youtube')) {
       title = engine.extractTitle(cleanUrl) || domain;
     }
 
@@ -2693,7 +2896,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const fontFamily = item.fontFamily || (item.type === 'code' ? '"Fira Code", Consolas, monospace' : 'OpenSans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif');
     const isBold = item.isBold !== undefined ? item.isBold : (Boolean(item.fillColor) || fontSize >= 24);
     const isItalic = Boolean(item.isItalic);
-    const align = item.textAlign || (item.type === 'sticky_note' || item.type === 'shape' || (item.fillColor && item.fillColor !== 'transparent') ? 'center' : 'left');
+    const align = item.textAlign || (item.type === 'sticky_note' || item.type === 'shape' ? 'center' : ((item.fillColor && item.fillColor !== 'transparent' && (!item.text || !item.text.includes('\n'))) ? 'center' : 'left'));
 
     let textColor = item.textColor;
     if (!textColor) {
@@ -2859,6 +3062,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (commentPopover) commentPopover.style.display = 'none';
       if (exportHiresModal) exportHiresModal.style.display = 'none';
       if (shapeFlyoutMenu) shapeFlyoutMenu.style.display = 'none';
+      if (modalItemProperties && modalItemProperties.style.display !== 'none') {
+        closePropertiesModal();
+      }
       return;
     }
 
@@ -3321,7 +3527,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (seedData && typeof seedData.seedVersion === 'number') {
         const savedVer = typeof savedData?.seedVersion === 'number' ? savedData.seedVersion : 0;
         // El trabajo del usuario es sagrado: solo considerar desactualizada una plantilla si el usuario NO la ha editado
-        if ((!savedData?.userModified && seedData.seedVersion > savedVer) || (currentActiveBoardId === 'space' && seedData.seedVersion >= 5 && savedVer < 5)) {
+        if ((!savedData?.userModified && seedData.seedVersion > savedVer) || ((currentActiveBoardId === 'space' || currentActiveBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10)) {
           isOutdatedCache = true;
         }
       }
@@ -3433,7 +3639,8 @@ document.addEventListener('DOMContentLoaded', () => {
     'olalla_light_slu': '../extracted_board/3458764516706154583.png',
     'ordenador': '../extracted_board/3458764515218327607.png',
     'recursos': '../extracted_board/3458764515541285192.jpg',
-    'space': '../extracted_board/3458764515586134432.png',
+    'space': '../extracted_board/espacio_user_nebula.jpg',
+    'espacio': '../extracted_board/espacio_user_nebula.jpg',
     'trips': '../extracted_board/3458764516561379465.png',
     'zbrush': '../extracted_board/3458764515626125193.jpg'
   };
@@ -3450,6 +3657,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const defaultBoards = [
       { id: 'dev_ai', title: 'DEV / AI', icon: 'code', thumbnail: DEFAULT_BOARD_THUMBNAILS['dev_ai'], category: 'Creative', lastOpened: 'Hoy', active: false },
+      { id: 'espacio', title: 'Espacio', icon: '🚀', thumbnail: DEFAULT_BOARD_THUMBNAILS['espacio'], category: 'Ciencia & Espacio', lastOpened: 'Hoy', active: false },
       { id: '3d_software', title: '3D SOFTWARE', icon: 'Ⓜ️', thumbnail: DEFAULT_BOARD_THUMBNAILS['3d_software'], category: 'Random', lastOpened: '19 jun', active: false },
       { id: 'baile', title: 'Baile', icon: '💃', thumbnail: null, category: 'Random', lastOpened: '14 mar', active: false },
       { id: 'concepts', title: 'Concepts', icon: '🎨', thumbnail: DEFAULT_BOARD_THUMBNAILS['concepts'], category: 'Random', lastOpened: '22 may', active: false },
@@ -3461,7 +3669,7 @@ document.addEventListener('DOMContentLoaded', () => {
       { id: 'olalla_light_slu', title: 'Olalla Light SLU', icon: '💡', thumbnail: DEFAULT_BOARD_THUMBNAILS['olalla_light_slu'], category: 'Random', lastOpened: '12 abr', active: false },
       { id: 'ordenador', title: 'Ordenador', icon: '💻', thumbnail: DEFAULT_BOARD_THUMBNAILS['ordenador'], category: 'Random', lastOpened: '25 ago', active: false },
       { id: 'recursos', title: 'Recursos', icon: '📁', thumbnail: DEFAULT_BOARD_THUMBNAILS['recursos'], category: 'Random', lastOpened: '4 sep', active: false },
-      { id: 'space', title: 'SPACE', icon: '🌌', thumbnail: DEFAULT_BOARD_THUMBNAILS['space'], category: 'Ciencia & Espacio', lastOpened: 'Hoy', active: false },
+      { id: 'space', title: 'Espacio', icon: '🌌', thumbnail: DEFAULT_BOARD_THUMBNAILS['space'], category: 'Ciencia & Espacio', lastOpened: 'Hoy', active: false },
       { id: 'trips', title: 'TRIPS', icon: '✈️', thumbnail: DEFAULT_BOARD_THUMBNAILS['trips'], category: 'Random', lastOpened: '29 sep', active: false },
       { id: 'zbrush', title: 'ZBRUSH', icon: '🗿', thumbnail: DEFAULT_BOARD_THUMBNAILS['zbrush'], category: 'Random', lastOpened: '22 jun', active: false }
     ];
@@ -3693,7 +3901,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (seedData && typeof seedData.seedVersion === 'number') {
         const savedVer = typeof saved?.seedVersion === 'number' ? saved.seedVersion : 0;
         // El trabajo del usuario es sagrado: solo considerar desactualizada una plantilla si el usuario NO la ha editado
-        if ((!saved?.userModified && seedData.seedVersion > savedVer) || (targetBoardId === 'space' && seedData.seedVersion >= 5 && savedVer < 5)) {
+        if ((!saved?.userModified && seedData.seedVersion > savedVer) || ((targetBoardId === 'space' || targetBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10)) {
           isOutdatedCache = true;
         }
       }
@@ -4432,6 +4640,29 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Manejo reactivo de formato (PNG vs JPEG) y transparencia
+  document.querySelectorAll('input[name="export-format"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const isJpeg = (radio.value === 'jpeg');
+      const transparentLabel = document.getElementById('export-bg-transparent-label');
+      const transparentRadio = document.querySelector('input[name="export-bg"][value="transparent"]');
+      const boardRadio = document.querySelector('input[name="export-bg"][value="board"]');
+      if (transparentLabel && transparentRadio) {
+        if (isJpeg) {
+          transparentLabel.style.opacity = '0.4';
+          transparentLabel.style.pointerEvents = 'none';
+          if (transparentRadio.checked && boardRadio) boardRadio.checked = true;
+        } else {
+          transparentLabel.style.opacity = '1';
+          transparentLabel.style.pointerEvents = 'auto';
+        }
+      }
+      if (btnConfirmExport) {
+        btnConfirmExport.textContent = `Exportar ${radio.value.toUpperCase()}`;
+      }
+    });
+  });
+
   btnCloseExportModal?.addEventListener('click', closeExportModal);
   btnCancelExport?.addEventListener('click', closeExportModal);
 
@@ -4442,38 +4673,73 @@ document.addEventListener('DOMContentLoaded', () => {
     const scopeRadio = document.querySelector('input[name="export-scope"]:checked');
     const scope = scopeRadio?.value || 'all';
 
-    let bounds = null;
-    if (scope === 'selection' && engine.selectedItemIds.size > 0) {
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      engine.items.filter(it => engine.selectedItemIds.has(it.id)).forEach(it => {
-        const x = it.x || 0;
-        const y = it.y || 0;
-        const w = it.width || 50;
-        const h = it.height || 50;
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x + w);
-        maxY = Math.max(maxY, y + h);
-      });
-      const pad = 40;
-      bounds = {
-        x: minX - pad,
-        y: minY - pad,
-        width: Math.max(100, maxX - minX + pad * 2),
-        height: Math.max(100, maxY - minY + pad * 2)
-      };
-    }
+    const formatRadio = document.querySelector('input[name="export-format"]:checked');
+    const formatType = formatRadio?.value || 'png';
+    const isJpeg = (formatType === 'jpeg');
+    const mimeFormat = isJpeg ? 'image/jpeg' : 'image/png';
+    const ext = isJpeg ? 'jpg' : 'png';
+
+    const bgRadio = document.querySelector('input[name="export-bg"]:checked');
+    let bgChoice = bgRadio?.value || 'board';
+    let bgColor = 'board';
+    if (bgChoice === 'white') bgColor = '#ffffff';
+    else if (bgChoice === 'dark') bgColor = '#1e1f22';
+    else if (bgChoice === 'transparent') bgColor = 'transparent';
 
     const titleClean = (boardTitleInput.value || 'tablero').replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filename = `${titleClean}_${scale}x.png`;
+    const filename = `${titleClean}_${scale}x.${ext}`;
 
-    btnConfirmExport.textContent = 'Procesando...';
+    const originalBtnText = btnConfirmExport.textContent;
+    btnConfirmExport.textContent = 'Generando imagen...';
     btnConfirmExport.disabled = true;
 
     try {
-      await engine.exportHiRes({ bounds, scale, filename });
+      const res = await engine.exportBoardImage({
+        selectionOnly: (scope === 'selection'),
+        scale,
+        backgroundColor: bgColor,
+        format: mimeFormat,
+        quality: 0.95
+      });
+
+      if (!res || res.error) {
+        showDevToast(res?.error || 'Error al exportar imagen');
+        return;
+      }
+
+      if (window.brainBoard && typeof window.brainBoard.exportImage === 'function') {
+        const filters = isJpeg
+          ? [{ name: 'Imagen JPEG (*.jpg; *.jpeg)', extensions: ['jpg', 'jpeg'] }, { name: 'Imagen PNG (*.png)', extensions: ['png'] }]
+          : [{ name: 'Imagen PNG (*.png)', extensions: ['png'] }, { name: 'Imagen JPEG (*.jpg; *.jpeg)', extensions: ['jpg', 'jpeg'] }];
+
+        const saveRes = await window.brainBoard.exportImage({
+          defaultFilename: filename,
+          dataUrl: res.dataUrl,
+          filters
+        });
+
+        if (saveRes.canceled) {
+          showDevToast('Exportación cancelada');
+          return;
+        }
+        if (saveRes.error) {
+          showDevToast('Error al guardar: ' + saveRes.error);
+          return;
+        }
+        const savedName = saveRes.filePath ? saveRes.filePath.split(/[\\\/]/).pop() : filename;
+        showDevToast(`Imagen guardada: ${savedName} (${res.width}×${res.height}px)`);
+      } else {
+        const a = document.createElement('a');
+        a.href = res.dataUrl;
+        a.download = filename;
+        a.click();
+        showDevToast(`Descargando imagen: ${filename} (${res.width}×${res.height}px)`);
+      }
+    } catch (err) {
+      console.error('Error en exportación:', err);
+      showDevToast('Error al exportar: ' + (err?.message || String(err)));
     } finally {
-      btnConfirmExport.textContent = 'Descargar PNG';
+      btnConfirmExport.textContent = originalBtnText;
       btnConfirmExport.disabled = false;
       closeExportModal();
     }

@@ -136156,6 +136156,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const electron_1 = __webpack_require__(/*! electron */ "electron");
 const path_1 = __importDefault(__webpack_require__(/*! path */ "path"));
+const fs_1 = __importDefault(__webpack_require__(/*! fs */ "fs"));
 electron_1.app.setName('Brain Board');
 electron_1.app.setPath('userData', path_1.default.join(electron_1.app.getPath('appData'), 'BrainBoard'));
 const electron_dl_1 = __importDefault(__webpack_require__(/*! electron-dl */ "./node_modules/electron-dl/index.js"));
@@ -136490,14 +136491,24 @@ function createWindow() {
             contextIsolation: SecuritySettings_1.DEFAULT_CONTEXT_ISOLATION,
             webviewTag: true,
             sandbox: SecuritySettings_1.MAIN_WINDOW_SANDBOX,
+            webSecurity: false,
         },
     });
     if (localAppConfig.getIsFullscreenEnabled()) {
         win.setFullScreen(true);
     }
-    win.webContents.on('will-navigate', event => {
+    win.webContents.setWindowOpenHandler(({ url }) => {
+        if (url && (url.startsWith('http:') || url.startsWith('https:') || url.startsWith('mailto:'))) {
+            electron_1.shell.openExternal(url);
+        }
+        return { action: 'deny' };
+    });
+    win.webContents.on('will-navigate', (event, navigationUrl) => {
         // NOTE: we don't want any navigation in the renderer, it just needs to render tabs and thats it.
         event.preventDefault();
+        if (navigationUrl && (navigationUrl.startsWith('http:') || navigationUrl.startsWith('https:') || navigationUrl.startsWith('mailto:'))) {
+            electron_1.shell.openExternal(navigationUrl);
+        }
     });
     win.once('ready-to-show', () => {
         if (win) {
@@ -136873,6 +136884,12 @@ electron_1.app.on('activate', () => {
     }
 });
 electron_1.app.on('web-contents-created', (_event, contents) => {
+    contents.setWindowOpenHandler(({ url }) => {
+        if (url && (url.startsWith('http:') || url.startsWith('https:') || url.startsWith('mailto:'))) {
+            electron_1.shell.openExternal(url);
+        }
+        return { action: 'deny' };
+    });
     if (contents.getType() === 'webview') {
         /*
          * This setWindowOpenHandler intercepts ALL window.open() calls from webviews
@@ -137737,6 +137754,32 @@ electron_1.ipcMain.handle('add-visited-workspace-cookie', (_event, options) => _
 electron_1.ipcMain.handle('show-dialog', (_event, options) => __awaiter(void 0, void 0, void 0, function* () {
     const result = yield electron_1.dialog.showMessageBox(options);
     return result.response;
+}));
+electron_1.ipcMain.handle('export-image-file', (_event, options) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const defaultFilename = (options && options.defaultFilename) ? options.defaultFilename : 'tablero.png';
+        const dataUrl = (options && options.dataUrl) ? options.dataUrl : '';
+        const defaultPath = path_1.default.join(electron_1.app.getPath('downloads'), defaultFilename);
+        const focusedWin = electron_1.BrowserWindow.getFocusedWindow() || win;
+        const result = yield electron_1.dialog.showSaveDialog(focusedWin, {
+            title: 'Exportar imagen del tablero',
+            defaultPath: defaultPath,
+            filters: (options && options.filters) ? options.filters : [
+                { name: 'Imagen PNG (*.png)', extensions: ['png'] },
+                { name: 'Imagen JPEG (*.jpg; *.jpeg)', extensions: ['jpg', 'jpeg'] }
+            ]
+        });
+        if (result.canceled || !result.filePath) {
+            return { canceled: true };
+        }
+        const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, '');
+        const buffer = Buffer.from(base64Data, 'base64');
+        yield fs_1.default.promises.writeFile(result.filePath, buffer);
+        return { success: true, filePath: result.filePath };
+    } catch (err) {
+        console.error('Error al exportar imagen:', err);
+        return { error: err ? err.message : String(err) };
+    }
 }));
 electron_1.ipcMain.handle('get-screen-sharing-sources', (_event, options) => __awaiter(void 0, void 0, void 0, function* () {
     try {

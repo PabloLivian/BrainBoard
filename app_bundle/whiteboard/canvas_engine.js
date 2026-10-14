@@ -627,17 +627,28 @@ class CanvasEngine {
 
   openExternalUrl(url) {
     if (!url) return;
+    let targetUrl = (typeof url === 'string') ? url.trim() : '';
+    if (!targetUrl) return;
+    if (!/^https?:\/\//i.test(targetUrl)) targetUrl = 'https://' + targetUrl;
     try {
+      if (window.brainBoard && typeof window.brainBoard.openExternal === 'function') {
+        window.brainBoard.openExternal(targetUrl);
+        return;
+      }
+      if (window.miro && typeof window.miro.openExternal === 'function') {
+        window.miro.openExternal(targetUrl);
+        return;
+      }
       const req = window.require || (typeof require !== 'undefined' ? require : null);
       if (req) {
         const { shell } = req('electron');
         if (shell && shell.openExternal) {
-          shell.openExternal(url);
+          shell.openExternal(targetUrl);
           return;
         }
       }
     } catch (e) {}
-    window.open(url, '_blank');
+    window.open(targetUrl, '_blank');
   }
 
   setDarkMode(isDark) {
@@ -876,9 +887,64 @@ class CanvasEngine {
   }
 
   // =========================================================
-  // 3. EXPORTACIÓN EN ALTA RESOLUCIÓN (4K / ULTRA-HD)
+  // 3. EXPORTACIÓN EN ALTA RESOLUCIÓN (PNG / JPEG)
   // =========================================================
-  async exportHiRes({ bounds = null, scale = 2, filename = 'tablero_4k.png' } = {}) {
+  async preloadImages(items) {
+    const promises = [];
+    items.forEach(it => {
+      const src = it.src || (it.imgElement && it.imgElement.src);
+      if ((it.type === 'image' || it.type === 'embed' || it.type === 'preview') && src) {
+        if (!it.imgElement || typeof it.imgElement.getAttribute !== 'function' || !it.imgElement.complete || it.imgElement.naturalWidth === 0) {
+          promises.push(new Promise((resolve) => {
+            if (!it.imgElement || typeof it.imgElement.getAttribute !== 'function') {
+              it.imgElement = new Image();
+              it.imgElement.setAttribute('data-src', src);
+              it.imgElement.src = src;
+            }
+            if (it.imgElement.complete && it.imgElement.naturalWidth > 0) {
+              resolve();
+            } else {
+              const timer = setTimeout(resolve, 1500);
+              it.imgElement.onload = () => { clearTimeout(timer); resolve(); };
+              it.imgElement.onerror = () => { clearTimeout(timer); resolve(); };
+            }
+          }));
+        }
+      }
+    });
+    if (promises.length > 0) {
+      await Promise.all(promises);
+    }
+  }
+
+  async exportBoardImage({
+    bounds = null,
+    selectionOnly = false,
+    scale = 2,
+    backgroundColor = null,
+    format = 'image/png',
+    quality = 0.95
+  } = {}) {
+    let targets = [];
+    if (selectionOnly) {
+      targets = this.items.filter(it => this.selectedItemIds.has(it.id));
+      if (targets.length === 0) {
+        return { error: 'No hay elementos seleccionados para exportar' };
+      }
+    } else {
+      targets = this.items;
+      if (targets.length === 0) {
+        return { error: 'El tablero no contiene elementos para exportar' };
+      }
+    }
+
+    // Pre-cargar imágenes pendientes
+    try {
+      await this.preloadImages(targets);
+    } catch (e) {
+      console.warn('Error al precargar imágenes:', e);
+    }
+
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     if (bounds) {
@@ -887,62 +953,178 @@ class CanvasEngine {
       maxX = bounds.x + bounds.width;
       maxY = bounds.y + bounds.height;
     } else {
-      this.items.forEach(it => {
-        const x = it.x || 0;
-        const y = it.y || 0;
+      targets.forEach(it => {
+        if (it.type === 'connector') {
+          if (it.start && typeof it.start.x === 'number' && typeof it.start.y === 'number') {
+            minX = Math.min(minX, it.start.x); maxX = Math.max(maxX, it.start.x);
+            minY = Math.min(minY, it.start.y); maxY = Math.max(maxY, it.start.y);
+          }
+          if (it.end && typeof it.end.x === 'number' && typeof it.end.y === 'number') {
+            minX = Math.min(minX, it.end.x); maxX = Math.max(maxX, it.end.x);
+            minY = Math.min(minY, it.end.y); maxY = Math.max(maxY, it.end.y);
+          }
+          return;
+        }
+        if (it.type === 'pen' && it.points && it.points.length > 0) {
+          for (const pt of it.points) {
+            minX = Math.min(minX, pt.x); maxX = Math.max(maxX, pt.x);
+            minY = Math.min(minY, pt.y); maxY = Math.max(maxY, pt.y);
+          }
+          return;
+        }
+        if (it.type === 'frame') {
+          const fx = it.x || 0;
+          const fy = it.y || 0;
+          const fw = it.width || 200;
+          const fh = it.height || 200;
+          minX = Math.min(minX, fx);
+          maxX = Math.max(maxX, fx + fw);
+          minY = Math.min(minY, fy - 32); // pestaña de cabecera
+          maxY = Math.max(maxY, fy + fh);
+          return;
+        }
+        const x = it.x;
+        const y = it.y;
         const w = it.width || 50;
         const h = it.height || 50;
-        minX = Math.min(minX, x);
-        minY = Math.min(minY, y);
-        maxX = Math.max(maxX, x + w);
-        maxY = Math.max(maxY, y + h);
+        if (typeof x === 'number' && !isNaN(x) && typeof y === 'number' && !isNaN(y)) {
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x + w);
+          maxY = Math.max(maxY, y + h);
+        }
       });
-      const pad = 60;
+      const pad = 50;
       minX -= pad; minY -= pad; maxX += pad; maxY += pad;
     }
 
-    if (!isFinite(minX)) return false;
+    if (!isFinite(minX) || !isFinite(maxX) || !isFinite(minY) || !isFinite(maxY)) {
+      return { error: 'No se pudieron calcular las dimensiones del área a exportar' };
+    }
 
-    const expW = Math.max(200, Math.round(maxX - minX));
-    const expH = Math.max(200, Math.round(maxY - minY));
+    const worldW = Math.max(100, Math.round(maxX - minX));
+    const worldH = Math.max(100, Math.round(maxY - minY));
+
+    // Límite de seguridad para evitar superar el máximo del canvas en GPU (8192px)
+    const maxDimension = 8192;
+    let safeScale = scale;
+    if (worldW * safeScale > maxDimension || worldH * safeScale > maxDimension) {
+      safeScale = Math.min(maxDimension / worldW, maxDimension / worldH);
+    }
+    safeScale = Math.max(0.1, safeScale);
+
+    const canvasW = Math.round(worldW * safeScale);
+    const canvasH = Math.round(worldH * safeScale);
 
     const offCanvas = document.createElement('canvas');
-    offCanvas.width = Math.round(expW * scale);
-    offCanvas.height = Math.round(expH * scale);
-    const octx = offCanvas.getContext('2d');
+    offCanvas.width = canvasW;
+    offCanvas.height = canvasH;
+    const offCtx = offCanvas.getContext('2d');
 
-    // Fondo limpio
-    octx.scale(scale, scale);
-    octx.translate(-minX, -minY);
-    octx.fillStyle = this.isDarkMode ? '#0f1316' : '#f8f9fa';
-    octx.fillRect(minX, minY, expW, expH);
+    // Fondo según opción seleccionada
+    const isJpeg = (format === 'image/jpeg');
+    if (isJpeg) {
+      if (backgroundColor && backgroundColor !== 'transparent' && backgroundColor !== 'board') {
+        offCtx.fillStyle = backgroundColor;
+      } else {
+        offCtx.fillStyle = this.isDarkMode ? '#0f1316' : '#ffffff';
+      }
+      offCtx.fillRect(0, 0, canvasW, canvasH);
+    } else if (backgroundColor === 'transparent') {
+      // Transparente para PNG: no rellenar fondo
+    } else if (backgroundColor && backgroundColor !== 'board') {
+      offCtx.fillStyle = backgroundColor;
+      offCtx.fillRect(0, 0, canvasW, canvasH);
+    } else {
+      // Fondo nativo del tablero
+      offCtx.fillStyle = this.isDarkMode ? '#0f1316' : '#f8f9fa';
+      offCtx.fillRect(0, 0, canvasW, canvasH);
+    }
+
+    // Configurar matriz de transformación
+    offCtx.setTransform(safeScale, 0, 0, safeScale, -minX * safeScale, -minY * safeScale);
 
     const origCtx = this.ctx;
     const origZoom = this.camera.zoom;
-    this.ctx = octx;
+    this.ctx = offCtx;
     this.camera.zoom = 1;
 
+    const targetSet = new Set(targets.map(t => t.id));
+    const isTarget = (it) => targetSet.has(it.id);
+
     try {
-      this.items.filter(it => it.type === 'frame').forEach(it => this.drawFrame(it));
-      this.items.filter(it => it.type === 'connector').forEach(it => this.drawConnector(it));
-      this.items.filter(it => it.type === 'shape').forEach(it => this.drawShape(it));
-      this.items.filter(it => it.type === 'code').forEach(it => this.drawCodeBlock(it));
-      this.items.filter(it => it.type === 'embed' || it.type === 'preview').forEach(it => this.drawEmbed(it));
-      this.items.filter(it => it.type === 'image').forEach(it => this.drawImage(it));
-      this.items.filter(it => it.type === 'sticky_note').forEach(it => this.drawStickyNote(it));
-      this.items.filter(it => it.type === 'text').forEach(it => this.drawText(it));
-      this.items.filter(it => it.type === 'pen').forEach(it => this.drawPen(it));
-      this.items.filter(it => it.type === 'comment').forEach(it => this.drawComment(it));
+      this.items.filter(it => it.type === 'frame' && isTarget(it)).forEach(it => {
+        try { this.drawFrame(it); } catch (e) { console.error(e); }
+      });
+      this.items.filter(it => it.type === 'connector' && isTarget(it)).forEach(it => {
+        try { this.drawConnector(it); } catch (e) { console.error(e); }
+      });
+      this.items.filter(it => it.type === 'shape' && isTarget(it)).forEach(it => {
+        try { this.drawShape(it); } catch (e) { console.error(e); }
+      });
+      this.items.filter(it => it.type === 'code' && isTarget(it)).forEach(it => {
+        try { this.drawCodeBlock(it); } catch (e) { console.error(e); }
+      });
+      this.items.filter(it => (it.type === 'embed' || it.type === 'preview') && isTarget(it)).forEach(it => {
+        try { this.drawEmbed(it); } catch (e) { console.error(e); }
+      });
+      this.items.filter(it => it.type === 'image' && isTarget(it)).forEach(it => {
+        try { this.drawImage(it); } catch (e) { console.error(e); }
+      });
+      this.items.filter(it => it.type === 'sticky_note' && isTarget(it)).forEach(it => {
+        try { this.drawStickyNote(it); } catch (e) { console.error(e); }
+      });
+      this.items.filter(it => it.type === 'text' && it.fillColor && it.fillColor !== 'transparent' && isTarget(it)).forEach(it => {
+        try { this.drawText(it); } catch (e) { console.error(e); }
+      });
+      this.items.filter(it => it.type === 'text' && (!it.fillColor || it.fillColor === 'transparent') && isTarget(it)).forEach(it => {
+        try { this.drawText(it); } catch (e) { console.error(e); }
+      });
+      this.items.filter(it => it.type === 'pen' && isTarget(it)).forEach(it => {
+        try { this.drawPen(it); } catch (e) { console.error(e); }
+      });
+      this.items.filter(it => it.type === 'comment' && isTarget(it)).forEach(it => {
+        try { this.drawComment(it); } catch (e) { console.error(e); }
+      });
     } finally {
       this.ctx = origCtx;
       this.camera.zoom = origZoom;
     }
 
-    const dataUrl = offCanvas.toDataURL('image/png');
-    const a = document.createElement('a');
-    a.href = dataUrl;
-    a.download = filename;
-    a.click();
+    try {
+      const mime = isJpeg ? 'image/jpeg' : 'image/png';
+      const dataUrl = offCanvas.toDataURL(mime, quality);
+      return {
+        success: true,
+        dataUrl,
+        width: canvasW,
+        height: canvasH,
+        scale: safeScale,
+        format: isJpeg ? 'jpeg' : 'png'
+      };
+    } catch (err) {
+      console.error('Error al generar DataURL del canvas:', err);
+      return { error: 'Error de lienzo al generar la imagen: ' + (err?.message || String(err)) };
+    }
+  }
+
+  async exportHiRes({ bounds = null, scale = 2, filename = 'tablero_4k.png' } = {}) {
+    const res = await this.exportBoardImage({ bounds, scale, filename, format: 'image/png' });
+    if (res.error) {
+      console.error(res.error);
+      return false;
+    }
+    if (window.brainBoard && typeof window.brainBoard.exportImage === 'function') {
+      await window.brainBoard.exportImage({
+        defaultFilename: filename,
+        dataUrl: res.dataUrl
+      });
+    } else {
+      const a = document.createElement('a');
+      a.href = res.dataUrl;
+      a.download = filename;
+      a.click();
+    }
     return true;
   }
 
@@ -2014,10 +2196,14 @@ class CanvasEngine {
       const isBold = it.isBold ? '700 ' : '400 ';
       const hasUrl = Boolean(this.extractUrlFromItem(it));
       this.ctx.fillStyle = hasUrl ? '#1d4ed8' : (it.textColor || '#1a1a1a');
-      this.ctx.font = `${fontStyle}${isBold}${fontSize}px ${fontFamily}`;
-      this.ctx.textAlign = it.textAlign || 'center';
+      const align = it.textAlign || 'center';
+      this.ctx.textAlign = align;
       this.ctx.textBaseline = 'middle';
-      this.wrapText(this.ctx, it.text, it.x + it.width / 2, it.y + it.height / 2, it.width - 24, fontSize + 5, it.textAlign || 'center');
+      const padX = 14;
+      let textX = it.x + it.width / 2;
+      if (align === 'left') textX = it.x + padX;
+      else if (align === 'right') textX = it.x + it.width - padX;
+      this.wrapText(this.ctx, it.text, textX, it.y + it.height / 2, it.width - 24, fontSize + 5, 'center');
     }
 
     this.ctx.restore();
@@ -2089,11 +2275,16 @@ class CanvasEngine {
         textColor = '#f1f5f9';
       }
 
+      const align = it.textAlign || 'center';
       this.ctx.fillStyle = textColor;
       this.ctx.font = `${fontStyle}${isBold ? '700 ' : '400 '}${fontSize}px ${fontFamily}`;
-      this.ctx.textAlign = it.textAlign || 'center';
+      this.ctx.textAlign = align;
       this.ctx.textBaseline = 'middle';
-      this.wrapText(this.ctx, it.text, it.x + it.width / 2, it.y + it.height / 2, it.width - 16, fontSize + 6, it.textAlign || 'center');
+      const padX = 14;
+      let textX = it.x + it.width / 2;
+      if (align === 'left') textX = it.x + padX;
+      else if (align === 'right') textX = it.x + it.width - padX;
+      this.wrapText(this.ctx, it.text, textX, it.y + it.height / 2, it.width - 16, fontSize + 6, 'center');
     }
 
     this.ctx.restore();
@@ -2170,33 +2361,33 @@ class CanvasEngine {
     }
     this.ctx.fillStyle = textColor;
 
-    const align = it.textAlign || (hasFill ? 'center' : 'left');
+    const align = it.textAlign || (hasFill && (!it.text || !it.text.includes('\n')) ? 'center' : 'left');
     this.ctx.textAlign = align;
 
-    if (align === 'center') {
+    const padX = hasFill ? 14 : 0;
+    const padY = hasFill ? 10 : 0;
+    const maxWidth = Math.max(20, (it.width || 400) - padX * 2);
+    const lineHeight = Math.round(fontSize * 1.35);
+
+    if (it.textAlignVertical === 'middle') {
       this.ctx.textBaseline = 'middle';
-      const textX = it.x + it.width / 2;
-      const textY = it.y + it.height / 2;
-      const maxWidth = Math.max(20, it.width - 24);
-      const lineHeight = Math.round(fontSize * 1.3);
+      const textY = it.y + (it.height || 40) / 2;
+      let textX = it.x + padX;
+      if (align === 'center') {
+        textX = it.x + (it.width || 400) / 2;
+      } else if (align === 'right') {
+        textX = it.x + (it.width || 400) - padX;
+      }
       this.wrapText(this.ctx, it.text || '', textX, textY, maxWidth, lineHeight, 'center');
-    } else if (align === 'right') {
-      this.ctx.textBaseline = 'top';
-      const padX = hasFill ? 14 : 0;
-      const padY = hasFill ? 10 : 0;
-      const textX = it.x + (it.width || 400) - padX;
-      const textY = it.y + padY;
-      const maxWidth = Math.max(20, (it.width || 400) - padX * 2);
-      const lineHeight = Math.round(fontSize * 1.35);
-      this.wrapText(this.ctx, it.text || '', textX, textY, maxWidth, lineHeight, 'right');
     } else {
       this.ctx.textBaseline = 'top';
-      const padX = hasFill ? 14 : 0;
-      const padY = hasFill ? 10 : 0;
-      const textX = it.x + padX;
       const textY = it.y + padY;
-      const maxWidth = Math.max(20, (it.width || 400) - padX * 2);
-      const lineHeight = Math.round(fontSize * 1.35);
+      let textX = it.x + padX;
+      if (align === 'center') {
+        textX = it.x + (it.width || 400) / 2;
+      } else if (align === 'right') {
+        textX = it.x + (it.width || 400) - padX;
+      }
       this.wrapText(this.ctx, it.text || '', textX, textY, maxWidth, lineHeight, 'top');
     }
 
@@ -2533,7 +2724,10 @@ class CanvasEngine {
       curTextY += 16;
     }
 
-    const title = it.title || this.extractTitle(it.url) || domain;
+    let title = it.title || this.extractTitle(it.url) || domain;
+    if (title.toLowerCase().includes('antes de ir a youtube') || title.toLowerCase().includes('before you continue to youtube')) {
+      title = this.extractTitle(it.url) || 'YouTube';
+    }
     this.ctx.fillStyle = this.isDarkMode ? '#F1F5F9' : '#0f172a';
     this.ctx.font = '700 12.5px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     this.ctx.textAlign = 'left';
@@ -3000,7 +3194,7 @@ class CanvasEngine {
     }
 
     let startY = y;
-    if (align === 'center') {
+    if (align === 'center' || align === 'middle') {
       startY = y - ((renderLines.length - 1) * lineHeight) / 2;
     }
 
@@ -3076,8 +3270,8 @@ class CanvasEngine {
       const u = new URL(url);
       const host = u.hostname.replace(/^www\./, '').toUpperCase();
       if (host.includes('YOUTUBE')) {
-        const m = u.pathname.match(/@([^\/\?]+)/);
-        if (m) return '@' + m[1];
+        const m = u.pathname.match(/@([^\/\?]+)/) || u.pathname.match(/\/(?:c|user|channel)\/([^\/\?]+)/);
+        if (m) return m[1].startsWith('@') ? m[1] : '@' + m[1];
         const v = u.searchParams.get('v');
         if (v) return 'Video: ' + v;
         return 'YouTube';

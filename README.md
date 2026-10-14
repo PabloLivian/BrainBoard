@@ -55,15 +55,6 @@ Pega cualquier URL (YouTube, GitHub, artículos, documentación) y se convertir�
 
 ---
 
-### 💻 4. Bloques de Código Fuente y Notas Estructuradas
-Inserta fragmentos de código limpios con diseño oscuro y tipografía monoespaciada para tus referencias técnicas, algoritmos o configuraciones:
-
-<p align="center">
-  <img src="docs/screenshots/04_code_blocks.png" alt="Bloques de Código y Documentación" width="90%" style="border-radius: 8px;" />
-</p>
-
----
-
 ## ⚡ Características Principales
 
 ### 🚀 Rendimiento Extremo y Motor Gráfico Personalizado
@@ -113,37 +104,6 @@ Inserta fragmentos de código limpios con diseño oscuro y tipografía monoespac
 | **`Enter`** | Entrar en modo edición de texto del objeto seleccionado |
 | **`Supr` / `Retroceso`** | Eliminar objetos seleccionados |
 | **`Doble Clic` / `↗`** | Abrir enlace web de tarjetas o widgets en tu navegador |
-
----
-
-## 🚀 Instalación y Puesta en Marcha
-
-### Prerrequisitos
-* [Node.js](https://nodejs.org/) (versión 18 o superior recomendada).
-* Git instalado en el equipo.
-
-### 1. Clonar el repositorio
-```bash
-git clone https://github.com/tu-usuario/BrainBoard.git
-cd BrainBoard
-```
-
-### 2. Instalar dependencias
-```bash
-npm install
-```
-
-### 3. Ejecutar en modo desarrollo
-```bash
-npm start
-```
-*Electron iniciará la aplicación de escritorio de forma instantánea.*
-
-### 4. Compilar paquete distribuible (.asar)
-```bash
-npm run build
-```
-*Genera el paquete optimizado en `dist/app.asar` listo para distribución.*
 
 ---
 

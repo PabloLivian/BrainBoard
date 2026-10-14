@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Screen Color Eyedropper</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background: rgba(0, 0, 0, 0.001);
+      cursor: crosshair;
+    }
+    #screen-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+    /* Lupa flotante circular estilo Photoshop */
+    #magnifier {
+      position: fixed;
+      top: -9999px;
+      left: -9999px;
+      width: 130px;
+      height: 130px;
+      border-radius: 50%;
+      border: 3px solid #ffffff;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.4);
+      pointer-events: none;
+      overflow: hidden;
+      background: #111;
+      display: none;
+      z-index: 999999;
+      transform: translate(-50%, -50%);
+    }
+    #mag-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      image-rendering: pixelated;
+    }
+    /* Retícula de píxel central */
+    .mag-crosshair {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 12px;
+      height: 12px;
+      transform: translate(-50%, -50%);
+      border: 1px solid #ffffff;
+      box-shadow: inset 0 0 0 1px #000000, 0 0 0 1px #000000;
+      pointer-events: none;
+    }
+    /* Muestra y código HEX bajo la lupa */
+    #mag-label {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.75);
+      color: #ffffff;
+      font-family: monospace;
+      font-size: 11px;
+      font-weight: bold;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      pointer-events: none;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="screen-canvas"></canvas>
+  
+  <div id="magnifier">
+    <canvas id="mag-canvas" width="130" height="130"></canvas>
+    <div class="mag-crosshair"></div>
+    <div id="mag-label">#FFFFFF</div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('screen-canvas');
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const magnifier = document.getElementById('magnifier');
+    const magCanvas = document.getElementById('mag-canvas');
+    const magCtx = magCanvas.getContext('2d');
+    const magLabel = document.getElementById('mag-label');
+
+    let isReady = false;
+    let bgImage = null;
+    let logicalWidth = window.innerWidth;
+    let logicalHeight = window.innerHeight;
+
+    function resizeCanvas() {
+      logicalWidth = window.innerWidth;
+      logicalHeight = window.innerHeight;
+      canvas.width = logicalWidth;
+      canvas.height = logicalHeight;
+      if (bgImage) {
+        ctx.clearRect(0, 0, logicalWidth, logicalHeight);
+        // Mapeo 1:1 directo para garantizar máxima fidelidad y cero distorsión de coordenadas
+        ctx.drawImage(bgImage, 0, 0, logicalWidth, logicalHeight, 0, 0, logicalWidth, logicalHeight);
+      }
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+
+    function setupImage(src) {
+      if (bgImage) return; // Ya inicializado
+      bgImage = new Image();
+      bgImage.onload = () => {
+        resizeCanvas();
+        isReady = true;
+        magnifier.style.display = 'block';
+      };
+      bgImage.src = src;
+    }
+
+    // 1. Escuchar push del proceso Main
+    if (window.eyedropperBridge && window.eyedropperBridge.onInitData) {
+      window.eyedropperBridge.onInitData((data) => {
+        if (data && data.imgData) {
+          setupImage(data.imgData);
+        }
+      });
+    }
+
+    // 2. Solicitar proactivamente los datos (Pull) para eliminar cualquier condición de carrera
+    if (window.eyedropperBridge && window.eyedropperBridge.getInitData) {
+      window.eyedropperBridge.getInitData().then((data) => {
+        if (data && data.imgData) {
+          setupImage(data.imgData);
+        }
+      }).catch((err) => {
+        console.warn('No se pudo obtener datos del cuentagotas por invoke:', err);
+      });
+    }
+
+    function getHexAt(x, y) {
+      if (!isReady) return '#000000';
+      const clampX = Math.max(0, Math.min(logicalWidth - 1, x));
+      const clampY = Math.max(0, Math.min(logicalHeight - 1, y));
+      const pixel = ctx.getImageData(clampX, clampY, 1, 1).data;
+      const r = pixel[0];
+      const g = pixel[1];
+      const b = pixel[2];
+      const hex = '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
+      return { r, g, b, hex };
+    }
+
+    // Actualizar lupa interactiva al mover el ratón
+    window.addEventListener('mousemove', (e) => {
+      if (!isReady) return;
+      const x = e.clientX;
+      const y = e.clientY;
+
+      // Posicionar la lupa con ligero desplazamiento para no tapar el píxel exacto
+      const offset = 75;
+      let magX = x + offset;
+      let magY = y + offset;
+
+      if (magX + 70 > window.innerWidth) magX = x - offset;
+      if (magY + 70 > window.innerHeight) magY = y - offset;
+
+      magnifier.style.left = magX + 'px';
+      magnifier.style.top = magY + 'px';
+
+      const color = getHexAt(x, y);
+      magLabel.textContent = color.hex;
+      magLabel.style.color = (color.r * 0.299 + color.g * 0.587 + color.b * 0.114) > 160 ? '#ffffff' : '#facc15';
+
+      // Renderizar vista ampliada (zoom 9x)
+      const sampleRadius = 7; // Muestra de 15x15 píxeles
+      magCtx.imageSmoothingEnabled = false;
+      magCtx.clearRect(0, 0, 130, 130);
+      magCtx.drawImage(
+        canvas,
+        x - sampleRadius, y - sampleRadius, sampleRadius * 2 + 1, sampleRadius * 2 + 1,
+        0, 0, 130, 130
+      );
+    });
+
+    // Clic para seleccionar el color
+    window.addEventListener('click', (e) => {
+      if (!isReady) return;
+      const color = getHexAt(e.clientX, e.clientY);
+      if (window.eyedropperBridge && window.eyedropperBridge.sendColor) {
+        window.eyedropperBridge.sendColor(color.hex);
+      }
+    });
+
+    // Escape para cancelar
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (window.eyedropperBridge && window.eyedropperBridge.cancel) {
+          window.eyedropperBridge.cancel();
+        }
+      }
+    });
+
+    // Cancelar con clic secundario
+    window.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      if (window.eyedropperBridge && window.eyedropperBridge.cancel) {
+        window.eyedropperBridge.cancel();
+      }
+    });
+
+  </script>
+</body>
+</html>
