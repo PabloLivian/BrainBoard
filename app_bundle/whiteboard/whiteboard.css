@@ -4238,3 +4238,99 @@ body.dark-theme #modal-item-properties .modal-footer {
   border-color: rgba(59, 130, 246, 0.5);
   transform: translateY(-1px);
 }
+
+/* Overlay de Actualización Silenciosa y Reinicio Automático */
+.update-applying-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(10, 15, 29, 0.94);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  z-index: 999999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  user-select: none;
+}
+
+.update-applying-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 40px 48px;
+  background: #141b2d;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.6);
+  max-width: 440px;
+  width: 90%;
+}
+
+.update-applying-logo-wrap {
+  margin-bottom: 22px;
+  animation: pulse-logo 2.2s ease-in-out infinite;
+}
+
+.update-spinner-ring {
+  width: 44px;
+  height: 44px;
+  border: 3.5px solid rgba(59, 130, 246, 0.2);
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin-updater 0.9s linear infinite;
+  margin-bottom: 22px;
+}
+
+.update-applying-title {
+  margin: 0 0 8px 0;
+  font-size: 19px;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.update-applying-subtitle {
+  margin: 0 0 24px 0;
+  font-size: 13.5px;
+  color: #94a3b8;
+  line-height: 1.4;
+}
+
+.update-applying-bar-wrap {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.update-applying-bar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 45%;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  border-radius: 2px;
+  animation: updater-bar-anim 1.6s ease-in-out infinite;
+}
+
+@keyframes spin-updater {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-logo {
+  0%, 100% { transform: scale(1); opacity: 0.9; }
+  50% { transform: scale(1.06); opacity: 1; }
+}
+
+@keyframes updater-bar-anim {
+  0% { left: -45%; width: 45%; }
+  50% { left: 40%; width: 65%; }
+  100% { left: 100%; width: 35%; }
+}

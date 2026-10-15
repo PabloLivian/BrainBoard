@@ -137931,7 +137931,15 @@ if (brainAutoUpdater) {
             cancelId: 1
         }).then(result => {
             if (result.response === 0) {
-                brainAutoUpdater.quitAndInstall();
+                if (targetWin && targetWin.webContents) {
+                    targetWin.webContents.send('updater-message', {
+                        status: 'applying',
+                        text: 'Actualizando Brain Board y reiniciando automáticamente...'
+                    });
+                }
+                setTimeout(() => {
+                    brainAutoUpdater.quitAndInstall(true, true);
+                }, 600);
             }
         });
     });

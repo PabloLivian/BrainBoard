@@ -2582,12 +2582,23 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Listener para actualizaciones automáticas de Brain Board
+  const updateApplyingOverlay = document.getElementById('update-applying-overlay');
+  const updateApplyingText = document.getElementById('update-applying-text');
+
   try {
     if (typeof window !== 'undefined' && window.require) {
       const electronModule = window.require('electron');
       if (electronModule && electronModule.ipcRenderer) {
         electronModule.ipcRenderer.on('updater-message', (_event, data) => {
-          if (data && data.text) {
+          if (!data) return;
+          if (data.status === 'applying') {
+            if (updateApplyingOverlay) {
+              if (updateApplyingText && data.text) {
+                updateApplyingText.textContent = data.text;
+              }
+              updateApplyingOverlay.style.display = 'flex';
+            }
+          } else if (data.text) {
             showDevToast(data.text);
           }
         });
