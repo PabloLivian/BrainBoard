@@ -190,11 +190,12 @@ npm run pack:installer
 * `Brain Board Setup X.Y.Z.exe.blockmap`
 * `latest.yml` (con los hashes sha512 y tamaño exactos para electron-updater)
 
-### Paso 4: Duplicar binario con nombre hyphenated (requisito estricto de latest.yml)
-`latest.yml` referencia el binario como `Brain-Board-Setup-X.Y.Z.exe` (con guiones). Es indispensable generar la copia idéntica:
+### Paso 4: Duplicar binario con nombre hyphenated y archivar versiones previas
+1. `latest.yml` referencia el binario como `Brain-Board-Setup-X.Y.Z.exe` (con guiones). Es indispensable generar la copia idéntica:
 ```powershell
 Copy-Item "dist_setup\Brain Board Setup X.Y.Z.exe" -Destination "dist_setup\Brain-Board-Setup-X.Y.Z.exe" -Force
 ```
+2. Archivar binarios y artefactos de versiones anteriores en `dist_setup\historial_versiones\vA.B.C\` para mantener la raíz de `dist_setup\` limpia y con solo los archivos de la versión actual.
 
 ### Paso 5: Sincronizar Git y Crear Tag
 1. Hacer commit de los archivos modificados y hacer push a `main`:
