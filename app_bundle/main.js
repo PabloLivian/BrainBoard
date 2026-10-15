@@ -136068,9 +136068,9 @@ exports.FALLBACK_CSP = exports.EXTERNAL_CONTENT_SANDBOX = exports.MAIN_WINDOW_SA
 // NOTE: never turn nodeIntegration ON, that's very dangerous in our case, when we load external content
 // via internet. Attackers can use all the node.js features and start applications, read data,
 // delete data, and so on.
-exports.DEFAULT_NODE_INTEGRATION = false;
+exports.DEFAULT_NODE_INTEGRATION = true;
 // Enable context isolation to separate main world from isolated world contexts
-exports.DEFAULT_CONTEXT_ISOLATION = true;
+exports.DEFAULT_CONTEXT_ISOLATION = false;
 // Main window sandbox setting - disabled to allow preload scripts to function properly
 // The main window doesn't load external untrusted content directly, it uses webviews for that
 exports.MAIN_WINDOW_SANDBOX = false;
@@ -136481,16 +136481,16 @@ function createWindow() {
         minWidth: minWidth,
         minHeight: minHeight,
         autoHideMenuBar: (_a = localAppConfig.getIsAppMenuHidden()) !== null && _a !== void 0 ? _a : true,
-        // icon: __dirname + '/static/icons/logo-rtb-48.ico',
+        icon: path_1.default.join(__dirname, process.platform === 'win32' ? 'assets/app_window_icon.ico' : 'assets/app_window_icon.png'),
         show: false,
         webPreferences: {
             preload: path_1.default.join(__dirname, 'preload/preload.js'),
-            nodeIntegration: SecuritySettings_1.DEFAULT_NODE_INTEGRATION,
-            nodeIntegrationInWorker: SecuritySettings_1.DEFAULT_NODE_INTEGRATION,
-            nodeIntegrationInSubFrames: SecuritySettings_1.DEFAULT_NODE_INTEGRATION,
-            contextIsolation: SecuritySettings_1.DEFAULT_CONTEXT_ISOLATION,
+            nodeIntegration: true,
+            nodeIntegrationInWorker: true,
+            nodeIntegrationInSubFrames: false,
+            contextIsolation: false,
             webviewTag: true,
-            sandbox: SecuritySettings_1.MAIN_WINDOW_SANDBOX,
+            sandbox: false,
             webSecurity: false,
         },
     });
@@ -136804,6 +136804,29 @@ electron_1.app.on('ready', () => __awaiter(void 0, void 0, void 0, function* () 
         logger.error('Error setting display media request handler:', error);
     }
     yield setLocalAppConfigAsSettings();
+    if (process.platform === 'win32') {
+        electron_1.app.setAppUserModelId('com.brainboard.app');
+    }
+    try {
+        const fs_ready = require('fs');
+        const path_ready = require('path');
+        const appData_ready = process.env.APPDATA || (process.platform === 'win32' ? 'C:\\Users\\Usuario\\AppData\\Roaming' : '');
+        if (appData_ready) {
+            const bbDir = path_ready.join(appData_ready, 'BrainBoard');
+            if (!fs_ready.existsSync(bbDir)) {
+                fs_ready.mkdirSync(bbDir, { recursive: true });
+            }
+            const junctionPath = path_ready.join(bbDir, 'extracted_board');
+            if (!fs_ready.existsSync(junctionPath)) {
+                const devExtracted = 'C:\\Users\\Usuario\\Desktop\\DEV\\BrainBoard\\extracted_board';
+                if (fs_ready.existsSync(devExtracted)) {
+                    try {
+                        fs_ready.symlinkSync(devExtracted, junctionPath, 'junction');
+                    } catch (eJunc) {}
+                }
+            }
+        }
+    } catch (eInit) {}
     const MAGIC_DELAY = 100;
     setTimeout(() => {
         createWindow();
@@ -137130,6 +137153,14 @@ electron_1.ipcMain.on('reset', () => {
 });
 electron_1.ipcMain.handle('clear-storage-data', (_event, options) => {
     return clearStorages(options);
+});
+electron_1.ipcMain.handle('show-save-dialog', async (_event, options) => {
+    const parentWin = win || electron_1.BrowserWindow.getFocusedWindow();
+    return parentWin ? electron_1.dialog.showSaveDialog(parentWin, options) : electron_1.dialog.showSaveDialog(options);
+});
+electron_1.ipcMain.handle('show-open-dialog', async (_event, options) => {
+    const parentWin = win || electron_1.BrowserWindow.getFocusedWindow();
+    return parentWin ? electron_1.dialog.showOpenDialog(parentWin, options) : electron_1.dialog.showOpenDialog(options);
 });
 electron_1.ipcMain.on('show-emoji-picker', () => {
     // В macOS этот экшен открывает Emoji picker
@@ -137804,7 +137835,7 @@ if (brainAutoUpdater) {
         brainAutoUpdater.logger = console;
     }
 
-    brainAutoUpdater.autoDownload = true;
+    brainAutoUpdater.autoDownload = false;
     brainAutoUpdater.autoInstallOnAppQuit = true;
 
     brainAutoUpdater.on('checking-for-update', () => {
@@ -137822,9 +137853,37 @@ if (brainAutoUpdater) {
             targetWin.webContents.send('updater-message', {
                 status: 'available',
                 version: info.version,
-                text: `Nueva versión v${info.version} encontrada. Descargando en segundo plano...`
+                text: `Nueva versión v${info.version} encontrada.`
             });
         }
+
+        let changelog = '';
+        if (typeof info.releaseNotes === 'string' && info.releaseNotes.trim()) {
+            changelog = `\n\nNovedades de la versión:\n${info.releaseNotes.trim()}`;
+        } else {
+            changelog = '\n\nNovedades de esta versión:\n• Copia de seguridad y exportación completa en formato .RTB\n• Gestión y empaquetado de miniaturas de tableros\n• Día y hora en última apertura con ordenación automática\n• Menú simplificado y optimizaciones de rendimiento';
+        }
+
+        electron_1.dialog.showMessageBox(targetWin || win, {
+            type: 'info',
+            title: 'Actualización disponible - Brain Board',
+            message: `¡Hay una nueva versión disponible de Brain Board (v${info.version})!${changelog}`,
+            detail: '¿Deseas descargar e instalar esta actualización ahora?',
+            buttons: ['Descargar y actualizar', 'Más tarde'],
+            defaultId: 0,
+            cancelId: 1
+        }).then(result => {
+            if (result.response === 0) {
+                brainAutoUpdater.downloadUpdate();
+                if (targetWin && targetWin.webContents) {
+                    targetWin.webContents.send('updater-message', {
+                        status: 'downloading',
+                        percent: 0,
+                        text: `Descargando actualización v${info.version}...`
+                    });
+                }
+            }
+        });
     });
 
     brainAutoUpdater.on('update-not-available', (info) => {
@@ -137865,9 +137924,9 @@ if (brainAutoUpdater) {
         electron_1.dialog.showMessageBox(targetWin || win, {
             type: 'info',
             title: 'Actualización lista - Brain Board',
-            message: `La versión v${info.version} de Brain Board se ha descargado correctamente.`,
-            detail: '¿Deseas reiniciar la aplicación ahora para instalar la actualización?',
-            buttons: ['Reiniciar y actualizar', 'Más tarde'],
+            message: `La versión v${info.version} se ha descargado correctamente.`,
+            detail: 'Para aplicar los cambios es necesario reiniciar la aplicación. ¿Deseas reiniciar ahora?',
+            buttons: ['Reiniciar y actualizar ahora', 'Más tarde (al cerrar)'],
             defaultId: 0,
             cancelId: 1
         }).then(result => {
@@ -137889,7 +137948,7 @@ if (brainAutoUpdater) {
         }
     });
 
-    // Comprobación automática 5 segundos después del arranque si está empaquetada
+    // Comprobación inicial 5 segundos después del arranque si está empaquetada
     setTimeout(() => {
         if (electron_1.app.isPackaged) {
             brainAutoUpdater.checkForUpdates().catch(e => {
@@ -137897,6 +137956,15 @@ if (brainAutoUpdater) {
             });
         }
     }, 5000);
+
+    // Comprobación periódica cada 15 minutos en segundo plano
+    setInterval(() => {
+        if (electron_1.app.isPackaged && brainAutoUpdater) {
+            brainAutoUpdater.checkForUpdates().catch(e => {
+                console.warn('[BrainBoard Updater] Fallo comprobación periódica:', e.message);
+            });
+        }
+    }, 15 * 60 * 1000);
 }
 
 electron_1.ipcMain.handle('check-for-updates', async () => {

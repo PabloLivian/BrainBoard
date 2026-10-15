@@ -1,0 +1,458 @@
+{
+  "name": "Houdini",
+  "updatedAt": "2026-10-13T19:32:53.364Z",
+  "items": [
+    {
+      "id": "3458764581778459773",
+      "type": "connector",
+      "start": {
+        "x": -18.60538823639672,
+        "y": -9.529589096690955
+      },
+      "end": {
+        "x": 18.60538823639672,
+        "y": 9.529589096690955
+      },
+      "color": "#090909",
+      "strokeWidth": 1
+    },
+    {
+      "id": "3458764581778555845",
+      "type": "text",
+      "x": 9734.508789386628,
+      "y": -668.6325851650537,
+      "width": 316.2344545400437,
+      "height": 51.42857142857142,
+      "text": "Como alternativa, podemos hacer que es noise se aplique en la dirección de las normales para conseguir un movimiento de fluidez.",
+      "fontSize": 12,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581775475149",
+      "type": "text",
+      "x": 6331.901035496393,
+      "y": -453.73230302325356,
+      "width": 964.6894990608224,
+      "height": 68.57142857142857,
+      "text": "Display Config/Markers/Origin Gnomon unchecked",
+      "fontSize": 24,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581775475148",
+      "type": "text",
+      "x": 6331.901035496393,
+      "y": -565.9001206745335,
+      "width": 251.4285714285714,
+      "height": 91.42857142857142,
+      "text": "CONFIG",
+      "fontSize": 64,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581757180724",
+      "type": "text",
+      "x": 9740.518266464012,
+      "y": -314.20192497989257,
+      "width": 310.22497746266254,
+      "height": 68.57142857142857,
+      "text": "Con el midle mouse button hemos clickado en offset para hacer promot y en el editor de geomtry en los paramentro de pointvop ya aparece la velocidad donde le hemos puesto esa expresion de velocidad",
+      "fontSize": 12,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581756959927",
+      "type": "text",
+      "x": 9852.926174010287,
+      "y": -421.68796907047806,
+      "width": 133.7142857142857,
+      "height": 17.142857142857142,
+      "text": "offset 0, $F/50, -$F/200",
+      "fontSize": 12,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581756959717",
+      "type": "text",
+      "x": 9550.262037777555,
+      "y": -191.39497982682613,
+      "width": 169.7142857142857,
+      "height": 34.285714285714285,
+      "text": "f@Alpha = 0.1;",
+      "fontSize": 24,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581756959197",
+      "type": "text",
+      "x": 9476.055000169887,
+      "y": -590.9235908917644,
+      "width": 84,
+      "height": 34.285714285714285,
+      "text": "200000",
+      "fontSize": 24,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581756237303",
+      "type": "text",
+      "x": 2356.2922669762447,
+      "y": 561.9450871247947,
+      "width": 1542.8571428571427,
+      "height": 102.85714285714286,
+      "text": "Midle mouse/Promote parameter para no tener que meternos dentro del nodo para cambiarlo",
+      "fontSize": 36,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581755863437",
+      "type": "text",
+      "x": 2416.105461483107,
+      "y": -565.9001206745335,
+      "width": 297.1428571428571,
+      "height": 91.42857142857142,
+      "text": "GENERAL",
+      "fontSize": 64,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581724310328",
+      "type": "text",
+      "x": 3630.6273472014395,
+      "y": -453.73230302325345,
+      "width": 772.3236155555053,
+      "height": 171.42857142857142,
+      "text": "Expresion para atributewrangler para que jugar con el alpha de los points. f@Alpha = 0.1;\n\n\nPara animar algo constante la expresion es $F y lo podemos divir o multiplicar para cambiar velocdidad $F/50",
+      "fontSize": 24,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581724310254",
+      "type": "text",
+      "x": 3630.6273472014395,
+      "y": -565.9001206745335,
+      "width": 123.42857142857142,
+      "height": 91.42857142857142,
+      "text": "VEX",
+      "fontSize": 64,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581723978792",
+      "type": "text",
+      "x": 2356.292266976247,
+      "y": -91.06546131284853,
+      "width": 1190.5714285714284,
+      "height": 51.42857142857143,
+      "text": "Para cambiar los points a pixels - en el menu del viewport/checker icon",
+      "fontSize": 36,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581702981143",
+      "type": "text",
+      "x": 5289.665100290516,
+      "y": -453.7323030232533,
+      "width": 964.6894990608224,
+      "height": 274.2857142857143,
+      "text": "P - Para abrir una venta adicional en un panel, como por ejempl los parametros en el graph de nodos.\nD - Display options\nSin asignar - GeometryGraph/Edit/Reconnect arround nodes\nCtrl + Sift + Alt - Para establecer un shortcut de cualquier opcion\nCtrl + E - Para conectar nodos\nY - Tijeras",
+      "fontSize": 24,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581702981108",
+      "type": "text",
+      "x": 5289.6651002905155,
+      "y": -565.9001206745335,
+      "width": 379.4285714285714,
+      "height": 91.42857142857142,
+      "text": "SHORTCUTS",
+      "fontSize": 64,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581702711828",
+      "type": "text",
+      "x": 2574.759753060759,
+      "y": 486.2050355336275,
+      "width": 262.2857142857143,
+      "height": 34.285714285714285,
+      "text": "Magniuted and velocity",
+      "fontSize": 24,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581701971292",
+      "type": "text",
+      "x": 4709.289154979192,
+      "y": -453.7323030232533,
+      "width": 772.3236155555053,
+      "height": 274.2857142857143,
+      "text": "Grid - crea un plano\nadd - convierte en points\nscatter - multiplica los points\natributewrangler -\npointvop - modifica los points uno a uno\nmerge - combina 1 o mas geometrias\nLibreria de qLib\nVectorfloat - muestra los canales de un vector",
+      "fontSize": 24,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581701970996",
+      "type": "text",
+      "x": 4709.289154979193,
+      "y": -565.9001206745335,
+      "width": 242.28571428571428,
+      "height": 91.42857142857142,
+      "text": "NODOS",
+      "fontSize": 64,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581701888055",
+      "type": "text",
+      "x": 2356.292266976247,
+      "y": -260.90577577802367,
+      "width": 434.5714285714286,
+      "height": 102.85714285714286,
+      "text": "Cd atribute afecta al color\nP afecta la posicion",
+      "fontSize": 36,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581700916978",
+      "type": "text",
+      "x": 2367.5450591616723,
+      "y": -430.33434720659545,
+      "width": 1154.6851899162837,
+      "height": 102.85714285714286,
+      "text": "En Houdini no se trabaja con los vertices, se trabaja con points.\nY tampoco se trabaja con faces, se les llama primitives.",
+      "fontSize": 36,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581644975081",
+      "type": "text",
+      "x": 868.7318378811281,
+      "y": -1004.514230080877,
+      "width": 658.2857142857142,
+      "height": 205.71428571428572,
+      "text": "HOUDINI",
+      "fontSize": 144,
+      "fillColor": null,
+      "color": "#090909",
+      "textAlign": "left"
+    },
+    {
+      "id": "3458764581756924399",
+      "type": "image",
+      "x": 9734.50878938663,
+      "y": -564.6309344774236,
+      "width": 316.2344545400428,
+      "height": 236.7321898745326,
+      "src": "../extracted_board/3458764515521894164.png"
+    },
+    {
+      "id": "3458764581756923934",
+      "type": "image",
+      "x": 9185.751854912844,
+      "y": -780.859629974829,
+      "width": 380,
+      "height": 705,
+      "src": "../extracted_board/3458764515521891079.png"
+    },
+    {
+      "id": "3458764581756924426",
+      "type": "connector",
+      "start": {
+        "x": 9503.674110118223,
+        "y": -433.2683295310551
+      },
+      "end": {
+        "x": 108.10924602148316,
+        "y": 1.0810924602148475
+      },
+      "color": "#090909",
+      "strokeWidth": 8
+    },
+    {
+      "id": "3458764581756853681",
+      "type": "image",
+      "x": 7856.331675662972,
+      "y": -780.859629974829,
+      "width": 1166,
+      "height": 630,
+      "src": "../extracted_board/3458764515521883361.png"
+    },
+    {
+      "id": "3458764581702616192",
+      "type": "image",
+      "x": 2356.292266976247,
+      "y": 42.171002621867984,
+      "width": 699.2206864547386,
+      "height": 383.0450122262445,
+      "src": "../extracted_board/3458764515520669699.png"
+    },
+    {
+      "id": "3458764581657090297",
+      "type": "image",
+      "x": -233.1097437454061,
+      "y": -16.45876519182164,
+      "width": 574.3734520977981,
+      "height": 325.4782895220856,
+      "src": "../extracted_board/3458764515519465347.png"
+    },
+    {
+      "id": "3458764581645169814",
+      "type": "image",
+      "x": -233.10974374540638,
+      "y": -447.17452967071154,
+      "width": 532.7958266393048,
+      "height": 374.6284351044538,
+      "src": "../extracted_board/3458764515519162065.png"
+    },
+    {
+      "id": "3458764581644974998",
+      "type": "image",
+      "x": -233.10974374540632,
+      "y": -779.2640930953959,
+      "width": 515.6813270184938,
+      "height": 302.7718953052774,
+      "src": "../extracted_board/3458764515519079675.png"
+    },
+    {
+      "id": "3458764583632076434",
+      "type": "frame",
+      "x": 391.2723079858189,
+      "y": -800.9827225697915,
+      "width": 1613.2047740763326,
+      "height": 2301.5511774385727,
+      "title": "",
+      "fillColor": "#bbcbd2"
+    },
+    {
+      "id": "3458764581657090334",
+      "type": "image",
+      "x": 441.27230798581894,
+      "y": -301.1830175051771,
+      "width": 710.0335714943222,
+      "height": 402.3523571801159,
+      "src": "../extracted_board/3458764515519465349.png"
+    },
+    {
+      "id": "3458764581657090333",
+      "type": "image",
+      "x": 441.272307985819,
+      "y": 148.6166875594363,
+      "width": 710.0335714943221,
+      "height": 402.35235718011586,
+      "src": "../extracted_board/3458764515519465350.png"
+    },
+    {
+      "id": "3458764581657090331",
+      "type": "image",
+      "x": 441.27230798581894,
+      "y": -750.9827225697915,
+      "width": 710.0335714943222,
+      "height": 402.3523571801159,
+      "src": "../extracted_board/3458764515519465351.png"
+    },
+    {
+      "id": "3458764581656948958",
+      "type": "image",
+      "x": 1244.4435105678283,
+      "y": 1048.2160976886655,
+      "width": 710.0335714943216,
+      "height": 402.3523571801155,
+      "src": "../extracted_board/3458764515519447387.png"
+    },
+    {
+      "id": "3458764581656896923",
+      "type": "image",
+      "x": 1244.4435105678288,
+      "y": 598.416392624052,
+      "width": 710.0335714943226,
+      "height": 402.35235718011614,
+      "src": "../extracted_board/3458764515519447385.png"
+    },
+    {
+      "id": "3458764581648665665",
+      "type": "image",
+      "x": 1244.4435105678283,
+      "y": 148.6166875594371,
+      "width": 710.0335714943225,
+      "height": 402.35235718011603,
+      "src": "../extracted_board/3458764515519207574.png"
+    },
+    {
+      "id": "3458764581648665534",
+      "type": "image",
+      "x": 1244.4435105678285,
+      "y": -301.1830175051773,
+      "width": 710.033571494323,
+      "height": 402.35235718011637,
+      "src": "../extracted_board/3458764515519226552.png"
+    },
+    {
+      "id": "3458764581647827650",
+      "type": "image",
+      "x": 1244.4435105678285,
+      "y": -750.9827225697915,
+      "width": 710.033571494322,
+      "height": 402.3523571801158,
+      "src": "../extracted_board/3458764515519210364.png"
+    },
+    {
+      "id": "3458764581647060121",
+      "type": "image",
+      "x": 441.27230798581905,
+      "y": 1048.2160976886657,
+      "width": 710.033571494322,
+      "height": 387.6070659565087,
+      "src": "../extracted_board/3458764515519142726.png"
+    },
+    {
+      "id": "3458764581646672705",
+      "type": "image",
+      "x": 441.272307985819,
+      "y": 598.4163926240512,
+      "width": 705.7467466267046,
+      "height": 402.35235718011586,
+      "src": "../extracted_board/3458764515519228930.png"
+    }
+  ],
+  "seedVersion": 3
+}

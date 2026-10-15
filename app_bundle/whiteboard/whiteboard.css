@@ -2341,6 +2341,100 @@ html, body {
   text-overflow: ellipsis;
 }
 
+/* Flecha y estados colapsables de categorías */
+.chevron-cat-icon {
+  color: #94a3b8;
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.home-categories-title-wrap,
+.drawer-section-title-wrap {
+  border-radius: 4px;
+  padding: 2px 4px;
+  transition: background 0.15s ease;
+}
+
+.home-categories-title-wrap:hover,
+.drawer-section-title-wrap:hover {
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.home-categories-title-wrap:hover .home-section-title,
+.home-categories-title-wrap:hover .chevron-cat-icon,
+.drawer-section-title-wrap:hover .drawer-section-title,
+.drawer-section-title-wrap:hover .chevron-cat-icon {
+  color: #0f172a;
+}
+
+body.dark-theme .home-categories-title-wrap:hover .home-section-title,
+body.dark-theme .home-categories-title-wrap:hover .chevron-cat-icon,
+body.dark-theme .drawer-section-title-wrap:hover .drawer-section-title,
+body.dark-theme .drawer-section-title-wrap:hover .chevron-cat-icon {
+  color: #f1f5f9;
+}
+
+.home-categories-collapsed #home-cat-chevron,
+.drawer-categories-collapsed #drawer-cat-chevron {
+  transform: rotate(-90deg);
+}
+
+.home-categories-collapsed #home-categories-list,
+.drawer-categories-collapsed #drawer-categories-list {
+  display: none !important;
+}
+
+.drawer-categories-header {
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
+.drawer-categories-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 14px;
+}
+
+.drawer-category-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  gap: 8px;
+  user-select: none;
+}
+
+.drawer-category-item:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.drawer-category-item.active {
+  background: #eff6ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+body.dark-theme .drawer-category-item {
+  color: #94a3b8;
+}
+
+body.dark-theme .drawer-category-item:hover {
+  background: #1f242c;
+  color: #f1f5f9;
+}
+
+body.dark-theme .drawer-category-item.active {
+  background: #232932;
+  color: #f1f5f9;
+}
+
 .home-sidebar-footer {
   margin-top: auto;
   border-top: 1px solid #e9edf2;
@@ -2388,7 +2482,39 @@ html, body {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
+  position: relative;
   margin-bottom: 28px;
+}
+
+.home-header-center-brand {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  user-select: none;
+  pointer-events: none;
+}
+
+.home-center-logo {
+  flex-shrink: 0;
+  filter: drop-shadow(0 3px 12px rgba(59, 130, 246, 0.5));
+}
+
+.home-center-brand-text {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.6px;
+  color: #0f172a;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1;
+}
+
+body.dark-theme .home-center-brand-text {
+  color: #f1f5f9 !important;
 }
 
 .home-view-title {
@@ -4094,5 +4220,21 @@ body.dark-theme #modal-item-properties .modal-footer {
   border-top-color: #2d323b;
 }
 
-
-
+/* Badge de versión y botón de novedades */
+.badge-version {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.badge-version:hover {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: rgba(59, 130, 246, 0.5);
+  transform: translateY(-1px);
+}

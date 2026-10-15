@@ -62130,13 +62130,67 @@ const AppCliArguments_1 = __webpack_require__(/*! ../utils/AppCliArguments */ ".
 const logger_1 = __webpack_require__(/*! ../types/logger */ "./app/src/types/logger.ts");
 const store = new electron_store_1.default({ name: 'settings' });
 function exposeInMainWorld(name, api) {
-    electron_1.contextBridge.exposeInMainWorld(name, api);
+    try {
+        if (electron_1.contextBridge && typeof electron_1.contextBridge.exposeInMainWorld === 'function') {
+            electron_1.contextBridge.exposeInMainWorld(name, api);
+            return;
+        }
+    } catch (e) {}
+    try {
+        window[name] = api;
+    } catch (e) {}
 }
+
+const fs_preload = typeof require === 'function' ? require('fs') : null;
+const path_preload = typeof require === 'function' ? require('path') : null;
+
+function resolveImageSrcPreload(src) {
+    if (!src || typeof src !== 'string') return src;
+    if (src.startsWith('data:') || src.startsWith('http:') || src.startsWith('https:')) {
+        return src;
+    }
+    let filename = src;
+    if (src.includes('extracted_board/')) {
+        filename = src.split('extracted_board/').pop();
+    } else if (src.includes('extracted_board\\')) {
+        filename = src.split('extracted_board\\').pop();
+    }
+    filename = filename.replace(/\\/g, '/').split('/').pop();
+
+    const appData = (process && process.env && process.env.APPDATA) || (process.platform === 'win32' ? 'C:\\Users\\Usuario\\AppData\\Roaming' : (process.platform === 'darwin' ? (process.env.HOME || '') + '/Library/Application Support' : '/var/local'));
+    
+    if (fs_preload && path_preload) {
+        const candidates = [
+            path_preload.join(appData, 'BrainBoard', 'extracted_board', filename),
+            'C:\\Users\\Usuario\\AppData\\Roaming\\BrainBoard\\extracted_board\\' + filename,
+            'C:\\Users\\Usuario\\Desktop\\DEV\\BrainBoard\\extracted_board\\' + filename,
+            path_preload.resolve('c:/Users/Usuario/Desktop/DEV/BrainBoard/extracted_board', filename)
+        ];
+        for (const cand of candidates) {
+            try {
+                if (fs_preload.existsSync(cand)) {
+                    return 'file:///' + cand.replace(/\\/g, '/');
+                }
+            } catch (e) {}
+        }
+    }
+    return 'file:///' + (appData + '/BrainBoard/extracted_board/' + filename).replace(/\\/g, '/');
+}
+
+try {
+    window.resolveImageSrc = resolveImageSrcPreload;
+    window.require = require;
+} catch (e) {}
+exposeInMainWorld('resolveImageSrc', resolveImageSrcPreload);
+
 exposeInMainWorld('process', {
     platform: process.platform,
-    env: {
+    env: Object.assign({}, process.env, {
         NODE_ENV: "release",
-    },
+        APPDATA: process.env.APPDATA || 'C:\\Users\\Usuario\\AppData\\Roaming',
+        USERPROFILE: process.env.USERPROFILE || 'C:\\Users\\Usuario',
+    }),
+    cwd: () => (typeof process.cwd === 'function' ? process.cwd() : ''),
 });
 const MIRO_API = {
     cliArguments: AppCliArguments_1.PARSED_ARGS,

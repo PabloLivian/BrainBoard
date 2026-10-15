@@ -886,6 +886,14 @@ class CanvasEngine {
     if (this.onCameraChange) this.onCameraChange();
   }
 
+  resolveImageSrc(src) {
+    if (!src) return src;
+    if (typeof window !== 'undefined' && typeof window.resolveImageSrc === 'function') {
+      return window.resolveImageSrc(src);
+    }
+    return src;
+  }
+
   // =========================================================
   // 3. EXPORTACIÓN EN ALTA RESOLUCIÓN (PNG / JPEG)
   // =========================================================
@@ -899,7 +907,7 @@ class CanvasEngine {
             if (!it.imgElement || typeof it.imgElement.getAttribute !== 'function') {
               it.imgElement = new Image();
               it.imgElement.setAttribute('data-src', src);
-              it.imgElement.src = src;
+              it.imgElement.src = this.resolveImageSrc(src);
             }
             if (it.imgElement.complete && it.imgElement.naturalWidth > 0) {
               resolve();
@@ -2597,7 +2605,7 @@ class CanvasEngine {
           it.imgElement.setAttribute('data-src', it.src);
           it.imgElement.onload = () => this.render();
           it.imgElement.onerror = () => { it.imgFailed = true; };
-          it.imgElement.src = it.src;
+          it.imgElement.src = this.resolveImageSrc(it.src);
         }
         if (it.imgElement && it.imgElement.complete && it.imgElement.naturalWidth > 0) {
           const img = it.imgElement;
@@ -2894,7 +2902,7 @@ class CanvasEngine {
       it.imgElement.setAttribute('data-src', it.src);
       it.imgElement.onload = () => this.render();
       it.imgElement.onerror = () => console.warn('No se pudo cargar la imagen local:', it.src);
-      it.imgElement.src = it.src;
+      it.imgElement.src = this.resolveImageSrc(it.src);
       return;
     }
     if (it.imgElement && it.imgElement.complete && it.imgElement.naturalWidth > 0) {

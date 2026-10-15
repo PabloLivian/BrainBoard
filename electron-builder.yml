@@ -22,12 +22,15 @@ publish:
   repo: BrainBoard
 
 win:
+  icon: assets/installer_icon.ico
   target:
     - target: nsis
       arch:
         - x64
 
 nsis:
+  installerIcon: assets/installer_icon.ico
+  uninstallerIcon: assets/installer_icon.ico
   oneClick: false
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true

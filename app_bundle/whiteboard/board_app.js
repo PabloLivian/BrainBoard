@@ -1536,18 +1536,571 @@ document.addEventListener('DOMContentLoaded', () => {
     openExportModal();
   });
 
+  function getCleanImageFilename(src) {
+    if (!src || typeof src !== 'string') return null;
+    if (src.startsWith('data:') || src.startsWith('http:') || src.startsWith('https:')) return null;
+    let filename = src;
+    if (src.includes('extracted_board/')) filename = src.split('extracted_board/').pop();
+    else if (src.includes('extracted_board\\')) filename = src.split('extracted_board\\').pop();
+    filename = filename.replace(/\\/g, '/').split('/').pop();
+    filename = filename.split('?')[0].split('#')[0];
+    return filename && /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i.test(filename) ? filename : null;
+  }
+
+  // Exportar tablero en formato .RTB (paquete autónomo con imágenes)
+  async function exportBoardToRTB(targetBoardId, customDestinationPath = null, silent = false) {
+    const boardId = targetBoardId || currentActiveBoardId;
+    if (!boardId) return null;
+
+    let dataToExport = null;
+    const b = Array.isArray(workspaceBoards) ? workspaceBoards.find(x => x.id === boardId) : null;
+    const title = b?.title || boardId;
+
+    if (currentActiveBoardId === boardId && engine.items && engine.items.length > 0) {
+      if (typeof autoSaveBoardImmediately === 'function') {
+        autoSaveBoardImmediately(boardId);
+      }
+      const cleanItems = engine.getCleanItems ? engine.getCleanItems() : engine.items;
+      dataToExport = {
+        id: boardId,
+        title: boardTitleInput ? boardTitleInput.value : title,
+        name: boardTitleInput ? boardTitleInput.value : title,
+        category: b?.category || 'General',
+        icon: b?.icon || '📋',
+        thumbnail: b?.thumbnail || null,
+        updatedAt: new Date().toISOString(),
+        items: cleanItems
+      };
+    } else {
+      const saved = await idbLoadBoard(boardId);
+      if (saved && Array.isArray(saved.items) && saved.items.length > 0) {
+        dataToExport = {
+          id: boardId,
+          title: saved.name || saved.title || title,
+          name: saved.name || saved.title || title,
+          category: b?.category || saved.category || 'General',
+          icon: b?.icon || saved.icon || '📋',
+          thumbnail: b?.thumbnail || saved.thumbnail || null,
+          updatedAt: saved.updatedAt || new Date().toISOString(),
+          items: saved.items
+        };
+      } else {
+        const seedData = await fetchBoardSeedData(boardId);
+        if (seedData) {
+          dataToExport = seedData;
+        }
+      }
+    }
+
+    if (!dataToExport || !Array.isArray(dataToExport.items)) {
+      if (!silent) alert(`El tablero "${title}" no tiene datos disponibles para exportar.`);
+      return null;
+    }
+
+    dataToExport.thumbnail = b?.thumbnail || dataToExport.thumbnail || null;
+    dataToExport.icon = b?.icon || dataToExport.icon || '📋';
+    dataToExport.category = b?.category || dataToExport.category || 'General';
+
+    const items = dataToExport.items;
+    const mediaSet = new Set();
+
+    items.forEach(it => {
+      const candidates = [it.src, it.url, it.preview];
+      candidates.forEach(src => {
+        const cleanName = getCleanImageFilename(src);
+        if (cleanName) mediaSet.add(cleanName);
+      });
+    });
+
+    if (dataToExport.thumbnail) {
+      const cleanThumb = getCleanImageFilename(dataToExport.thumbnail);
+      if (cleanThumb) mediaSet.add(cleanThumb);
+    }
+
+    if (typeof window !== 'undefined' && typeof window.require === 'function') {
+      try {
+        const fs = window.require('fs');
+        const path = window.require('path');
+        const os = window.require('os');
+        const { execFileSync } = window.require('child_process');
+        const electron = window.require('electron');
+
+        let destinationRtb = customDestinationPath;
+        if (!destinationRtb) {
+          const safeTitle = (dataToExport.title || title || 'tablero').replace(/[/\\?%*:|"<>]/g, '_');
+          const defaultFilename = safeTitle + '.rtb';
+
+          if (electron && electron.ipcRenderer) {
+            try {
+              const res = await electron.ipcRenderer.invoke('show-save-dialog', {
+                title: 'Exportar tablero a archivo RTB (con imágenes)',
+                defaultPath: defaultFilename,
+                filters: [
+                  { name: 'Archivo de Tablero Miro / BrainBoard (*.rtb)', extensions: ['rtb'] },
+                  { name: 'Todos los archivos', extensions: ['*'] }
+                ]
+              });
+              if (res.canceled || !res.filePath) {
+                return null;
+              }
+              destinationRtb = res.filePath;
+            } catch (eDiag) {
+              console.warn('show-save-dialog no disponible:', eDiag);
+            }
+          }
+
+          if (!destinationRtb) {
+            const downloadsFolder = path.join(os.homedir(), 'Downloads');
+            destinationRtb = path.join(fs.existsSync(downloadsFolder) ? downloadsFolder : os.homedir(), defaultFilename);
+          }
+        }
+
+        const stagingDir = path.join(os.tmpdir(), 'bb_export_' + Date.now());
+        fs.mkdirSync(stagingDir, { recursive: true });
+
+        const appData = (process && process.env && process.env.APPDATA) || (process.platform === 'win32' ? 'C:\\Users\\Usuario\\AppData\\Roaming' : (process.platform === 'darwin' ? (process.env.HOME || '') + '/Library/Application Support' : '/var/local'));
+        const sourceDirs = [
+          path.join(appData, 'BrainBoard', 'extracted_board'),
+          'C:\\Users\\Usuario\\AppData\\Roaming\\BrainBoard\\extracted_board',
+          'C:\\Users\\Usuario\\Desktop\\DEV\\BrainBoard\\extracted_board',
+          path.resolve('extracted_board')
+        ];
+
+        const copiedMedia = [];
+        const resourcesMeta = [];
+
+        mediaSet.forEach(filename => {
+          let foundSrc = null;
+          for (const sDir of sourceDirs) {
+            const cand = path.join(sDir, filename);
+            if (fs.existsSync(cand)) {
+              foundSrc = cand;
+              break;
+            }
+          }
+          if (foundSrc) {
+            const dst = path.join(stagingDir, filename);
+            try {
+              fs.copyFileSync(foundSrc, dst);
+              copiedMedia.push(filename);
+              resourcesMeta.push({
+                id: path.parse(filename).name,
+                fileName: filename,
+                type: 'image'
+              });
+            } catch (eCopy) {
+              console.warn('Error al copiar archivo a staging:', filename, eCopy);
+            }
+          }
+        });
+
+        const exportItems = items.map(it => {
+          const clone = Object.assign({}, it);
+          if (clone.src) {
+            const cName = getCleanImageFilename(clone.src);
+            if (cName) clone.src = '../extracted_board/' + cName;
+          }
+          return clone;
+        });
+
+        const finalBoardData = Object.assign({}, dataToExport, { items: exportItems });
+
+        // Procesar y empaquetar miniatura si existe
+        if (dataToExport.thumbnail) {
+          const rawThumb = dataToExport.thumbnail;
+          if (typeof rawThumb === 'string' && rawThumb.startsWith('data:image/')) {
+            const extMatch = rawThumb.match(/^data:image\/([a-zA-Z0-9+]+);base64,/);
+            let ext = 'png';
+            if (extMatch && extMatch[1]) {
+              ext = extMatch[1].replace('jpeg', 'jpg');
+            }
+            const thumbFileName = `thumb_${boardId}.${ext}`;
+            const base64Data = rawThumb.replace(/^data:image\/[a-zA-Z0-9+]+;base64,/, '');
+            try {
+              fs.writeFileSync(path.join(stagingDir, thumbFileName), Buffer.from(base64Data, 'base64'));
+              copiedMedia.push(thumbFileName);
+              resourcesMeta.push({
+                id: path.parse(thumbFileName).name,
+                fileName: thumbFileName,
+                type: 'image'
+              });
+              finalBoardData.thumbnail = `../extracted_board/${thumbFileName}`;
+            } catch (eThumb) {
+              console.warn('Error al guardar miniatura base64 en RTB:', eThumb);
+            }
+          } else {
+            const cleanThumb = getCleanImageFilename(rawThumb);
+            if (cleanThumb) {
+              finalBoardData.thumbnail = `../extracted_board/${cleanThumb}`;
+              let foundSrc = null;
+              for (const sDir of sourceDirs) {
+                const cand = path.join(sDir, cleanThumb);
+                if (fs.existsSync(cand)) {
+                  foundSrc = cand;
+                  break;
+                }
+              }
+              if (foundSrc && !fs.existsSync(path.join(stagingDir, cleanThumb))) {
+                try {
+                  fs.copyFileSync(foundSrc, path.join(stagingDir, cleanThumb));
+                  copiedMedia.push(cleanThumb);
+                  resourcesMeta.push({
+                    id: path.parse(cleanThumb).name,
+                    fileName: cleanThumb,
+                    type: 'image'
+                  });
+                } catch (eThumbCopy) {
+                  console.warn('Error al copiar miniatura física en RTB:', eThumbCopy);
+                }
+              }
+            } else if (typeof rawThumb === 'string' && fs.existsSync(rawThumb)) {
+              const ext = path.extname(rawThumb) || '.png';
+              const thumbFileName = `thumb_${boardId}${ext}`;
+              try {
+                fs.copyFileSync(rawThumb, path.join(stagingDir, thumbFileName));
+                copiedMedia.push(thumbFileName);
+                resourcesMeta.push({
+                  id: path.parse(thumbFileName).name,
+                  fileName: thumbFileName,
+                  type: 'image'
+                });
+                finalBoardData.thumbnail = `../extracted_board/${thumbFileName}`;
+              } catch (eAbs) {
+                console.warn('Error al copiar miniatura absoluta en RTB:', eAbs);
+              }
+            }
+          }
+        }
+
+        fs.writeFileSync(path.join(stagingDir, 'canvas.json'), JSON.stringify(finalBoardData, null, 2), 'utf8');
+        fs.writeFileSync(path.join(stagingDir, 'board.json'), JSON.stringify(finalBoardData, null, 2), 'utf8');
+        fs.writeFileSync(path.join(stagingDir, 'resources.json'), JSON.stringify({ resources: resourcesMeta }, null, 2), 'utf8');
+
+        if (fs.existsSync(destinationRtb)) {
+          fs.unlinkSync(destinationRtb);
+        }
+
+        const filesToPack = fs.readdirSync(stagingDir);
+        if (filesToPack.length > 150) {
+          execFileSync('tar', ['-cf', destinationRtb, '-C', stagingDir, '.']);
+        } else {
+          execFileSync('tar', ['-cf', destinationRtb, '-C', stagingDir, ...filesToPack]);
+        }
+
+        fs.rmSync(stagingDir, { recursive: true, force: true });
+
+        const stats = fs.statSync(destinationRtb);
+        const sizeMb = (stats.size / (1024 * 1024)).toFixed(2);
+        if (!silent) {
+          alert(`¡Tablero "${dataToExport.title || title}" exportado con éxito!\n\nArchivo: ${destinationRtb}\nTamaño: ${sizeMb} MB\nImágenes empaquetadas: ${copiedMedia.length}`);
+        }
+        return {
+          success: true,
+          path: destinationRtb,
+          title: dataToExport.title || title,
+          imagesCount: copiedMedia.length,
+          sizeMb: sizeMb
+        };
+      } catch (err) {
+        console.error('Error al exportar RTB:', err);
+        if (!silent) alert('Error al exportar archivo .RTB: ' + err.message);
+        return { success: false, error: err.message };
+      }
+    } else {
+      saveBoardToFile();
+      return null;
+    }
+  }
+  window.exportBoardToRTB = exportBoardToRTB;
+
+  // Diálogo nativo o input file para importar tableros
+  async function triggerImportBoard() {
+    if (typeof window !== 'undefined' && typeof window.require === 'function') {
+      try {
+        const electron = window.require('electron');
+        if (electron && electron.ipcRenderer) {
+          const res = await electron.ipcRenderer.invoke('show-open-dialog', {
+            title: 'Importar tablero (.rtb / .json)',
+            filters: [
+              { name: 'Tableros de Miro / BrainBoard (*.rtb, *.brainboard, *.json)', extensions: ['rtb', 'brainboard', 'json'] },
+              { name: 'Archivos RTB (*.rtb, *.brainboard)', extensions: ['rtb', 'brainboard'] },
+              { name: 'Archivos JSON (*.json)', extensions: ['json'] },
+              { name: 'Todos los archivos', extensions: ['*'] }
+            ],
+            properties: ['openFile']
+          });
+          if (res && !res.canceled && res.filePaths && res.filePaths.length > 0) {
+            await handleImportFile(res.filePaths[0]);
+            return;
+          } else if (res && res.canceled) {
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('show-open-dialog fallback:', e);
+      }
+    }
+    fileInput?.click();
+  }
+  window.triggerImportBoard = triggerImportBoard;
+
+  // Lógica de importación para .RTB (desempaquetado y restauración de imágenes) y .JSON
+  async function handleImportFile(input) {
+    if (!input) return;
+    const isPath = typeof input === 'string';
+    const filePath = isPath ? input : (input.path || input.name);
+    const fileName = isPath ? (typeof window.require === 'function' ? window.require('path').basename(input) : input.split(/[/\\]/).pop()) : input.name;
+    const isRtb = fileName.toLowerCase().endsWith('.rtb') || fileName.toLowerCase().endsWith('.brainboard');
+
+    if (isRtb) {
+      if (typeof window !== 'undefined' && typeof window.require === 'function') {
+        try {
+          const fs = window.require('fs');
+          const path = window.require('path');
+          const os = window.require('os');
+          const { execFileSync } = window.require('child_process');
+
+          let actualRtbPath = isPath ? input : input.path;
+          let tempRtbCreated = false;
+
+          if (!actualRtbPath) {
+            const buffer = await input.arrayBuffer();
+            actualRtbPath = path.join(os.tmpdir(), 'imported_' + Date.now() + '.rtb');
+            fs.writeFileSync(actualRtbPath, Buffer.from(buffer));
+            tempRtbCreated = true;
+          }
+
+          const stagingDir = path.join(os.tmpdir(), 'bb_import_' + Date.now());
+          fs.mkdirSync(stagingDir, { recursive: true });
+
+          execFileSync('tar', ['-xf', actualRtbPath, '-C', stagingDir]);
+
+          if (tempRtbCreated) {
+            try { fs.unlinkSync(actualRtbPath); } catch (e) {}
+          }
+
+          let boardData = null;
+          const candidateJsons = ['canvas.json', 'board.json'];
+          for (const cj of candidateJsons) {
+            const p = path.join(stagingDir, cj);
+            if (fs.existsSync(p)) {
+              try {
+                boardData = JSON.parse(fs.readFileSync(p, 'utf8'));
+                break;
+              } catch (eJson) {
+                console.warn('Fallo al parsear ' + cj + ':', eJson);
+              }
+            }
+          }
+
+          if (!boardData) {
+            const allFiles = fs.readdirSync(stagingDir);
+            for (const f of allFiles) {
+              if (f.endsWith('.json') && f !== 'resources.json') {
+                try {
+                  const parsed = JSON.parse(fs.readFileSync(path.join(stagingDir, f), 'utf8'));
+                  if (parsed && (parsed.items || parsed.widgets)) {
+                    boardData = parsed;
+                    break;
+                  }
+                } catch (e) {}
+              }
+            }
+          }
+
+          if (!boardData) {
+            fs.rmSync(stagingDir, { recursive: true, force: true });
+            alert('El archivo .RTB no contiene una estructura de tablero legible.\n\nNota: Si este archivo proviene de una exportación cifrada de Miro, se requiere su JSON correspondiente para interpretar los elementos.');
+            return;
+          }
+
+          const appData = (process && process.env && process.env.APPDATA) || (process.platform === 'win32' ? 'C:\\Users\\Usuario\\AppData\\Roaming' : (process.platform === 'darwin' ? (process.env.HOME || '') + '/Library/Application Support' : '/var/local'));
+          const targetDirs = [
+            path.join(appData, 'BrainBoard', 'extracted_board'),
+            'C:\\Users\\Usuario\\AppData\\Roaming\\BrainBoard\\extracted_board',
+            'C:\\Users\\Usuario\\Desktop\\DEV\\BrainBoard\\extracted_board',
+            path.resolve('extracted_board')
+          ];
+
+          targetDirs.forEach(td => {
+            try { if (!fs.existsSync(td)) fs.mkdirSync(td, { recursive: true }); } catch (e) {}
+          });
+
+          const stagingFiles = fs.readdirSync(stagingDir);
+          const mediaExts = /\.(png|jpg|jpeg|gif|webp|svg|bmp)$/i;
+          const mediaFiles = stagingFiles.filter(f => mediaExts.test(f));
+          let copiedImagesCount = 0;
+
+          mediaFiles.forEach(mf => {
+            const srcPath = path.join(stagingDir, mf);
+            targetDirs.forEach(td => {
+              try {
+                const dstPath = path.join(td, mf);
+                fs.copyFileSync(srcPath, dstPath);
+              } catch (e) {}
+            });
+            copiedImagesCount++;
+          });
+
+          fs.rmSync(stagingDir, { recursive: true, force: true });
+
+          const baseName = fileName.replace(/\.[^/.]+$/, "");
+          const boardName = boardData.name || boardData.title || baseName;
+          let boardId = boardData.id || ('board_' + Date.now());
+
+          if (Array.isArray(workspaceBoards)) {
+            let collision = workspaceBoards.find(b => b.id === boardId);
+            if (collision && collision.title !== boardName) {
+              boardId = 'board_' + Date.now();
+              boardData.id = boardId;
+            }
+          }
+
+          boardData.userModified = true;
+          boardData.title = boardName;
+          boardData.name = boardName;
+
+          saveBoardToDisk(boardId, boardData);
+
+          if (Array.isArray(workspaceBoards)) {
+            let existing = workspaceBoards.find(b => b.id === boardId);
+            const now = Date.now();
+            if (!existing) {
+              existing = {
+                id: boardId,
+                title: boardName,
+                icon: boardData.icon || '📋',
+                thumbnail: boardData.thumbnail || null,
+                category: boardData.category || 'General',
+                lastOpenedAt: now,
+                lastOpened: formatLastOpened(now),
+                active: true
+              };
+              workspaceBoards.push(existing);
+            } else {
+              existing.title = boardName;
+              if (boardData.thumbnail) existing.thumbnail = boardData.thumbnail;
+              if (boardData.icon) existing.icon = boardData.icon;
+              if (boardData.category) existing.category = boardData.category;
+              existing.lastOpenedAt = now;
+              existing.lastOpened = formatLastOpened(now);
+              existing.active = true;
+            }
+            saveWorkspaceBoards();
+          }
+
+          await idbSaveBoard(boardId, boardData);
+          localStorage.setItem('brainboard_board_' + boardId, JSON.stringify(boardData));
+
+          await openBoardTab(boardId);
+          if (typeof renderDrawerBoards === 'function') renderDrawerBoards();
+          if (typeof renderDrawerCategories === 'function') renderDrawerCategories();
+          if (typeof renderHomeScreen === 'function') renderHomeScreen();
+
+          alert(`¡Tablero "${boardName}" importado con éxito!\n\nSe han restaurado ${copiedImagesCount} imágenes en el almacén local.`);
+          return;
+        } catch (err) {
+          console.error('Error al importar archivo RTB:', err);
+          alert('Error al importar archivo .RTB: ' + err.message);
+          return;
+        }
+      } else {
+        alert('La importación de archivos .RTB requiere el entorno Electron.');
+        return;
+      }
+    }
+
+    // Archivo JSON
+    let jsonData = null;
+    let fallbackName = fileName.replace(/\.[^/.]+$/, "");
+    if (isPath && typeof window !== 'undefined' && typeof window.require === 'function') {
+      try {
+        const fs = window.require('fs');
+        jsonData = JSON.parse(fs.readFileSync(input, 'utf8'));
+      } catch (err) {
+        alert('Error al leer el archivo JSON: ' + err.message);
+        return;
+      }
+    } else {
+      try {
+        const text = await input.text();
+        jsonData = JSON.parse(text);
+      } catch (err) {
+        alert('Error al leer el archivo JSON: ' + err.message);
+        return;
+      }
+    }
+
+    if (jsonData && (jsonData.items || jsonData.widgets)) {
+      const boardName = jsonData.name || jsonData.title || fallbackName;
+      let boardId = jsonData.id || ('board_' + Date.now());
+
+      if (Array.isArray(workspaceBoards)) {
+        let collision = workspaceBoards.find(b => b.id === boardId);
+        if (collision && collision.title !== boardName) {
+          boardId = 'board_' + Date.now();
+          jsonData.id = boardId;
+        }
+        let existing = workspaceBoards.find(b => b.id === boardId);
+        const now = Date.now();
+        if (!existing) {
+          existing = {
+            id: boardId,
+            title: boardName,
+            icon: jsonData.icon || '📋',
+            thumbnail: jsonData.thumbnail || null,
+            category: jsonData.category || 'General',
+            lastOpenedAt: now,
+            lastOpened: formatLastOpened(now),
+            active: true
+          };
+          workspaceBoards.push(existing);
+        } else {
+          existing.title = boardName;
+          if (jsonData.thumbnail) existing.thumbnail = jsonData.thumbnail;
+          if (jsonData.icon) existing.icon = jsonData.icon;
+          if (jsonData.category) existing.category = jsonData.category;
+          existing.lastOpenedAt = now;
+          existing.lastOpened = formatLastOpened(now);
+          existing.active = true;
+        }
+        saveWorkspaceBoards();
+      }
+
+      jsonData.userModified = true;
+      jsonData.title = boardName;
+      jsonData.name = boardName;
+
+      saveBoardToDisk(boardId, jsonData);
+      await idbSaveBoard(boardId, jsonData);
+      localStorage.setItem('brainboard_board_' + boardId, JSON.stringify(jsonData));
+
+      await openBoardTab(boardId);
+      if (typeof renderDrawerBoards === 'function') renderDrawerBoards();
+      if (typeof renderDrawerCategories === 'function') renderDrawerCategories();
+      if (typeof renderHomeScreen === 'function') renderHomeScreen();
+
+      if (typeof autoSaveBoardImmediately === 'function') {
+        autoSaveBoardImmediately(boardId);
+      }
+    } else {
+      alert('El archivo no tiene el formato de tablero esperado.');
+    }
+  }
+  window.handleImportFile = handleImportFile;
+
   // Guardar tablero en archivo JSON
   document.getElementById('btn-save')?.addEventListener('click', saveBoardToFile);
 
   // Abrir / Importar archivo
   document.getElementById('btn-drawer-import')?.addEventListener('click', () => {
-    fileInput.click();
+    triggerImportBoard();
   });
   document.getElementById('btn-open')?.addEventListener('click', () => {
-    fileInput.click();
+    triggerImportBoard();
   });
 
-  // Exportar copia de seguridad de todos los tableros
+  // Exportar copia de seguridad de todos los tableros en formato .RTB (con imágenes)
   async function exportAllBoardsBackup() {
     if (typeof autoSaveBoardImmediately === 'function') {
       autoSaveBoardImmediately();
@@ -1559,90 +2112,72 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // Recopilar datos de cada tablero desde IndexedDB / LocalStorage / estado activo
-    const exportedDataList = [];
-    for (const b of boardsToExport) {
-      let data = null;
-      if (b.id === currentActiveBoardId) {
-        const cleanItems = engine.getCleanItems ? engine.getCleanItems() : engine.items;
-        data = {
-          id: b.id,
-          name: boardTitleInput.value || b.title || 'Tablero',
-          updatedAt: new Date().toISOString(),
-          items: cleanItems
-        };
-      } else {
-        data = await idbLoadBoard(b.id);
-        if (!data) {
-          try {
-            const ls = localStorage.getItem(`brainboard_board_${b.id}`) || localStorage.getItem(`miro_board_${b.id}`) || (b.id === 'dev_ai' ? (localStorage.getItem('brainboard_local_current_board_v3') || localStorage.getItem('miro_local_current_board_v3')) : null);
-            if (ls) data = JSON.parse(ls);
-          } catch (e) {}
-        }
-        if (!data || !Array.isArray(data.items) || data.items.length === 0) {
-          const seed = await fetchBoardSeedData(b.id);
-          if (seed) data = seed;
-        }
-      }
-
-      const boardItems = (data && Array.isArray(data.items)) ? data.items : [];
-      const safeTitle = (b.title || b.id || 'tablero').replace(/[^a-zA-Z0-9_\-\u00C0-\u017F\s]/g, '').trim().replace(/\s+/g, '_');
-      const filename = `${safeTitle || 'tablero'}.json`;
-
-      exportedDataList.push({
-        id: b.id,
-        filename: filename,
-        content: JSON.stringify({
-          id: b.id,
-          name: b.title || (data ? data.name : b.id),
-          icon: b.icon || '📋',
-          updatedAt: (data && data.updatedAt) ? data.updatedAt : new Date().toISOString(),
-          items: boardItems
-        }, null, 2)
-      });
-    }
-
-    // 1. Si el navegador/Chromium soporta File System Access API (showDirectoryPicker)
-    if (typeof window.showDirectoryPicker === 'function') {
+    if (typeof window !== 'undefined' && typeof window.require === 'function') {
       try {
-        const dirHandle = await window.showDirectoryPicker({
-          id: 'brain_board_backup',
-          mode: 'readwrite',
-          startIn: 'documents'
-        });
+        const fs = window.require('fs');
+        const path = window.require('path');
+        const os = window.require('os');
+        const electron = window.require('electron');
+
+        let targetFolder = null;
+        if (electron && electron.ipcRenderer) {
+          try {
+            const res = await electron.ipcRenderer.invoke('show-open-dialog', {
+              title: 'Seleccionar carpeta para guardar la copia de seguridad de todos los tableros (.rtb)',
+              properties: ['openDirectory', 'createDirectory']
+            });
+            if (res.canceled || !res.filePaths || res.filePaths.length === 0) {
+              return; // Cancelado por el usuario
+            }
+            targetFolder = res.filePaths[0];
+          } catch (eDiag) {
+            console.warn('show-open-dialog fallback:', eDiag);
+          }
+        }
+
+        if (!targetFolder) {
+          const downloadsFolder = path.join(os.homedir(), 'Downloads');
+          targetFolder = fs.existsSync(downloadsFolder) ? downloadsFolder : os.homedir();
+        }
+
+        // Crear subcarpeta con fecha y hora para agrupar limpiamente la copia de seguridad
+        const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const backupSubdir = path.join(targetFolder, `BrainBoard_Backup_RTB_${dateStr}`);
+        fs.mkdirSync(backupSubdir, { recursive: true });
 
         let savedCount = 0;
-        for (const item of exportedDataList) {
-          const fileHandle = await dirHandle.getFileHandle(item.filename, { create: true });
-          const writable = await fileHandle.createWritable();
-          await writable.write(item.content);
-          await writable.close();
-          savedCount++;
+        let totalImages = 0;
+        const usedFilenames = new Set();
+
+        for (const b of boardsToExport) {
+          let safeTitle = (b.title || b.id || 'tablero').replace(/[/\\?%*:|"<>]/g, '_').trim();
+          if (!safeTitle) safeTitle = 'tablero';
+          let finalFileName = `${safeTitle}.rtb`;
+          let counter = 1;
+          while (usedFilenames.has(finalFileName.toLowerCase())) {
+            finalFileName = `${safeTitle}_${counter}.rtb`;
+            counter++;
+          }
+          usedFilenames.add(finalFileName.toLowerCase());
+
+          const destRtbPath = path.join(backupSubdir, finalFileName);
+          const result = await exportBoardToRTB(b.id, destRtbPath, true);
+          if (result && result.success) {
+            savedCount++;
+            totalImages += (result.imagesCount || 0);
+          }
         }
 
-        alert(`¡Copia de seguridad completada con éxito!\nSe han guardado ${savedCount} tableros en la carpeta seleccionada.`);
+        alert(`¡Copia de seguridad en formato .RTB completada con éxito!\n\nSe han exportado ${savedCount} tableros con un total de ${totalImages} imágenes incluidas en la carpeta:\n\n${backupSubdir}`);
         return;
       } catch (err) {
-        // Si el usuario canceló la selección de carpeta, no hacer nada
-        if (err.name === 'AbortError') return;
-        console.warn('Error con showDirectoryPicker, recurriendo a descarga:', err);
+        console.error('Error en exportAllBoardsBackup:', err);
+        alert('Error al generar la copia de seguridad RTB: ' + err.message);
+        return;
       }
     }
 
-    // 2. Método de descarga secuencial en caso de que no esté disponible o falle showDirectoryPicker
-    let delay = 0;
-    for (const item of exportedDataList) {
-      setTimeout(() => {
-        const blob = new Blob([item.content], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = item.filename;
-        a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 2000);
-      }, delay);
-      delay += 250;
-    }
+    alert('La copia de seguridad en formato .RTB requiere el entorno de escritorio Electron.');
   }
 
   document.getElementById('btn-drawer-backup')?.addEventListener('click', () => {
@@ -1959,53 +2494,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  fileInput.addEventListener('change', (e) => {
+  fileInput.addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const data = JSON.parse(evt.target.result);
-        if (data.items && Array.isArray(data.items)) {
-          const boardName = data.name || file.name.replace(/\.[^/.]+$/, "");
-          const boardId = data.id || ('board_' + Date.now());
-
-          if (Array.isArray(workspaceBoards)) {
-            let existing = workspaceBoards.find(b => b.id === boardId || b.title.toLowerCase() === boardName.toLowerCase());
-            if (!existing) {
-              existing = { id: boardId, title: boardName, icon: '📋', active: true };
-              workspaceBoards.push(existing);
-            }
-            workspaceBoards.forEach(b => b.active = (b.id === existing.id));
-            currentActiveBoardId = existing.id;
-            if (typeof saveWorkspaceBoards === 'function') saveWorkspaceBoards();
-          } else {
-            currentActiveBoardId = boardId;
-          }
-
-          localStorage.setItem('brainboard_active_board_id', currentActiveBoardId);
-          engine.saveSnapshot();
-          engine.items = convertMiroToBrainBoard(data);
-          engine.selectedItemIds.clear();
-          boardTitleInput.value = boardName;
-          fitBoardTitleWidth();
-          engine.fitView();
-          if (typeof renderDrawerBoards === 'function') renderDrawerBoards();
-          boardControllerDrawer?.classList.remove('open');
-          if (typeof autoSaveBoardImmediately === 'function') {
-            autoSaveBoardImmediately(currentActiveBoardId);
-          } else {
-            autoSaveBoard();
-          }
-        } else {
-          alert('El archivo no tiene el formato de tablero esperado.');
-        }
-      } catch (err) {
-        alert('Error al leer el archivo JSON: ' + err.message);
-      }
-    };
-    reader.readAsText(file);
+    await handleImportFile(file);
     fileInput.value = '';
   });
 
@@ -2035,7 +2527,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const thumb = document.createElement('div');
         thumb.className = 'asset-thumb';
         const img = document.createElement('img');
-        img.src = '../extracted_board/' + item.Name;
+        img.src = resolveImageSrc('../extracted_board/' + item.Name);
         const lbl = document.createElement('span');
         lbl.innerText = item.Name;
 
@@ -3229,6 +3721,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let saveTimeout = null;
 
+  function resolveImageSrc(src) {
+    if (!src) return src;
+    if (src.startsWith('data:') || src.startsWith('http:') || src.startsWith('https:')) {
+      return src;
+    }
+    if (typeof window !== 'undefined' && typeof window.require === 'function') {
+      try {
+        const fs = window.require('fs');
+        const path = window.require('path');
+        let filename = src;
+        if (src.includes('extracted_board/')) {
+          filename = src.split('extracted_board/').pop();
+        } else if (src.includes('extracted_board\\')) {
+          filename = src.split('extracted_board\\').pop();
+        }
+        filename = filename.replace(/\\/g, '/').split('/').pop();
+
+        const appData = (process && process.env && process.env.APPDATA) || (process.platform === 'win32' ? 'C:\\Users\\Usuario\\AppData\\Roaming' : (process.platform === 'darwin' ? (process.env.HOME || '') + '/Library/Application Support' : '/var/local'));
+        const candidates = [
+          path.join(appData, 'BrainBoard', 'extracted_board', filename),
+          'C:\\Users\\Usuario\\AppData\\Roaming\\BrainBoard\\extracted_board\\' + filename,
+          'C:\\Users\\Usuario\\Desktop\\DEV\\BrainBoard\\extracted_board\\' + filename,
+          path.resolve(__dirname, src),
+          path.resolve(process.cwd(), src),
+          path.resolve('c:/Users/Usuario/Desktop/DEV/BrainBoard/extracted_board', filename),
+          path.resolve('c:/Users/Usuario/Desktop/DEV/BrainBoard', src.replace(/^\.\.\//, ''))
+        ];
+
+        for (const cand of candidates) {
+          if (fs.existsSync(cand)) {
+            return 'file:///' + cand.replace(/\\/g, '/');
+          }
+        }
+        return 'file:///' + (appData + '/BrainBoard/extracted_board/' + filename).replace(/\\/g, '/');
+      } catch (e) {}
+    }
+    return src;
+  }
+  window.resolveImageSrc = resolveImageSrc;
+
   window.autoSaveBoardImmediately = autoSaveBoardImmediately;
 
   function saveBoardToDisk(targetBoardId, data) {
@@ -3275,12 +3807,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (saveStatusText) saveStatusText.innerText = 'Guardando...';
     const boardMeta = workspaceBoards.find(b => b.id === targetBoardId);
+    if (boardMeta) {
+      boardMeta.lastOpenedAt = Date.now();
+      boardMeta.lastOpened = formatLastOpened(boardMeta.lastOpenedAt);
+      saveWorkspaceBoards();
+    }
     const currentVer = Math.max(engine.currentSeedVersion || 0, boardMeta?.seedVersion || 0, 3);
     engine.currentSeedVersion = currentVer;
 
     const data = {
       id: targetBoardId,
       name: (boardTitleInput && currentActiveBoardId === targetBoardId ? boardTitleInput.value : boardMeta?.title) || (targetBoardId === 'dev_ai' ? 'DEV / AI' : 'Tablero'),
+      category: boardMeta?.category || 'General',
+      icon: boardMeta?.icon || '📋',
+      thumbnail: boardMeta?.thumbnail || null,
       updatedAt: new Date().toISOString(),
       seedVersion: currentVer,
       userModified: true,
@@ -3588,14 +4128,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const inputDrawerSearch = document.getElementById('input-drawer-search');
   const btnDrawerNewBoard = document.getElementById('btn-drawer-new-board');
   const drawerBoardsList = document.getElementById('drawer-boards-list');
-  const btnCloseCallout = document.getElementById('btn-close-callout');
-  const drawerCalloutBox = document.getElementById('drawer-callout-box');
-  const btnCreateSection = document.getElementById('btn-create-section');
+  const drawerCategoriesList = document.getElementById('drawer-categories-list');
+  const btnDrawerToggleCategories = document.getElementById('btn-drawer-toggle-categories');
+  const btnDrawerAddCategory = document.getElementById('btn-drawer-add-category');
+  const btnDrawerNavHome = document.getElementById('btn-drawer-nav-home');
+  const btnHomeToggleCategories = document.getElementById('btn-home-toggle-categories');
+  let currentDrawerCategoryFilter = null;
   const btnBoardOptionsTrigger = document.getElementById('btn-board-options-trigger');
   const boardOptionsMenu = document.getElementById('board-options-menu');
   const menuOptRename = document.getElementById('menu-opt-rename');
-  const menuOptSave = document.getElementById('menu-opt-save');
-  const menuOptBackup = document.getElementById('menu-opt-backup');
+  const menuOptThumbnail = document.getElementById('menu-opt-thumbnail');
+  const menuOptExportRtb = document.getElementById('menu-opt-export-rtb');
   const menuOptExportHires = document.getElementById('menu-opt-export-hires');
   const menuOptClear = document.getElementById('menu-opt-clear');
   const btnResetZoom = document.getElementById('btn-reset-zoom');
@@ -3610,7 +4153,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (b.thumbnail) {
       boardThumbnailMini.className = 'board-thumbnail-mini';
-      boardThumbnailMini.innerHTML = `<img src="${b.thumbnail}" class="board-thumbnail-mini-img" alt="${b.title || ''}" />`;
+      boardThumbnailMini.innerHTML = `<img src="${resolveImageSrc(b.thumbnail)}" class="board-thumbnail-mini-img" alt="${b.title || ''}" />`;
     } else if (b.icon === 'code' || b.id === 'dev_ai') {
       boardThumbnailMini.className = 'board-thumbnail-mini thumb-code';
       boardThumbnailMini.innerHTML = `<span class="thumb-code-brackets">&lt;/&gt;</span>`;
@@ -3644,6 +4187,75 @@ document.addEventListener('DOMContentLoaded', () => {
   const DEFAULT_BOARD_THUMBNAILS = {};
   window.DEFAULT_BOARD_THUMBNAILS = DEFAULT_BOARD_THUMBNAILS;
 
+  function formatLastOpened(val) {
+    if (!val) return 'Hoy';
+    let date = null;
+    if (typeof val === 'number') {
+      date = new Date(val);
+    } else if (val instanceof Date) {
+      date = val;
+    } else if (typeof val === 'string') {
+      const trimmed = val.trim();
+      // Si ya tiene el formato completo con hora "Hoy, 15:30", "Ayer, 21:14", etc.
+      if (trimmed.includes(':') && (trimmed.toLowerCase().startsWith('hoy') || trimmed.toLowerCase().startsWith('ayer') || /^\d{1,2}\s+[a-zA-Z]{3}/i.test(trimmed))) {
+        return trimmed;
+      }
+      // Parsear legacy string tipo "14 mar" o "14 mar 2026"
+      const matchMonth = trimmed.match(/^(\d{1,2})\s+([a-zA-Z]{3,})/i);
+      if (matchMonth) {
+        const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+        const mIdx = months.indexOf(matchMonth[2].toLowerCase().slice(0, 3));
+        if (mIdx !== -1) {
+          const d = parseInt(matchMonth[1], 10);
+          const currentYear = new Date().getFullYear();
+          date = new Date(currentYear, mIdx, d, 12, 0);
+        }
+      }
+      if (!date) {
+        const parsed = Date.parse(trimmed);
+        if (!isNaN(parsed)) {
+          date = new Date(parsed);
+        } else {
+          const now = new Date();
+          const hh = String(now.getHours()).padStart(2, '0');
+          const mm = String(now.getMinutes()).padStart(2, '0');
+          if (trimmed.toLowerCase() === 'hoy') return `Hoy, ${hh}:${mm}`;
+          if (trimmed.toLowerCase() === 'ayer') return `Ayer, ${hh}:${mm}`;
+          return trimmed;
+        }
+      }
+    } else {
+      return 'Hoy';
+    }
+
+    if (!date || isNaN(date.getTime())) return 'Hoy';
+
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const targetDayStart = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const diffDays = Math.round((todayStart - targetDayStart) / (24 * 60 * 60 * 1000));
+
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const timeStr = `${hh}:${mm}`;
+
+    if (diffDays <= 0) {
+      return `Hoy, ${timeStr}`;
+    } else if (diffDays === 1) {
+      return `Ayer, ${timeStr}`;
+    } else {
+      const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+      const day = date.getDate();
+      const month = months[date.getMonth()];
+      if (date.getFullYear() === now.getFullYear()) {
+        return `${day} ${month}, ${timeStr}`;
+      } else {
+        return `${day} ${month} ${date.getFullYear()}, ${timeStr}`;
+      }
+    }
+  }
+  window.formatLastOpened = formatLastOpened;
+
   function loadWorkspaceBoards() {
     let boards = null;
     try {
@@ -3653,28 +4265,98 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } catch (e) {}
 
+    const now = Date.now();
     const defaultBoards = [
-      { id: 'ejemplo', title: 'Ejemplo', icon: '✨', thumbnail: null, category: 'General', lastOpened: 'Hoy', active: true }
+      { id: 'ejemplo', title: 'Ejemplo', icon: '✨', thumbnail: null, category: 'General', lastOpenedAt: now, lastOpened: formatLastOpened(now), active: true }
     ];
 
     if (!Array.isArray(boards) || boards.length === 0) {
       return defaultBoards;
     }
 
-    // Normalizar y migrar datos asegurando categoría y fecha de apertura
-    boards.forEach(b => {
+    let nodeFs = null;
+    let nodePath = null;
+    if (typeof window !== 'undefined' && typeof window.require === 'function') {
+      try {
+        nodeFs = window.require('fs');
+        nodePath = window.require('path');
+      } catch (e) {}
+    }
+
+    // Normalizar y migrar datos asegurando categoría y fecha de apertura con timestamp
+    boards.forEach((b, idx) => {
       if (!b.category) {
         b.category = 'General';
       }
-      if (!b.lastOpened) {
-        b.lastOpened = 'Hoy';
+
+      // Migrar y asegurar timestamp numérico lastOpenedAt
+      if (typeof b.lastOpenedAt !== 'number' || isNaN(b.lastOpenedAt) || b.lastOpenedAt <= 0) {
+        let timestamp = 0;
+
+        // 1. Intentar obtener timestamp de b.updatedAt
+        if (b.updatedAt) {
+          const t = new Date(b.updatedAt).getTime();
+          if (!isNaN(t) && t > 0) timestamp = t;
+        }
+
+        // 2. Si no tiene updatedAt, leer del archivo JSON en disco si estamos en Electron
+        if (!timestamp && nodeFs && nodePath) {
+          try {
+            const fileBase = b.id === 'dev_ai' ? 'DEV_AI' : b.id;
+            const candidates = [
+              nodePath.resolve(process.cwd(), `boards/${fileBase}.json`),
+              nodePath.resolve(process.cwd(), `app_bundle/boards/${fileBase}.json`),
+              nodePath.resolve(__dirname, `../boards/${fileBase}.json`),
+              nodePath.resolve(__dirname, `boards/${fileBase}.json`)
+            ];
+            for (const cand of candidates) {
+              if (nodeFs.existsSync(cand)) {
+                const fData = JSON.parse(nodeFs.readFileSync(cand, 'utf8'));
+                if (fData.updatedAt) {
+                  const pt = new Date(fData.updatedAt).getTime();
+                  if (!isNaN(pt) && pt > 0) {
+                    timestamp = pt;
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (e) {}
+        }
+
+        // 3. Si b.lastOpened contenía una fecha parseable
+        if (!timestamp && b.lastOpened) {
+          const matchMonth = String(b.lastOpened).trim().match(/^(\d{1,2})\s+([a-zA-Z]{3,})/i);
+          if (matchMonth) {
+            const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+            const mIdx = months.indexOf(matchMonth[2].toLowerCase().slice(0, 3));
+            if (mIdx !== -1) {
+              const d = parseInt(matchMonth[1], 10);
+              const currentYear = new Date().getFullYear();
+              timestamp = new Date(currentYear, mIdx, d, 12, 0).getTime();
+            }
+          }
+        }
+
+        // 4. Fallback escalonado para mantener orden estable
+        if (!timestamp) {
+          timestamp = now - (idx * 60000);
+        }
+
+        b.lastOpenedAt = timestamp;
       }
+
+      b.lastOpened = formatLastOpened(b.lastOpenedAt);
     });
 
     // Asegurar que el tablero 'ejemplo' esté disponible
     if (!boards.find(b => b.id === 'ejemplo')) {
-      boards.unshift({ id: 'ejemplo', title: 'Ejemplo', icon: '✨', thumbnail: null, category: 'General', lastOpened: 'Hoy', active: false });
+      boards.unshift({ id: 'ejemplo', title: 'Ejemplo', icon: '✨', thumbnail: null, category: 'General', lastOpenedAt: now, lastOpened: formatLastOpened(now), active: false });
     }
+
+    try {
+      localStorage.setItem('brainboard_workspace_boards', JSON.stringify(boards));
+    } catch (e) {}
 
     return boards;
   }
@@ -3840,6 +4522,11 @@ document.addEventListener('DOMContentLoaded', () => {
     localStorage.setItem('brainboard_active_board_id', currentActiveBoardId);
     workspaceBoards.forEach(b => b.active = (b.id === targetBoardId));
     const activeMeta = workspaceBoards.find(b => b.id === targetBoardId);
+    if (activeMeta) {
+      activeMeta.lastOpenedAt = Date.now();
+      activeMeta.lastOpened = formatLastOpened(activeMeta.lastOpenedAt);
+      saveWorkspaceBoards();
+    }
     if (boardTitleInput) {
       boardTitleInput.value = activeMeta?.title || (targetBoardId === 'dev_ai' ? 'DEV / AI' : targetBoardId);
       fitBoardTitleWidth();
@@ -3939,7 +4626,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 3. Crear identificador único para el tablero
     const newBoardId = 'board_' + Date.now();
     const targetCat = (typeof currentCategoryFilter !== 'undefined' && currentCategoryFilter !== 'all') ? currentCategoryFilter : 'Random';
-    const newBoard = { id: newBoardId, title: name, icon: '📋', category: targetCat, lastOpened: 'Hoy', active: true };
+    const now = Date.now();
+    const newBoard = { id: newBoardId, title: name, icon: '📋', category: targetCat, lastOpenedAt: now, lastOpened: formatLastOpened(now), active: true };
 
     // 4. LIMPIEZA ABSOLUTA DEL LIENZO: vaciar items, selección, historial y controles
     engine.items = [];
@@ -4087,13 +4775,21 @@ document.addEventListener('DOMContentLoaded', () => {
   function renderDrawerBoards(filter = '') {
     if (!drawerBoardsList) return;
     drawerBoardsList.innerHTML = '';
-    const filtered = workspaceBoards.filter(b => b.title.toLowerCase().includes(filter.toLowerCase()));
+    let filtered = workspaceBoards.filter(b => b.title.toLowerCase().includes(filter.toLowerCase()));
+    if (currentDrawerCategoryFilter) {
+      filtered = filtered.filter(b => (b.category || 'Random') === currentDrawerCategoryFilter);
+    }
+    filtered.sort((a, b) => {
+      const timeA = typeof a.lastOpenedAt === 'number' ? a.lastOpenedAt : (a.updatedAt ? new Date(a.updatedAt).getTime() : 0);
+      const timeB = typeof b.lastOpenedAt === 'number' ? b.lastOpenedAt : (b.updatedAt ? new Date(b.updatedAt).getTime() : 0);
+      return timeB - timeA;
+    });
     filtered.forEach(board => {
       const item = document.createElement('div');
       item.className = 'drawer-board-item' + (board.active ? ' active' : '');
       const canDelete = board.id !== 'dev_ai';
       let thumbHtml = '';
-      const thumbSrc = board.thumbnail || DEFAULT_BOARD_THUMBNAILS[board.id];
+      const thumbSrc = resolveImageSrc(board.thumbnail || DEFAULT_BOARD_THUMBNAILS[board.id]);
       if (thumbSrc) {
         thumbHtml = `<div class="drawer-board-thumb"><img src="${thumbSrc}" class="drawer-board-thumb-img" alt="${board.title}" onerror="this.style.display='none'; this.parentElement.innerText='${board.icon || '📋'}';" /></div>`;
       } else if (board.icon === 'code' || board.id === 'dev_ai') {
@@ -4130,7 +4826,67 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  function renderDrawerCategories() {
+    if (!drawerCategoriesList) return;
+    drawerCategoriesList.innerHTML = '';
+
+    // Carpeta "Todos" para ver todos los tableros
+    const totalCount = workspaceBoards.length;
+    const isAllActive = !currentDrawerCategoryFilter || currentDrawerCategoryFilter === 'all';
+    const allItem = document.createElement('div');
+    allItem.className = 'drawer-category-item' + (isAllActive ? ' active' : '');
+    allItem.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      <span class="drawer-category-name" style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600;">Todos</span>
+      <span class="drawer-category-count" style="font-size: 11px; opacity: 0.65;">${totalCount}</span>
+    `;
+
+    allItem.addEventListener('click', (e) => {
+      e.stopPropagation();
+      currentDrawerCategoryFilter = null;
+      renderDrawerCategories();
+      renderDrawerBoards(inputDrawerSearch ? inputDrawerSearch.value : '');
+    });
+
+    drawerCategoriesList.appendChild(allItem);
+
+    workspaceCategories.forEach(cat => {
+      const count = workspaceBoards.filter(b => (b.category || 'Random') === cat).length;
+      const item = document.createElement('div');
+      item.className = 'drawer-category-item' + (currentDrawerCategoryFilter === cat ? ' active' : '');
+      item.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <span class="drawer-category-name" style="flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${cat}</span>
+        <span class="drawer-category-count" style="font-size: 11px; opacity: 0.65;">${count}</span>
+      `;
+
+      item.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (currentDrawerCategoryFilter === cat) {
+          currentDrawerCategoryFilter = null;
+        } else {
+          currentDrawerCategoryFilter = cat;
+        }
+        renderDrawerCategories();
+        renderDrawerBoards(inputDrawerSearch ? inputDrawerSearch.value : '');
+      });
+
+      drawerCategoriesList.appendChild(item);
+    });
+  }
+
   renderDrawerBoards();
+  renderDrawerCategories();
+
+  // Estado colapsado / expandido de categorías
+  try {
+    if (localStorage.getItem('brainboard_home_cat_collapsed') === 'true') {
+      document.getElementById('home-screen')?.classList.add('home-categories-collapsed');
+    }
+    if (localStorage.getItem('brainboard_drawer_cat_collapsed') === 'true') {
+      boardControllerDrawer?.classList.add('drawer-categories-collapsed');
+    }
+  } catch (err) {}
 
   // Abrir / cerrar cajón lateral de tableros
   btnToggleBoardDrawer?.addEventListener('click', (e) => {
@@ -4155,12 +4911,35 @@ document.addEventListener('DOMContentLoaded', () => {
     renderDrawerBoards(e.target.value);
   });
 
-  // Callout informativo
-  btnCloseCallout?.addEventListener('click', () => {
-    if (drawerCalloutBox) drawerCalloutBox.style.display = 'none';
+  btnHomeToggleCategories?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const hs = document.getElementById('home-screen');
+    const isNowCollapsed = hs?.classList.toggle('home-categories-collapsed');
+    try {
+      localStorage.setItem('brainboard_home_cat_collapsed', isNowCollapsed ? 'true' : 'false');
+    } catch (err) {}
   });
-  btnCreateSection?.addEventListener('click', () => {
-    if (drawerCalloutBox) drawerCalloutBox.style.display = 'none';
+
+  btnDrawerToggleCategories?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isNowCollapsed = boardControllerDrawer?.classList.toggle('drawer-categories-collapsed');
+    try {
+      localStorage.setItem('brainboard_drawer_cat_collapsed', isNowCollapsed ? 'true' : 'false');
+    } catch (err) {}
+  });
+
+  btnDrawerNavHome?.addEventListener('click', () => {
+    boardControllerDrawer?.classList.remove('open');
+    showHomeScreen();
+  });
+
+  btnDrawerAddCategory?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (newCategoryModal) {
+      if (inputNewCatName) inputNewCatName.value = '';
+      newCategoryModal.style.display = 'flex';
+      setTimeout(() => inputNewCatName?.focus(), 50);
+    }
   });
 
   // Crear nuevo tablero desde el cajón (+)
@@ -4193,13 +4972,13 @@ document.addEventListener('DOMContentLoaded', () => {
     boardTitleInput.select();
     fitBoardTitleWidth();
   });
-  menuOptSave?.addEventListener('click', () => {
+  menuOptThumbnail?.addEventListener('click', () => {
     boardOptionsMenu?.classList.remove('visible');
-    saveBoardToFile();
+    openChangeThumbnailModal(currentActiveBoardId);
   });
-  menuOptBackup?.addEventListener('click', () => {
+  menuOptExportRtb?.addEventListener('click', () => {
     boardOptionsMenu?.classList.remove('visible');
-    exportAllBoardsBackup();
+    exportBoardToRTB(currentActiveBoardId);
   });
   menuOptExportHires?.addEventListener('click', () => {
     boardOptionsMenu?.classList.remove('visible');
@@ -4770,6 +5549,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const homeOptRename = document.getElementById('home-opt-rename');
   const homeOptThumbnail = document.getElementById('home-opt-thumbnail');
   const homeOptExportHires = document.getElementById('home-opt-export-hires');
+  const homeOptExportRtb = document.getElementById('home-opt-export-rtb');
   const homeOptExportJson = document.getElementById('home-opt-export-json');
   const homeOptMoveCat = document.getElementById('home-opt-move-cat');
   const homeOptDelete = document.getElementById('home-opt-delete');
@@ -4879,7 +5659,8 @@ document.addEventListener('DOMContentLoaded', () => {
       autoSaveBoardImmediately(currentActiveBoardId);
       const activeB = workspaceBoards.find(it => it.id === currentActiveBoardId);
       if (activeB) {
-        activeB.lastOpened = 'Hoy';
+        activeB.lastOpenedAt = Date.now();
+        activeB.lastOpened = formatLastOpened(activeB.lastOpenedAt);
         saveWorkspaceBoards();
       }
     }
@@ -4938,7 +5719,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!boardId) return;
     const b = workspaceBoards.find(it => it.id === boardId);
     if (b) {
-      b.lastOpened = 'Hoy';
+      b.lastOpenedAt = Date.now();
+      b.lastOpened = formatLastOpened(b.lastOpenedAt);
       saveWorkspaceBoards();
     }
     hideHomeScreen();
@@ -4954,6 +5736,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     renderHomeCategories();
+    renderDrawerCategories();
 
     let filtered = workspaceBoards.filter(b => {
       if (currentCategoryFilter !== 'all' && (b.category || 'Random') !== currentCategoryFilter) {
@@ -4968,6 +5751,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       return true;
+    });
+
+    // Ordenar de más reciente a menos reciente por fecha de última apertura
+    filtered.sort((a, b) => {
+      const timeA = typeof a.lastOpenedAt === 'number' ? a.lastOpenedAt : (a.updatedAt ? new Date(a.updatedAt).getTime() : 0);
+      const timeB = typeof b.lastOpenedAt === 'number' ? b.lastOpenedAt : (b.updatedAt ? new Date(b.updatedAt).getTime() : 0);
+      return timeB - timeA;
     });
 
     if (homeViewTitle) {
@@ -4998,7 +5788,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       let thumbHtml = '';
       if (board.thumbnail) {
-        thumbHtml = `<div class="board-table-thumb"><img src="${board.thumbnail}" class="board-table-thumb-img" alt="${board.title}" /></div>`;
+        thumbHtml = `<div class="board-table-thumb"><img src="${resolveImageSrc(board.thumbnail)}" class="board-table-thumb-img" alt="${board.title}" /></div>`;
       } else if (board.icon === 'code' || board.id === 'dev_ai') {
         thumbHtml = `<div class="board-table-thumb thumb-code"><span class="thumb-code-brackets">&lt;/&gt;</span></div>`;
       } else {
@@ -5018,7 +5808,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="board-table-space">${board.category || 'Random'}</span>
         </td>
         <td class="td-opened">
-          <span class="board-table-opened">${board.lastOpened || 'Hoy'}</span>
+          <span class="board-table-opened">${formatLastOpened(board.lastOpenedAt || board.lastOpened)}</span>
         </td>
         <td class="td-actions">
           <button class="btn-board-row-options" data-board-id="${board.id}" title="Opciones">⋮</button>
@@ -5049,6 +5839,22 @@ document.addEventListener('DOMContentLoaded', () => {
     if (homeNavAll) {
       homeNavAll.classList.toggle('active', currentCategoryFilter === 'all');
     }
+
+    // Carpeta "Todos" para ver todos los tableros
+    const totalCount = workspaceBoards.length;
+    const isAllActive = currentCategoryFilter === 'all';
+    const allItem = document.createElement('div');
+    allItem.className = 'home-category-item' + (isAllActive ? ' active' : '');
+    allItem.innerHTML = `
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      <span class="home-category-name" style="font-weight: 600;">Todos</span>
+      <span class="home-nav-count">${totalCount}</span>
+    `;
+    allItem.addEventListener('click', () => {
+      currentCategoryFilter = 'all';
+      renderHomeScreen();
+    });
+    homeCategoriesList.appendChild(allItem);
 
     workspaceCategories.forEach(cat => {
       const count = workspaceBoards.filter(b => (b.category || 'Random') === cat).length;
@@ -5187,12 +5993,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.key === 'Escape') closeRenameModal();
   });
 
-  // 2. Cambiar miniatura
-  homeOptThumbnail?.addEventListener('click', () => {
-    const boardId = activeRowActionBoardId;
-    closeHomeRowOptionsMenu();
+  function openChangeThumbnailModal(boardId) {
     if (!boardId) return;
-
     const b = workspaceBoards.find(x => x.id === boardId);
     if (!b) return;
 
@@ -5206,12 +6008,20 @@ document.addEventListener('DOMContentLoaded', () => {
     if (changeThumbnailModal) {
       changeThumbnailModal.style.display = 'flex';
     }
+  }
+  window.openChangeThumbnailModal = openChangeThumbnailModal;
+
+  // 2. Cambiar miniatura desde menú de fila de Inicio
+  homeOptThumbnail?.addEventListener('click', () => {
+    const boardId = activeRowActionBoardId;
+    closeHomeRowOptionsMenu();
+    openChangeThumbnailModal(boardId);
   });
 
   function updateThumbModalPreview() {
     if (!thumbModalPreview) return;
     if (tempSelectedThumbnail) {
-      thumbModalPreview.innerHTML = `<img src="${tempSelectedThumbnail}" style="width:100%;height:100%;object-fit:cover;" />`;
+      thumbModalPreview.innerHTML = `<img src="${resolveImageSrc(tempSelectedThumbnail)}" style="width:100%;height:100%;object-fit:cover;" />`;
     } else if (tempSelectedIcon === 'code') {
       thumbModalPreview.innerHTML = `<div class="thumb-code" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;"><span class="thumb-code-brackets">&lt;/&gt;</span></div>`;
     } else {
@@ -5274,7 +6084,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnConfirmThumb?.addEventListener('click', () => {
     if (!boardPendingThumbnailEdit) return;
-    const b = workspaceBoards.find(x => x.id === boardPendingThumbnailEdit);
+    const targetBoardId = boardPendingThumbnailEdit;
+    const b = workspaceBoards.find(x => x.id === targetBoardId);
     if (b) {
       b.thumbnail = tempSelectedThumbnail;
       b.icon = tempSelectedIcon || '📋';
@@ -5283,8 +6094,18 @@ document.addEventListener('DOMContentLoaded', () => {
     renderTabs();
     renderDrawerBoards();
     renderHomeScreen();
-    if (boardPendingThumbnailEdit === currentActiveBoardId) {
+    if (targetBoardId === currentActiveBoardId) {
       updateBoardThumbnailMini(currentActiveBoardId);
+      autoSaveBoardImmediately(currentActiveBoardId);
+    } else {
+      idbLoadBoard(targetBoardId).then(saved => {
+        if (saved) {
+          saved.thumbnail = tempSelectedThumbnail;
+          saved.icon = tempSelectedIcon || '📋';
+          idbSaveBoard(targetBoardId, saved);
+          saveBoardToDisk(targetBoardId, saved);
+        }
+      });
     }
     closeThumbModal();
   });
@@ -5295,6 +6116,14 @@ document.addEventListener('DOMContentLoaded', () => {
     closeHomeRowOptionsMenu();
     if (!boardId) return;
     await exportBoardHiResById(boardId, 4);
+  });
+
+  // Exportar RTB (con imágenes)
+  homeOptExportRtb?.addEventListener('click', async () => {
+    const boardId = activeRowActionBoardId;
+    closeHomeRowOptionsMenu();
+    if (!boardId) return;
+    await exportBoardToRTB(boardId);
   });
 
   // 4. Exportar JSON
@@ -5408,8 +6237,19 @@ document.addEventListener('DOMContentLoaded', () => {
       workspaceCategories.push(name);
       saveCategories();
     }
+    const hs = document.getElementById('home-screen');
+    if (hs?.classList.contains('home-categories-collapsed')) {
+      hs.classList.remove('home-categories-collapsed');
+      try { localStorage.setItem('brainboard_home_cat_collapsed', 'false'); } catch (e) {}
+    }
+    if (boardControllerDrawer?.classList.contains('drawer-categories-collapsed')) {
+      boardControllerDrawer.classList.remove('drawer-categories-collapsed');
+      try { localStorage.setItem('brainboard_drawer_cat_collapsed', 'false'); } catch (e) {}
+    }
     currentCategoryFilter = name;
     renderHomeScreen();
+    renderDrawerCategories();
+    renderDrawerBoards();
     closeNewCatModal();
   }
   btnConfirmNewCat?.addEventListener('click', executeCreateCategory);
@@ -5456,11 +6296,72 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   btnHomeImport?.addEventListener('click', () => {
-    fileInput?.click();
+    triggerImportBoard();
   });
 
   btnHomeBackup?.addEventListener('click', () => {
     exportAllBoardsBackup();
+  });
+
+  // Modal de Novedades de la Versión (What's New)
+  const whatsNewModal = document.getElementById('whats-new-modal');
+  const btnCloseWhatsNew = document.getElementById('btn-close-whats-new');
+  const btnConfirmWhatsNew = document.getElementById('btn-confirm-whats-new');
+  const btnHomeWhatsNew = document.getElementById('btn-home-whats-new');
+  const badgeVersion = document.getElementById('badge-version');
+
+  function openWhatsNewModal() {
+    if (whatsNewModal) whatsNewModal.style.display = 'flex';
+  }
+
+  let activeAppVersion = '1.0.1';
+
+  async function syncAppVersion() {
+    try {
+      if (window.brainBoard && typeof window.brainBoard.getAppVersion === 'function') {
+        const v = await window.brainBoard.getAppVersion();
+        if (v) activeAppVersion = v;
+      }
+    } catch (e) {}
+    if (badgeVersion) badgeVersion.textContent = `v${activeAppVersion}`;
+    const badgeModal = document.getElementById('whats-new-version-badge');
+    if (badgeModal) badgeModal.textContent = `Versión ${activeAppVersion}`;
+    const btnHomeWnText = btnHomeWhatsNew?.querySelector('span');
+    if (btnHomeWnText) btnHomeWnText.textContent = `Novedades v${activeAppVersion}`;
+  }
+
+  function closeWhatsNewModal() {
+    if (whatsNewModal) whatsNewModal.style.display = 'none';
+    try {
+      localStorage.setItem('brainboard_seen_version', activeAppVersion);
+    } catch (e) {}
+  }
+
+  btnCloseWhatsNew?.addEventListener('click', closeWhatsNewModal);
+  btnConfirmWhatsNew?.addEventListener('click', closeWhatsNewModal);
+  btnHomeWhatsNew?.addEventListener('click', openWhatsNewModal);
+  badgeVersion?.addEventListener('click', openWhatsNewModal);
+
+  whatsNewModal?.addEventListener('click', (e) => {
+    if (e.target === whatsNewModal) closeWhatsNewModal();
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && whatsNewModal?.style.display === 'flex') {
+      closeWhatsNewModal();
+    }
+  });
+
+  // Comprobar versión y mostrar automáticamente el modal de novedades tras actualizar
+  syncAppVersion().then(() => {
+    try {
+      const seenVersion = localStorage.getItem('brainboard_seen_version');
+      if (seenVersion !== activeAppVersion) {
+        setTimeout(() => {
+          openWhatsNewModal();
+        }, 350);
+      }
+    } catch (e) {}
   });
 
   // Navegación hacia la pantalla de inicio
