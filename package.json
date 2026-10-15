@@ -4,9 +4,9 @@
   "appName": "Brain Board",
   "productName": "Brain Board",
   "description": "Brain Board - Local Whiteboard Desktop App",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "appBaseVersion": {
-    "desktop": "1.0.2"
+    "desktop": "1.0.3"
   },
   "isBeta": "false",
   "main": "app_bundle/main.js",
