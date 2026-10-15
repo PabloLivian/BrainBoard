@@ -9,3 +9,9 @@ extracted_ultimo/
 *.rtb
 .expo/
 /*.png
+
+# Documentos privados de IA y tableros personales
+GEMINI.md
+AGENTS.md
+boards/DEV_AI.json
+app_bundle/boards/DEV_AI.json
