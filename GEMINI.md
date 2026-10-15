@@ -164,3 +164,61 @@ Para garantizar la portabilidad total entre ordenadores y copias de seguridad si
   * Acepta `.rtb`, `.brainboard` y `.json`.
   * Si es `.rtb`, descomprime automáticamente las imágenes y las copia al almacén local (`extracted_board` / `%APPDATA%\BrainBoard\extracted_board`), lee el JSON e inicializa el tablero en el workspace inmediatamente.
 
+---
+
+## 9. Protocolo Obligatorio para "Hacer Release"
+
+Cuando el usuario solicite **"haz una release"**, **"hacer release"**, o **"prepara una release"**, el asistente debe ejecutar obligatoriamente y sin omitir pasos el siguiente protocolo:
+
+### Paso 1: Incrementar la versión
+1. Incrementar el número de versión en `package.json` (`version` y `appBaseVersion.desktop`).
+2. Sincronizar el badge y las menciones de la versión en `app_bundle/index.html` (`#badge-version`, `#whats-new-version-badge`, `#btn-home-whats-new`).
+3. Añadir la nueva funcionalidad o cambios destacados al inicio de la lista de novedades (`whats-new-feature-list`) en `app_bundle/index.html`.
+
+### Paso 2: Reconstruir el paquete ASAR
+```powershell
+npm run build
+```
+*Genera `dist/app.asar` actualizado con todo el código del frontend, estilos y scripts.*
+
+### Paso 3: Compilar instalador y artefactos con Electron Builder
+```powershell
+npm run pack:installer
+```
+*Ejecuta `electron-builder` con la configuración `oneClick: true` y genera en `dist_setup/`:*
+* `Brain Board Setup X.Y.Z.exe`
+* `Brain Board Setup X.Y.Z.exe.blockmap`
+* `latest.yml` (con los hashes sha512 y tamaño exactos para electron-updater)
+
+### Paso 4: Duplicar binario con nombre hyphenated (requisito estricto de latest.yml)
+`latest.yml` referencia el binario como `Brain-Board-Setup-X.Y.Z.exe` (con guiones). Es indispensable generar la copia idéntica:
+```powershell
+Copy-Item "dist_setup\Brain Board Setup X.Y.Z.exe" -Destination "dist_setup\Brain-Board-Setup-X.Y.Z.exe" -Force
+```
+
+### Paso 5: Sincronizar Git y Crear Tag
+1. Hacer commit de los archivos modificados y hacer push a `main`:
+   ```powershell
+   git add app_bundle/ package.json electron-builder.yml GEMINI.md
+   git commit -m "release: vX.Y.Z"
+   git push origin main
+   ```
+2. Crear y subir la etiqueta de versión:
+   ```powershell
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+### Paso 6: Facilitar la publicación al usuario
+1. Abrir la carpeta `dist_setup` en el explorador de Windows:
+   ```powershell
+   Start-Process explorer.exe (Resolve-Path "dist_setup")
+   ```
+2. Proporcionar al usuario el enlace directo de creación de Release en GitHub:  
+   `https://github.com/PabloLivian/BrainBoard/releases/new?tag=vX.Y.Z`
+3. Indicarle claramente que debe arrastrar a la casilla de adjuntos los **3 archivos esenciales**:
+   * `latest.yml`
+   * `Brain-Board-Setup-X.Y.Z.exe`
+   * `Brain Board Setup X.Y.Z.exe.blockmap`
+4. Al publicar la release, las instalaciones existentes detectarán la actualización, descargarán en segundo plano, mostrarán la pantalla de carga con spinner y reiniciarán automáticamente de forma 100% silenciosa en la nueva versión con el modal de novedades.
+
