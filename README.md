@@ -9,6 +9,13 @@
 </p>
 
 <p align="center">
+  <a href="https://brain-board-web-two.vercel.app/" target="_blank">
+    <img src="https://img.shields.io/badge/🌐_Versión_Web-Probar_en_el_Navegador-0070f3?style=for-the-badge&logo=vercel&logoColor=white" alt="Versión Web" />
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://brain-board-web-two.vercel.app/" target="_blank"><img src="https://img.shields.io/badge/Web_Live-brain--board--web--two.vercel.app-blue?logo=vercel&logoColor=white" alt="Web Live" /></a>
   <img src="https://img.shields.io/badge/Plataforma-Electron-47848F?logo=electron&logoColor=white" alt="Electron" />
   <img src="https://img.shields.io/badge/Motor-Canvas%202D%2060FPS-blue" alt="Canvas 2D" />
   <img src="https://img.shields.io/badge/Privacidad-100%25%20Offline%20%26%20Local-success" alt="Offline" />
@@ -20,9 +27,11 @@
 
 ## ✨ ¿Qué es Brain Board?
 
-**Brain Board** es un tablero digital de escritorio para tomar apuntes, estructurar ideas y organizar galerías de imágenes en un lienzo infinito.
+**Brain Board** es un tablero digital para tomar apuntes, estructurar ideas y organizar galerías de imágenes en un lienzo infinito.
 
-Funciona de manera 100% local en tu equipo, lo que asegura que la carga y navegación sean instantáneas, fluidas y sin depender de internet. Cuenta con un motor gráfico optimizado capaz de gestionar y renderizar miles de elementos en pantalla a 60 FPS estables.
+> 🌐 **Prueba la versión web online:** Puedes acceder y utilizar la aplicación directamente desde el navegador en [**brain-board-web-two.vercel.app**](https://brain-board-web-two.vercel.app/).
+
+En su versión de escritorio funciona de manera 100% local en tu equipo, lo que asegura que la carga y navegación sean instantáneas, fluidas y sin depender de internet. Cuenta con un motor gráfico optimizado capaz de gestionar y renderizar miles de elementos en pantalla a 60 FPS estables.
 
 ---
 
