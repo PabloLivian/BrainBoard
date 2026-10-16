@@ -10,12 +10,12 @@
 
 <p align="center">
   <a href="https://brain-board-web-two.vercel.app/" target="_blank">
-    <img src="https://img.shields.io/badge/🌐_Versión_Web-Probar_en_el_Navegador-0070f3?style=for-the-badge&logo=vercel&logoColor=white" alt="Versión Web" />
+    <img src="https://img.shields.io/badge/🌐_Web_Oficial_y_Descarga-Obtener_Brain_Board-0070f3?style=for-the-badge&logo=vercel&logoColor=white" alt="Web Oficial y Descarga" />
   </a>
 </p>
 
 <p align="center">
-  <a href="https://brain-board-web-two.vercel.app/" target="_blank"><img src="https://img.shields.io/badge/Web_Live-brain--board--web--two.vercel.app-blue?logo=vercel&logoColor=white" alt="Web Live" /></a>
+  <a href="https://brain-board-web-two.vercel.app/" target="_blank"><img src="https://img.shields.io/badge/Sitio_Oficial-Descargas-blue?logo=vercel&logoColor=white" alt="Sitio Oficial" /></a>
   <img src="https://img.shields.io/badge/Plataforma-Electron-47848F?logo=electron&logoColor=white" alt="Electron" />
   <img src="https://img.shields.io/badge/Motor-Canvas%202D%2060FPS-blue" alt="Canvas 2D" />
   <img src="https://img.shields.io/badge/Privacidad-100%25%20Offline%20%26%20Local-success" alt="Offline" />
@@ -27,11 +27,11 @@
 
 ## ✨ ¿Qué es Brain Board?
 
-**Brain Board** es un tablero digital para tomar apuntes, estructurar ideas y organizar galerías de imágenes en un lienzo infinito.
+**Brain Board** es un software de escritorio para tomar apuntes, estructurar ideas y organizar galerías de imágenes en un lienzo infinito.
 
-> 🌐 **Prueba la versión web online:** Puedes acceder y utilizar la aplicación directamente desde el navegador en [**brain-board-web-two.vercel.app**](https://brain-board-web-two.vercel.app/).
+> 🌐 **Descarga la aplicación:** Puedes obtener el instalador oficial de Brain Board y consultar toda la información en la web oficial: [**brain-board-web-two.vercel.app**](https://brain-board-web-two.vercel.app/).
 
-En su versión de escritorio funciona de manera 100% local en tu equipo, lo que asegura que la carga y navegación sean instantáneas, fluidas y sin depender de internet. Cuenta con un motor gráfico optimizado capaz de gestionar y renderizar miles de elementos en pantalla a 60 FPS estables.
+Funciona de manera 100% local en tu equipo, lo que asegura que la carga y navegación sean instantáneas, fluidas y sin depender de internet. Cuenta con un motor gráfico optimizado capaz de gestionar y renderizar miles de elementos en pantalla a 60 FPS estables.
 
 ---
 
