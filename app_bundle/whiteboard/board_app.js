@@ -938,7 +938,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const shapeToolBtn = document.getElementById('btn-tool-shape');
   const shapeFlyoutMenu = document.getElementById('shape-flyout-menu');
   const shapeToolIcon = document.getElementById('shape-tool-icon');
-  const flyoutItems = document.querySelectorAll('.flyout-item');
+  const shapeFlyoutItems = shapeFlyoutMenu ? shapeFlyoutMenu.querySelectorAll('.flyout-item') : [];
+
+  const templateToolBtn = document.getElementById('btn-tool-template');
+  const templateFlyoutMenu = document.getElementById('template-flyout-menu');
+  const templateFlyoutItems = templateFlyoutMenu ? templateFlyoutMenu.querySelectorAll('.flyout-item') : [];
 
   const shapeSvgs = {
     rectangle: '<rect x="3" y="5" width="18" height="14" rx="2"/>',
@@ -966,15 +970,18 @@ document.addEventListener('DOMContentLoaded', () => {
     if (shapeToolIcon) {
       shapeToolIcon.innerHTML = shapeSvgs[shape];
     }
-    flyoutItems.forEach(item => {
+    shapeFlyoutItems.forEach(item => {
       item.classList.toggle('active', item.dataset.shape === shape);
     });
   }
 
-  function setActiveTool(toolName, shapeType = null) {
+  function setActiveTool(toolName, shapeType = null, templateType = null) {
     engine.activeTool = toolName;
     if (shapeType) {
       setShapeType(shapeType);
+    }
+    if (templateType) {
+      engine.selectedTemplateType = templateType;
     }
     toolButtons.forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tool === toolName);
@@ -983,14 +990,34 @@ document.addEventListener('DOMContentLoaded', () => {
     if (shapeFlyoutMenu && toolName !== 'shape') {
       shapeFlyoutMenu.style.display = 'none';
     }
+    if (templateFlyoutMenu && toolName !== 'template') {
+      templateFlyoutMenu.style.display = 'none';
+    }
   }
 
   toolButtons.forEach(btn => {
     btn.addEventListener('click', () => {
       const tool = btn.dataset.tool;
+      const isAlreadyActive = engine.activeTool === tool;
       const shape = btn.dataset.shape || (tool === 'shape' ? engine.selectedShapeType : null);
-      setActiveTool(tool, shape);
+      const template = tool === 'template' ? (engine.selectedTemplateType || 'apuntes') : null;
+
+      if (tool === 'template' && isAlreadyActive && templateFlyoutMenu) {
+        const isVisible = templateFlyoutMenu.style.display !== 'none';
+        templateFlyoutMenu.style.display = isVisible ? 'none' : 'flex';
+        if (shapeFlyoutMenu) shapeFlyoutMenu.style.display = 'none';
+        return;
+      }
+      if (tool === 'shape' && isAlreadyActive && shapeFlyoutMenu) {
+        const isVisible = shapeFlyoutMenu.style.display !== 'none';
+        shapeFlyoutMenu.style.display = isVisible ? 'none' : 'flex';
+        if (templateFlyoutMenu) templateFlyoutMenu.style.display = 'none';
+        return;
+      }
+
+      setActiveTool(tool, shape, template);
       if (shapeFlyoutMenu) shapeFlyoutMenu.style.display = 'none';
+      if (templateFlyoutMenu) templateFlyoutMenu.style.display = 'none';
     });
   });
 
@@ -1001,11 +1028,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (shapeFlyoutMenu) {
       const isVisible = shapeFlyoutMenu.style.display !== 'none';
       shapeFlyoutMenu.style.display = isVisible ? 'none' : 'flex';
+      if (templateFlyoutMenu) templateFlyoutMenu.style.display = 'none';
     }
   });
 
   // Clic en opciones del menú desplegable de formas
-  flyoutItems.forEach(item => {
+  shapeFlyoutItems.forEach(item => {
     item.addEventListener('click', (e) => {
       e.stopPropagation();
       const shape = item.dataset.shape;
@@ -1014,6 +1042,42 @@ document.addEventListener('DOMContentLoaded', () => {
       if (shapeFlyoutMenu) shapeFlyoutMenu.style.display = 'none';
     });
   });
+
+  // Clic derecho en el botón de plantillas: despliega menú con plantillas disponibles
+  templateToolBtn?.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (templateFlyoutMenu) {
+      const isVisible = templateFlyoutMenu.style.display !== 'none';
+      templateFlyoutMenu.style.display = isVisible ? 'none' : 'flex';
+      if (shapeFlyoutMenu) shapeFlyoutMenu.style.display = 'none';
+    }
+  });
+
+  // Clic en opciones del menú desplegable de plantillas
+  templateFlyoutItems.forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const tpl = item.dataset.template || 'apuntes';
+      engine.selectedTemplateType = tpl;
+      if (templateFlyoutMenu) templateFlyoutMenu.style.display = 'none';
+      insertTemplate(tpl);
+    });
+  });
+
+  function insertTemplate(templateType = 'apuntes', customPos = null) {
+    if (!engine) return;
+    engine.saveSnapshot();
+    const pos = customPos || getPasteTargetPosition();
+    const createdIds = engine.insertTemplateAt(pos.x, pos.y, templateType);
+    setActiveTool('select');
+    if (engine.onSelectionChange) engine.onSelectionChange(createdIds);
+    if (engine.onBoardModified) engine.onBoardModified();
+    engine.render();
+    autoSaveBoardImmediately();
+    showDevToast('Plantilla de apuntes insertada');
+  }
+  window.insertTemplate = insertTemplate;
 
   // Callbacks del motor
   engine.onSelectionChange = (selectedIds) => {
@@ -1062,6 +1126,24 @@ document.addEventListener('DOMContentLoaded', () => {
   });
   document.getElementById('btn-zoom-fit')?.addEventListener('click', () => {
     engine.fitView();
+  });
+
+  // Botones de capas y orden
+  document.getElementById('btn-prop-bring-forward')?.addEventListener('click', (e) => {
+    if (e.shiftKey) {
+      engine.bringToFront();
+    } else {
+      engine.bringForward();
+    }
+    autoSaveBoardImmediately();
+  });
+  document.getElementById('btn-prop-send-backward')?.addEventListener('click', (e) => {
+    if (e.shiftKey) {
+      engine.sendToBack();
+    } else {
+      engine.sendBackward();
+    }
+    autoSaveBoardImmediately();
   });
 
   // Botones de propiedades
@@ -2739,6 +2821,68 @@ document.addEventListener('DOMContentLoaded', () => {
     return Array.from(itemsMap.values());
   }
 
+  function getSystemClipboardText() {
+    let clipText = '';
+    try {
+      if (window.brainBoard?.clipboard?.readText) {
+        clipText = window.brainBoard.clipboard.readText() || '';
+      } else if (window.miro?.clipboard?.readText) {
+        clipText = window.miro.clipboard.readText() || '';
+      } else {
+        const electron = typeof window.require === 'function' ? window.require('electron') : null;
+        if (electron?.clipboard?.readText) {
+          clipText = electron.clipboard.readText() || '';
+        }
+      }
+    } catch (e) {}
+    return (clipText || '').trim();
+  }
+
+  function writeSystemClipboardText(text) {
+    if (!text) return;
+    try {
+      if (window.brainBoard?.clipboard?.writeText) {
+        window.brainBoard.clipboard.writeText(text);
+        return;
+      }
+      if (window.miro?.clipboard?.writeText) {
+        window.miro.clipboard.writeText(text);
+        return;
+      }
+      const electron = typeof window.require === 'function' ? window.require('electron') : null;
+      if (electron?.clipboard?.writeText) {
+        electron.clipboard.writeText(text);
+        return;
+      }
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+    } catch (e) {}
+  }
+
+  let lastClipTextOnBlur = null;
+  window.addEventListener('blur', () => {
+    try {
+      lastClipTextOnBlur = getSystemClipboardText();
+    } catch (e) {}
+  });
+
+  window.addEventListener('focus', () => {
+    try {
+      const currentText = getSystemClipboardText();
+      // Si el portapapeles cambió mientras la ventana de BrainBoard estuvo en segundo plano
+      if (lastClipTextOnBlur !== null && currentText !== lastClipTextOnBlur) {
+        if (!currentText.includes('"source":"brainboard"')) {
+          // El usuario copió deliberadamente un texto/enlace en otra aplicación (Chrome, Notepad, etc.)
+          window.__brainboardLastCopySource = 'external';
+          try {
+            localStorage.setItem('brainboard_last_copy_source', 'external');
+          } catch (e) {}
+        }
+      }
+    } catch (e) {}
+  });
+
   function copySelectedToClipboard() {
     const itemsToCopy = getItemsToCopy();
     if (!itemsToCopy || itemsToCopy.length === 0) {
@@ -2746,29 +2890,43 @@ document.addEventListener('DOMContentLoaded', () => {
       return false;
     }
 
+    // Registrar el texto externo que ya existía en el portapapeles justo antes de copiar en el tablero
+    const prevExtText = getSystemClipboardText();
+    window.__brainboardExternalTextBeforeBoardCopy = prevExtText;
+    try {
+      localStorage.setItem('brainboard_ext_text_before_copy', prevExtText);
+    } catch (e) {}
+
     // Limpiar propiedades no serializables como imgElement
     const cleanItems = itemsToCopy.map(it => {
       const copy = { ...it };
-      if (copy.imgElement) delete copy.imgElement;
+      delete copy.imgElement;
+      delete copy._previewImg;
+      delete copy._canvas;
       return copy;
     });
 
     const bounds = computeItemsBounds(cleanItems);
+    const now = Date.now();
     const payload = {
       source: 'brainboard',
       version: 1,
       boardId: currentActiveBoardId,
-      timestamp: Date.now(),
+      timestamp: now,
       bounds: bounds,
       items: JSON.parse(JSON.stringify(cleanItems))
     };
 
     // 1. Guardar en memoria de ventana
     window.__brainboardClipboard = payload;
+    window.__brainboardLastCopySource = 'board';
+    window.__brainboardLastBoardCopyTime = now;
 
     // 2. Guardar en localStorage para disponibilidad entre cualquier tablero
     try {
       localStorage.setItem('brainboard_clipboard', JSON.stringify(payload));
+      localStorage.setItem('brainboard_last_copy_source', 'board');
+      localStorage.setItem('brainboard_last_board_copy_time', String(now));
     } catch (err) {
       console.warn('No se pudo guardar en localStorage:', err);
     }
@@ -2776,13 +2934,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 3. Escribir en el portapapeles nativo de Electron del sistema
     try {
       const jsonStr = JSON.stringify(payload);
-      if (window.brainBoard?.clipboard?.writeText) {
-        window.brainBoard.clipboard.writeText(jsonStr);
-      } else if (window.miro?.clipboard?.writeText) {
-        window.miro.clipboard.writeText(jsonStr);
-      } else if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(jsonStr).catch(() => {});
-      }
+      writeSystemClipboardText(jsonStr);
     } catch (err) {}
 
     pasteCascadeCount = 0;
@@ -2794,21 +2946,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function getStoredClipboardPayload() {
-    // 1. Comprobar memoria de ventana
+    // 1. Comprobar memoria de ventana activa
     if (window.__brainboardClipboard && window.__brainboardClipboard.source === 'brainboard' && Array.isArray(window.__brainboardClipboard.items) && window.__brainboardClipboard.items.length > 0) {
       return window.__brainboardClipboard;
     }
 
-    // 2. Comprobar portapapeles del sistema operativo mediante API de Electron
+    // 2. Comprobar portapapeles del sistema operativo mediante API nativa de Electron
     try {
-      let clipText = '';
-      if (window.brainBoard?.clipboard?.readText) {
-        clipText = window.brainBoard.clipboard.readText() || '';
-      } else if (window.miro?.clipboard?.readText) {
-        clipText = window.miro.clipboard.readText() || '';
-      }
-      if (clipText && clipText.trim().startsWith('{') && clipText.includes('"source":"brainboard"')) {
-        const parsed = JSON.parse(clipText.trim());
+      const clipText = getSystemClipboardText();
+      if (clipText && clipText.startsWith('{') && clipText.includes('"source":"brainboard"')) {
+        const parsed = JSON.parse(clipText);
         if (parsed && parsed.source === 'brainboard' && Array.isArray(parsed.items) && parsed.items.length > 0) {
           window.__brainboardClipboard = parsed;
           return parsed;
@@ -2816,7 +2963,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     } catch (e) {}
 
-    // 3. Comprobar localStorage
+    // 3. Comprobar localStorage como almacenamiento persistente compartido entre pestañas y tableros
     try {
       const raw = localStorage.getItem('brainboard_clipboard');
       if (raw) {
@@ -2832,10 +2979,10 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function getPasteTargetPosition() {
-    // 1. Si el cursor del ratón está dentro del canvas (no sobre el drawer lateral ni fuera de pantalla)
+    // 1. Si el cursor del ratón está dentro del lienzo y no sobre paneles, barras de herramientas o pestañas
     if (currentMouseScreen &&
-        currentMouseScreen.x > 0 && currentMouseScreen.x < window.innerWidth &&
-        currentMouseScreen.y > 0 && currentMouseScreen.y < window.innerHeight) {
+        currentMouseScreen.x > 75 && currentMouseScreen.x < (window.innerWidth - 30) &&
+        currentMouseScreen.y > 90 && currentMouseScreen.y < (window.innerHeight - 30)) {
       const drawer = document.getElementById('board-controller-drawer');
       const drawerRect = drawer?.getBoundingClientRect();
       const isOverDrawer = drawer && drawer.classList.contains('open') && drawerRect &&
@@ -2847,7 +2994,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // 2. Si el ratón está en un panel o fuera, pegar en el CENTRO del viewport actual del tablero
+    // 2. Si el ratón está sobre pestañas, menús superiores o fuera, pegar en el CENTRO del viewport actual del tablero
     if (engine && typeof engine.screenToWorld === 'function') {
       return engine.screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
     }
@@ -2888,6 +3035,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const dx = targetX - sourceCenterX;
     const dy = targetY - sourceCenterY;
 
+    // Calcular zIndex para colocar los elementos pegados al frente de los elementos existentes
+    const currentMaxZ = engine.items.reduce((max, it) => Math.max(max, typeof it.zIndex === 'number' ? it.zIndex : 10), 10);
+    const minPastedZ = p.items.reduce((min, it) => Math.min(min, typeof it.zIndex === 'number' ? it.zIndex : 10), Infinity);
+    const zBaseOffset = Number.isFinite(minPastedZ) ? (currentMaxZ + 5 - minPastedZ) : 10;
+
     const idMap = new Map();
     const newClones = [];
 
@@ -2898,6 +3050,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const newId = (it.type || 'item') + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
       idMap.set(it.id, newId);
       clone.id = newId;
+
+      if (typeof clone.zIndex === 'number') {
+        clone.zIndex += zBaseOffset;
+      } else {
+        clone.zIndex = currentMaxZ + 5;
+      }
+
       newClones.push(clone);
     });
 
@@ -2941,9 +3100,11 @@ document.addEventListener('DOMContentLoaded', () => {
         if (Number.isFinite(clone.x)) clone.x += dx;
         if (Number.isFinite(clone.y)) clone.y += dy;
 
-        // Si pertenece a un marco clonado
+        // Si pertenece a un marco clonado remapearlo, de lo contrario desvincular
         if (clone.parentId && idMap.has(clone.parentId)) {
           clone.parentId = idMap.get(clone.parentId);
+        } else {
+          delete clone.parentId;
         }
       }
     });
@@ -2959,7 +3120,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Paso 5: Renderizar y auto-guardar
     engine.render();
-    autoSaveBoard();
+    autoSaveBoardImmediately();
 
     const count = newClones.length;
     showDevToast(`Pegado${count > 1 ? 's ' + count + ' elementos' : ' 1 elemento'}`);
@@ -3178,23 +3339,62 @@ document.addEventListener('DOMContentLoaded', () => {
     isPasting = true;
     setTimeout(() => { isPasting = false; }, 150);
 
-    // Prioridad 1: IMAGEN DEL SISTEMA OPERATIVO
-    // 1.a) Mediante la API de portapapeles de Electron (synchronous y ultra-rápida)
-    let clipImg = null;
-    try {
-      if (window.brainBoard?.clipboard?.readImage) {
-        clipImg = window.brainBoard.clipboard.readImage();
-      } else if (window.miro?.clipboard?.readImage) {
-        clipImg = window.miro.clipboard.readImage();
-      }
-    } catch (e) {}
+    // Obtener texto del portapapeles del sistema (Electron directo, bridge, pasteEvent o navigator)
+    let clipText = getSystemClipboardText();
 
-    if (clipImg && clipImg.dataUrl) {
-      pasteExternalImage(clipImg.dataUrl, clipImg.width, clipImg.height, targetWorldPos);
+    if (!clipText && pasteEvent?.clipboardData) {
+      try {
+        clipText = (pasteEvent.clipboardData.getData('text') || '').trim();
+      } catch (e) {}
+    }
+
+    if (!clipText && navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
+      try {
+        clipText = (await navigator.clipboard.readText() || '').trim();
+      } catch (e) {}
+    }
+
+    const trimmedText = (clipText || '').trim();
+
+    // Prioridad 1: ELEMENTOS DE BRAIN BOARD
+    // 1.a) Si el texto del portapapeles contiene el paquete JSON serializado de Brain Board
+    if (trimmedText.startsWith('{') && trimmedText.includes('"source":"brainboard"')) {
+      try {
+        const parsed = JSON.parse(trimmedText);
+        if (parsed && parsed.source === 'brainboard' && Array.isArray(parsed.items) && parsed.items.length > 0) {
+          pasteClipboardItems(parsed, targetWorldPos ? { targetX: targetWorldPos.x, targetY: targetWorldPos.y } : {});
+          return;
+        }
+      } catch (err) {}
+    }
+
+    // 1.b) Si hay datos de Brain Board en memoria o localStorage y lo último copiado fue de la pizarra
+    const storedPayload = getStoredClipboardPayload();
+    const lastSource = window.__brainboardLastCopySource || localStorage.getItem('brainboard_last_copy_source') || '';
+    const extTextBeforeCopy = window.__brainboardExternalTextBeforeBoardCopy ?? localStorage.getItem('brainboard_ext_text_before_copy') ?? null;
+
+    // Solo se considera que hay texto externo fresco si:
+    // - Hay texto en el portapapeles y NO es de BrainBoard
+    // - Y es DISTINTO del texto externo previo que ya residía en el portapapeles antes del Ctrl+C en BrainBoard
+    // - O bien la última copia no provino de BrainBoard
+    let hasFreshExternalText = false;
+    if (trimmedText.length > 0 && !trimmedText.includes('"source":"brainboard"')) {
+      if (lastSource !== 'board' || !storedPayload || !Array.isArray(storedPayload.items) || storedPayload.items.length === 0) {
+        hasFreshExternalText = true;
+      } else if (extTextBeforeCopy !== null && trimmedText !== extTextBeforeCopy) {
+        hasFreshExternalText = true;
+      }
+    }
+
+    const hasFreshPasteEventImage = Boolean(pasteEvent?.clipboardData?.items && Array.from(pasteEvent.clipboardData.items).some(it => it.kind === 'file' && it.type && it.type.startsWith('image/')));
+
+    if (storedPayload && Array.isArray(storedPayload.items) && storedPayload.items.length > 0 && !hasFreshExternalText && !hasFreshPasteEventImage) {
+      pasteClipboardItems(storedPayload, targetWorldPos ? { targetX: targetWorldPos.x, targetY: targetWorldPos.y } : {});
       return;
     }
 
-    // 1.b) Mediante items del evento 'paste' nativo de HTML5
+    // Prioridad 2: IMAGEN DEL SISTEMA OPERATIVO O APLICACIÓN EXTERNA
+    // 2.a) Mediante items del evento 'paste' nativo de HTML5
     if (pasteEvent?.clipboardData?.items) {
       for (const it of pasteEvent.clipboardData.items) {
         if (it.kind === 'file' && it.type && it.type.startsWith('image/')) {
@@ -3211,7 +3411,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // 1.c) Mediante archivos del evento 'paste' nativo de HTML5
+    // 2.b) Mediante archivos del evento 'paste' nativo de HTML5
     if (pasteEvent?.clipboardData?.files && pasteEvent.clipboardData.files.length > 0) {
       for (const file of pasteEvent.clipboardData.files) {
         if (file.type && file.type.startsWith('image/')) {
@@ -3225,7 +3425,29 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    // 1.d) Mediante navigator.clipboard.read() (fallback web estándar)
+    // 2.c) Mediante API de portapapeles de Electron (directa o bridge)
+    let clipImg = null;
+    try {
+      const electron = typeof window.require === 'function' ? window.require('electron') : null;
+      if (electron?.clipboard?.readImage) {
+        const img = electron.clipboard.readImage();
+        if (img && !img.isEmpty()) {
+          const size = img.getSize();
+          clipImg = { dataUrl: img.toDataURL(), width: size.width, height: size.height };
+        }
+      } else if (window.brainBoard?.clipboard?.readImage) {
+        clipImg = window.brainBoard.clipboard.readImage();
+      } else if (window.miro?.clipboard?.readImage) {
+        clipImg = window.miro.clipboard.readImage();
+      }
+    } catch (e) {}
+
+    if (clipImg && clipImg.dataUrl) {
+      pasteExternalImage(clipImg.dataUrl, clipImg.width, clipImg.height, targetWorldPos);
+      return;
+    }
+
+    // 2.d) Mediante navigator.clipboard.read() (fallback web estándar)
     if (navigator.clipboard && typeof navigator.clipboard.read === 'function') {
       try {
         const clipItems = await navigator.clipboard.read();
@@ -3246,63 +3468,25 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (e) {}
     }
 
-    // Prioridad 2: TEXTO O ENLACE DEL PORTAPAPELES
-    let clipText = '';
-    try {
-      if (window.brainBoard?.clipboard?.readText) {
-        clipText = window.brainBoard.clipboard.readText() || '';
-      } else if (window.miro?.clipboard?.readText) {
-        clipText = window.miro.clipboard.readText() || '';
-      }
-    } catch (e) {}
-
-    if (!clipText && pasteEvent?.clipboardData) {
-      try {
-        clipText = pasteEvent.clipboardData.getData('text') || '';
-      } catch (e) {}
-    }
-
-    if (!clipText && navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
-      try {
-        clipText = await navigator.clipboard.readText();
-      } catch (e) {}
-    }
-
-    const trimmedText = (clipText || '').trim();
-
-    // 2.a) ¿El texto copiado es un paquete JSON de elementos de Brain Board?
-    if (trimmedText.startsWith('{') && trimmedText.includes('"source":"brainboard"')) {
-      try {
-        const parsed = JSON.parse(trimmedText);
-        if (parsed && parsed.source === 'brainboard' && Array.isArray(parsed.items) && parsed.items.length > 0) {
-          pasteClipboardItems(parsed, targetWorldPos ? { targetX: targetWorldPos.x, targetY: targetWorldPos.y } : {});
+    // Prioridad 3: TEXTO O ENLACE EXTERNO DEL PORTAPAPELES
+    if (trimmedText.length > 0) {
+      const isUrl = /^https?:\/\/[^\s]+/i.test(trimmedText) || /^www\.[a-z0-9\-]+(\.[a-z0-9\-]+)+[^\s]*/i.test(trimmedText);
+      if (isUrl) {
+        if (/\.(png|jpe?g|webp|gif|svg)(\?.*)?$/i.test(trimmedText) || trimmedText.includes('gstatic.com/images?')) {
+          pasteExternalImage(trimmedText, null, null, targetWorldPos);
           return;
         }
-      } catch (err) {}
-    }
-
-    // 2.b) ¿El texto copiado es una URL / enlace web?
-    const isUrl = /^https?:\/\/[^\s]+/i.test(trimmedText) || /^www\.[a-z0-9\-]+(\.[a-z0-9\-]+)+[^\s]*/i.test(trimmedText);
-    if (isUrl) {
-      // Si la URL apunta directamente a un archivo de imagen, pegarlo como imagen
-      if (/\.(png|jpe?g|webp|gif|svg)(\?.*)?$/i.test(trimmedText) || trimmedText.includes('gstatic.com/images?')) {
-        pasteExternalImage(trimmedText, null, null, targetWorldPos);
+        pasteExternalUrl(trimmedText, targetWorldPos);
         return;
       }
-      pasteExternalUrl(trimmedText, targetWorldPos);
-      return;
-    }
 
-    // 2.c) ¿Texto plano convencional?
-    if (trimmedText.length > 0) {
       pasteExternalText(trimmedText, targetWorldPos);
       return;
     }
 
-    // Prioridad 3: Elementos en memoria de Brain Board si el portapapeles del sistema estaba vacío
-    const brainPayload = getStoredClipboardPayload();
-    if (brainPayload && Array.isArray(brainPayload.items) && brainPayload.items.length > 0) {
-      pasteClipboardItems(brainPayload, targetWorldPos ? { targetX: targetWorldPos.x, targetY: targetWorldPos.y } : {});
+    // Fallback: Si no había texto externo ni imagen externa, usar lo almacenado en BrainBoard
+    if (storedPayload && Array.isArray(storedPayload.items) && storedPayload.items.length > 0) {
+      pasteClipboardItems(storedPayload, targetWorldPos ? { targetX: targetWorldPos.x, targetY: targetWorldPos.y } : {});
       return;
     }
 
@@ -3387,11 +3571,20 @@ document.addEventListener('DOMContentLoaded', () => {
         openExternalUrl(clicked.url);
         return;
       }
-      if (clicked.type === 'sticky_note' || clicked.type === 'shape' || clicked.type === 'text' || clicked.type === 'frame' || clicked.type === 'code') {
+      if (clicked.type === 'frame') {
+        if (engine.isPointOnFrameHeader(clicked, world.x, world.y)) {
+          openInlineEditor(clicked);
+          return;
+        } else {
+          clicked = null;
+        }
+      } else if (clicked.type === 'sticky_note' || clicked.type === 'shape' || clicked.type === 'text' || clicked.type === 'code') {
         openInlineEditor(clicked);
+        return;
       }
     }
   });
+
 
   engine.onEditingFinish = () => {
     if (activeEditingItem) closeInlineEditor();
@@ -3464,6 +3657,25 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!activeEditingItem) return;
     const screen = engine.worldToScreen(activeEditingItem.x, activeEditingItem.y);
     const zoom = engine.camera.zoom;
+
+    if (activeEditingItem.type === 'frame') {
+      const tabHeight = 26 * zoom;
+      const tabWidth = Math.max(80 * zoom, (activeEditingItem.title ? activeEditingItem.title.length * 9.5 + 24 : 80) * zoom);
+      inlineEditor.style.left = `${screen.x}px`;
+      inlineEditor.style.top = `${screen.y - tabHeight}px`;
+      inlineEditor.style.width = `${tabWidth}px`;
+      inlineEditor.style.height = `${tabHeight}px`;
+      inlineEditor.style.padding = `${3 * zoom}px ${8 * zoom}px`;
+      inlineEditor.style.fontSize = `${13 * zoom}px`;
+      inlineEditor.style.fontWeight = '600';
+      inlineEditor.style.borderRadius = `${4 * zoom}px`;
+      inlineEditor.style.backgroundColor = engine.isDarkMode ? '#2D323E' : '#475569';
+      inlineEditor.style.color = '#ffffff';
+      inlineEditor.style.caretColor = '#ffffff';
+      inlineEditor.style.lineHeight = `${20 * zoom}px`;
+      return;
+    }
+
     const screenW = Math.max(80, (activeEditingItem.width || 150) * zoom);
     const screenH = Math.max(30, (activeEditingItem.height || 40) * zoom);
     const fontSize = activeEditingItem.fontSize || (activeEditingItem.type === 'shape' ? 14 : (activeEditingItem.type === 'code' ? 12.5 : 16));
@@ -3565,6 +3777,44 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Manejo de desplazamiento con flechas del teclado y agrupación de snapshots para Undo
+  let isArrowMoving = false;
+  let arrowMoveTimeout = null;
+
+  function handleArrowKeyMove(dx, dy) {
+    if (engine.selectedItemIds.size === 0) return;
+
+    // Si es el inicio de la ráfaga de movimiento, registramos un único snapshot en el historial
+    if (!isArrowMoving) {
+      engine.saveSnapshot();
+      isArrowMoving = true;
+    }
+
+    // Mover los elementos seleccionados (sin crear snapshots intermedios)
+    engine.moveSelected(dx, dy, false);
+    updatePropertiesBarPosition();
+
+    // Debounce para finalizar la ráfaga y consolidar el guardado
+    clearTimeout(arrowMoveTimeout);
+    arrowMoveTimeout = setTimeout(() => {
+      isArrowMoving = false;
+      autoSaveBoard();
+    }, 400);
+  }
+
+  // Al soltar las teclas de flecha, consolidar el guardado si se estaba moviendo
+  window.addEventListener('keyup', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      if (isArrowMoving) {
+        clearTimeout(arrowMoveTimeout);
+        arrowMoveTimeout = setTimeout(() => {
+          isArrowMoving = false;
+          autoSaveBoard();
+        }, 200);
+      }
+    }
+  });
+
   // Atajos de teclado globales
   window.addEventListener('keydown', (e) => {
     // Si se pulsa Ctrl+F o Cmd+F abrir siempre el buscador
@@ -3579,6 +3829,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (commentPopover) commentPopover.style.display = 'none';
       if (exportHiresModal) exportHiresModal.style.display = 'none';
       if (shapeFlyoutMenu) shapeFlyoutMenu.style.display = 'none';
+      if (templateFlyoutMenu) templateFlyoutMenu.style.display = 'none';
       if (modalItemProperties && modalItemProperties.style.display !== 'none') {
         closePropertiesModal();
       }
@@ -3586,7 +3837,31 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (document.activeElement === inlineEditor || document.activeElement === boardTitleInput ||
-        document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+        document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA' ||
+        document.activeElement?.isContentEditable || activeEditingItem) return;
+
+    // Movimiento con flechas del teclado (soporta un elemento o selección múltiple)
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+      if (engine.selectedItemIds.size > 0) {
+        e.preventDefault();
+
+        let step = 5; // Paso base en unidades del canvas
+        if (e.shiftKey) {
+          step = 50; // Movimiento rápido con Shift (10x)
+        } else if (e.altKey || e.ctrlKey || e.metaKey) {
+          step = 1; // Micro-ajuste milimétrico de precisión con Alt/Ctrl
+        }
+
+        let dx = 0, dy = 0;
+        if (e.key === 'ArrowUp') dy = -step;
+        else if (e.key === 'ArrowDown') dy = step;
+        else if (e.key === 'ArrowLeft') dx = -step;
+        else if (e.key === 'ArrowRight') dx = step;
+
+        handleArrowKeyMove(dx, dy);
+        return;
+      }
+    }
 
     // Enter para editar el texto del elemento seleccionado
     if (e.key === 'Enter' && engine.selectedItemIds.size === 1 && !activeEditingItem) {
@@ -3600,30 +3875,46 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (e.key === 'Delete' || e.key === 'Backspace') {
       engine.deleteSelected();
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C')) {
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'C' || e.code === 'KeyC')) {
       e.preventDefault();
       copySelectedToClipboard();
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'x' || e.key === 'X')) {
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'x' || e.key === 'X' || e.code === 'KeyX')) {
       e.preventDefault();
       if (copySelectedToClipboard()) {
         engine.deleteSelected();
       }
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V')) {
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'v' || e.key === 'V' || e.code === 'KeyV')) {
       e.preventDefault();
       executePasteAction();
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A' || e.code === 'KeyA')) {
       e.preventDefault();
       engine.selectAll();
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z' || e.code === 'KeyZ')) {
       e.preventDefault();
       if (e.shiftKey) engine.redo();
       else engine.undo();
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y')) {
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || e.key === 'Y' || e.code === 'KeyY')) {
       e.preventDefault();
       engine.redo();
-    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D')) {
+    } else if ((e.ctrlKey || e.metaKey) && (e.key === 'd' || e.key === 'D' || e.code === 'KeyD')) {
       e.preventDefault();
       duplicateSelectedItems();
+    } else if (e.key === ']' || e.code === 'BracketRight') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        engine.bringToFront();
+      } else {
+        engine.bringForward();
+      }
+      autoSaveBoardImmediately();
+    } else if (e.key === '[' || e.code === 'BracketLeft') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        engine.sendToBack();
+      } else {
+        engine.sendBackward();
+      }
+      autoSaveBoardImmediately();
     } else if (e.key === 'v' || e.key === 'V') {
       setActiveTool('select');
     } else if (e.key === 'h' || e.key === 'H') {
@@ -4092,7 +4383,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (seedData && typeof seedData.seedVersion === 'number') {
         const savedVer = typeof savedData?.seedVersion === 'number' ? savedData.seedVersion : 0;
         // El trabajo del usuario es sagrado: solo considerar desactualizada una plantilla si el usuario NO la ha editado
-        if ((!savedData?.userModified && seedData.seedVersion > savedVer) || ((currentActiveBoardId === 'space' || currentActiveBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10)) {
+        if ((!savedData?.userModified && seedData.seedVersion > savedVer) || ((currentActiveBoardId === 'space' || currentActiveBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10) || (currentActiveBoardId === 'ejemplo' && seedData.seedVersion >= 5 && savedVer < 5)) {
           isOutdatedCache = true;
         }
       }
@@ -4155,16 +4446,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnResetZoom = document.getElementById('btn-reset-zoom');
 
   // Miniatura dinámica del tablero activo
+  const BRAIN_LOGO_SVG = `<svg viewBox="0 0 620.95 522.11" fill="#3b82f6" style="width:100%;height:100%;max-width:28px;max-height:24px;"><path d="M0,228.49c-.21-23.92,7.34-45.33,20.15-65.04,8.65-13.29,16.23-26.99,22.23-41.79,11.47-28.31,32.76-45.92,62.5-53.19,7.12-1.74,14.19-3.66,21.34-5.28,14.28-3.24,24.88-12.37,35.26-21.83,17.38-15.85,38.13-23.18,61.31-24.57,16.22-.97,31.84,2.5,47.3,6.64,12.5,3.35,23.5,1.01,34.07-6.19,13.09-8.92,27.34-15.26,43.35-16.79,24.32-2.32,45.79,4.52,64.3,20.38,6.71,5.75,12.83,12.21,18.05,19.33,10.48,14.29,25.02,20.15,42.03,21.82,19.61,1.92,38.28,6.64,54.92,18.06,14.86,10.2,24.8,23.9,31.05,40.53,2.23,5.92,4.25,11.95,5.11,18.26,2.53,18.52,11.42,33.78,23.49,47.67,11.63,13.38,22.08,27.69,27.72,44.75,11.98,36.21,8.66,70.41-15.16,101.16-8.03,10.36-18.34,18.5-31.27,22.32-8.15,2.4-12.49,7.19-13.51,15.83-1.93,16.42-7.08,31.77-16.44,45.62-13.77,20.38-32.82,33.25-56.24,39.85-17.27,4.87-34.83,7.47-52.84,5.21-.82-.1-1.67-.11-2.5-.08-2.13,.08-4.63-.44-5.93,1.75-1.38,2.34,.68,4.1,1.83,5.8,3.93,5.79,8.12,11.4,11.99,17.22,7.14,10.75,7.08,19.48,.03,28-6.72,8.12-18.48,10.49-29.21,5.83-5.31-2.31-9.46-5.89-12.89-10.67-22.62-31.53-45.36-62.97-68.16-94.37-6.05-8.34-15.57-11.12-25.69-8.48-16.1,4.2-31.88,9.64-48.56,11.51-48.25,5.43-88.82-24.67-99.36-66.25-3.24-12.77-6.45-15.08-19.61-14.14-26.06,1.87-50.88-2.7-73.69-15.6C20.8,301.28,1.39,270.31,0,228.49Zm576.46,40.19c.65-16.58-6.11-30.97-16.01-44.24-8.36-11.2-18.05-21.37-25.32-33.42-8.7-14.44-12.1-30.61-15.43-46.75-3.92-19-15.03-30.64-33.81-35.17-9.73-2.34-19.66-3.56-29.53-5.11-16.03-2.51-31.05-7.26-43.53-18.39-7.64-6.81-13.97-14.75-20.45-22.54-8.14-9.78-18.18-15.86-30.81-17.78-16.65-2.53-34.94,6.1-41.12,19.45-2.76,5.97-2.67,11.42,1.53,16.82,9.08,11.67,9.59,24.53,4.2,37.76-1.46,3.58-1.21,6.33,.87,9.29,8.14,11.58,16.33,23.12,24.32,34.81,2.35,3.44,5.18,4.68,9.26,4.43,9.7-.58,18.61,1.38,27.03,6.89,14.05,9.19,22.62,27.99,19.49,44.63-3.78,20.07-18.01,32.83-35.34,36.53-15.83,3.38-29.24-2.37-40.3-13.59-3.18-3.22-5.97-3.88-10.11-2.48-17.21,5.78-34.49,11.36-51.78,16.92-3.57,1.15-5.53,3.17-6.02,7.02-3.05,24.07-25.74,40.74-48.89,37.5-7.83-1.1-13.35,2.2-16.73,9-7.09,14.24-6.51,28.51,1.67,41.97,9.45,15.56,29.13,23.34,47.84,19.96,16.78-3.03,32.74-9,49.13-13.41,13.02-3.5,19.85-11.19,21.83-24.6,2.28-15.44,14.4-27.49,28.74-30.34,15.9-3.17,30.84,2.97,39.52,17.06,2.81,4.56,5.43,5.33,10.1,3.47,18.38-7.32,37.55-9.94,57.26-9.45,10.82,.26,21.64,.08,32.46,.75,6.01,.37,6.64-.79,4.5-6.23-5.3-13.48-10.75-26.91-15.87-40.46-1.46-3.86-3.51-5.63-7.72-6.43-25.88-4.94-38.15-30.32-26.08-53.42,8.53-16.34,29.93-23.3,46.07-15.16,18.79,9.48,25.95,31.93,16.99,47.33-5.97,10.26-6.66,18.77-1.05,28.5,.08,.14,.11,.31,.17,.47,4.28,10.48,8,21.24,15.36,30.15,15.26,18.47,37.27,18.76,49.98-2.19,5.38-8.86,7.95-18.63,7.59-29.55ZM45.39,225.98c.63,22.26,9.38,40.34,28.32,52.61,22.02,14.26,46.26,17.78,71.4,11.35,17.09-4.37,29.28-14.99,31.9-33.69,.81-5.78,1.57-11.55,3.18-17.17,1.11-3.86,.36-7.16-2.33-10.17-4.32-4.84-8.61-9.72-12.76-14.7-2.73-3.27-5.63-4.23-10.04-3.27-16.43,3.58-31.65-3.18-39.36-18.48-7.4-14.66-5.88-26.68,5.77-40.72,6.43-7.74,15.66-12.21,26.14-11.38,25.57,2.02,39.92,22.62,33.37,47.53-.72,2.73-.39,4.77,1.4,6.86,4.98,5.81,9.91,11.66,15.36,17.06,2.57,2.54,5.07,3.23,8.52,2.18,18.69-5.66,34.5-.85,47.36,13.63,2.6,2.92,5.13,3.74,8.76,2.53,17.85-5.95,35.73-11.8,53.6-17.67,2.64-.87,4.06-2.55,4.46-5.39,1.07-7.53,3.6-14.56,7.95-20.82,2.44-3.5,2.16-6.58-.04-10.13-5.96-9.65-13.19-18.43-19.13-28.06-3.85-6.25-8.53-8.29-15.89-8.28-14.87,.02-25.62-7.64-31.57-21.24-5.41-12.35-4.27-24.32,3.61-35.5,5.05-7.16,4.19-10.83-3.73-14.42-15.12-6.87-31.01-8.87-47.32-5.97-11.48,2.04-21.18,7.79-29.18,16.27-11.23,11.9-24.57,20.32-40.34,24.84-12.49,3.57-25.02,7-37.43,10.82-11.16,3.43-19.79,10.5-23.16,21.7-5.67,18.83-15.47,35.26-26.56,51.19-7.99,11.47-12.49,24.23-12.24,38.49Zm402.24,126.08v.07c-13.15,0-26.31-.3-39.44,.11-7.56,.24-15.46,1.82-19.9,8.57-5.86,8.9-13.37,15-23.26,18.66-5.42,2-6.57,6.04-3.16,10.7,3.34,4.56,7.28,8.62,12.28,11.53,10.68,6.2,22.44,9.25,34.36,11.64,21.09,4.24,42.2,5.73,63.19-.75,16.21-5.01,28.26-14.48,33.91-31.04,4.87-14.28-1.7-30.11-20.54-29.56-12.47,.36-24.97,.07-37.45,.07Z"/></svg>`;
+
   const boardThumbnailMini = document.getElementById('board-thumbnail-mini');
   function updateBoardThumbnailMini(boardId) {
     if (!boardThumbnailMini) return;
     const targetId = boardId || currentActiveBoardId;
-    const b = workspaceBoards.find(x => x.id === targetId);
-    if (!b) return;
+    const b = workspaceBoards.find(x => x.id === targetId) || { id: targetId };
+
+    const isWelcome = b.id === 'ejemplo' || b.id === 'bienvenida' || (b.title && (b.title.toLowerCase().includes('bienvenida') || b.title.toLowerCase() === 'ejemplo'));
 
     if (b.thumbnail) {
       boardThumbnailMini.className = 'board-thumbnail-mini';
       boardThumbnailMini.innerHTML = `<img src="${resolveImageSrc(b.thumbnail)}" class="board-thumbnail-mini-img" alt="${b.title || ''}" />`;
+    } else if (isWelcome) {
+      boardThumbnailMini.className = 'board-thumbnail-mini';
+      boardThumbnailMini.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,0.12);padding:2px;">${BRAIN_LOGO_SVG}</div>`;
     } else if (b.icon === 'code' || b.id === 'dev_ai') {
       boardThumbnailMini.className = 'board-thumbnail-mini thumb-code';
       boardThumbnailMini.innerHTML = `<span class="thumb-code-brackets">&lt;/&gt;</span>`;
@@ -4568,7 +4865,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (seedData && typeof seedData.seedVersion === 'number') {
         const savedVer = typeof saved?.seedVersion === 'number' ? saved.seedVersion : 0;
         // El trabajo del usuario es sagrado: solo considerar desactualizada una plantilla si el usuario NO la ha editado
-        if ((!saved?.userModified && seedData.seedVersion > savedVer) || ((targetBoardId === 'space' || targetBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10)) {
+        if ((!saved?.userModified && seedData.seedVersion > savedVer) || ((targetBoardId === 'space' || targetBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10) || (targetBoardId === 'ejemplo' && seedData.seedVersion >= 5 && savedVer < 5)) {
           isOutdatedCache = true;
         }
       }
@@ -5103,6 +5400,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     if (!e.target.closest('#shape-tool-wrapper')) {
       if (shapeFlyoutMenu) shapeFlyoutMenu.style.display = 'none';
+    }
+    if (!e.target.closest('#template-tool-wrapper')) {
+      if (templateFlyoutMenu) templateFlyoutMenu.style.display = 'none';
     }
   });
 
@@ -5798,8 +6098,11 @@ document.addEventListener('DOMContentLoaded', () => {
       tr.setAttribute('data-board-id', board.id);
 
       let thumbHtml = '';
+      const isWelcome = board.id === 'ejemplo' || board.id === 'bienvenida' || (board.title && (board.title.toLowerCase().includes('bienvenida') || board.title.toLowerCase() === 'ejemplo'));
       if (board.thumbnail) {
         thumbHtml = `<div class="board-table-thumb"><img src="${resolveImageSrc(board.thumbnail)}" class="board-table-thumb-img" alt="${board.title}" /></div>`;
+      } else if (isWelcome) {
+        thumbHtml = `<div class="board-table-thumb" style="display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,0.12);padding:4px;">${BRAIN_LOGO_SVG}</div>`;
       } else if (board.icon === 'code' || board.id === 'dev_ai') {
         thumbHtml = `<div class="board-table-thumb thumb-code"><span class="thumb-code-brackets">&lt;/&gt;</span></div>`;
       } else {
@@ -6325,7 +6628,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (whatsNewModal) whatsNewModal.style.display = 'flex';
   }
 
-  let activeAppVersion = '1.0.1';
+  let activeAppVersion = '1.0.4';
 
   async function syncAppVersion() {
     try {

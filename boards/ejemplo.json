@@ -1,7 +1,12 @@
 {
+  "id": "ejemplo",
   "name": "Ejemplo",
-  "seedVersion": 4,
-  "updatedAt": "2026-10-14T18:12:00.000Z",
+  "category": "General",
+  "icon": "✨",
+  "thumbnail": null,
+  "updatedAt": "2026-10-15T21:56:47.907Z",
+  "seedVersion": 5,
+  "userModified": true,
   "items": [
     {
       "id": "frame_welcome",
@@ -11,7 +16,8 @@
       "width": 900,
       "height": 550,
       "title": "Tablero de Bienvenida",
-      "fillColor": "#f8fafc"
+      "fillColor": "#f8fafc",
+      "zIndex": 0
     },
     {
       "id": "text_title",
@@ -23,7 +29,8 @@
       "text": "¡Bienvenido a Brain Board! 🧠✨",
       "fontSize": 32,
       "color": "#0f172a",
-      "textAlign": "center"
+      "textAlign": "center",
+      "zIndex": 40
     },
     {
       "id": "text_subtitle",
@@ -35,7 +42,8 @@
       "text": "Tu espacio de trabajo infinito: 100% local, ultrarrápido y privado.",
       "fontSize": 16,
       "color": "#64748b",
-      "textAlign": "center"
+      "textAlign": "center",
+      "zIndex": 40
     },
     {
       "id": "note_steps",
@@ -45,7 +53,8 @@
       "width": 230,
       "height": 260,
       "text": "💡 Primeros Pasos\n\n• Rueda: Zoom\n• Espacio + arrastre: Moverse\n• Doble clic: Crear texto\n• Arrastra fotos directamente\n• Tecla Supr: Borrar selección",
-      "color": "#fff9b0"
+      "color": "#fff9b0",
+      "zIndex": 30
     },
     {
       "id": "note_privacy",
@@ -55,7 +64,8 @@
       "width": 230,
       "height": 260,
       "text": "🔒 100% Privado y Local\n\n• Todos tus datos residen únicamente en tu propio disco duro.\n• Sin suscripciones ni nubes.\n• Rendimiento fluido a 60 FPS sin tirones.",
-      "color": "#dbeafe"
+      "color": "#dbeafe",
+      "zIndex": 30
     },
     {
       "id": "note_features",
@@ -65,7 +75,8 @@
       "width": 230,
       "height": 260,
       "text": "📂 Organización\n\n• Pestañas multitarea en la barra superior.\n• Panel Home para organizar tableros por categorías.\n• Exporta a imagen PNG en cualquier momento.",
-      "color": "#dcfce7"
+      "color": "#dcfce7",
+      "zIndex": 30
     },
     {
       "id": "text_footer",
@@ -77,7 +88,78 @@
       "text": "Puedes mover o borrar estas notas de prueba, o crear un tablero nuevo desde la pestaña Inicio.",
       "fontSize": 13,
       "color": "#94a3b8",
-      "textAlign": "center"
+      "textAlign": "center",
+      "zIndex": 40
+    },
+    {
+      "id": "frame_shortcuts",
+      "type": "frame",
+      "x": -450,
+      "y": 340,
+      "width": 900,
+      "height": 490,
+      "title": "Atajos de Teclado",
+      "fillColor": "#f8fafc",
+      "zIndex": 0
+    },
+    {
+      "id": "text_shortcuts_title",
+      "type": "text",
+      "x": -400,
+      "y": 380,
+      "width": 800,
+      "height": 42,
+      "text": "⌨️ Atajos de Teclado y Gestos Rápidos",
+      "fontSize": 26,
+      "color": "#0f172a",
+      "textAlign": "center",
+      "zIndex": 40
+    },
+    {
+      "id": "text_shortcuts_sub",
+      "type": "text",
+      "x": -400,
+      "y": 432,
+      "width": 800,
+      "height": 28,
+      "text": "Agiliza tu flujo de trabajo con los comandos más potentes de Brain Board.",
+      "fontSize": 15,
+      "color": "#64748b",
+      "textAlign": "center",
+      "zIndex": 40
+    },
+    {
+      "id": "note_nav",
+      "type": "sticky_note",
+      "x": -390,
+      "y": 485,
+      "width": 245,
+      "height": 300,
+      "text": "🧭 Navegación y Vista\n\n• Espacio + Arrastre: Moverse por el lienzo\n• Botón central: Panorámica directa\n• Rueda ratón: Zoom suave\n• Tecla F: Ajustar zoom al lienzo\n• Doble clic: Crear texto aquí",
+      "color": "#fff9b0",
+      "zIndex": 30
+    },
+    {
+      "id": "note_edit",
+      "type": "sticky_note",
+      "x": -122,
+      "y": 485,
+      "width": 245,
+      "height": 300,
+      "text": "✨ Duplicación y Edición\n\n• Alt + Clic / Arrastre: ¡Duplicar elemento!\n• Ctrl + C / Ctrl + V: Copiar y pegar\n• Ctrl + D: Duplicar selección\n• Ctrl + Z / Ctrl + Y: Deshacer / Rehacer\n• Supr / Backspace: Borrar selección",
+      "color": "#dbeafe",
+      "zIndex": 30
+    },
+    {
+      "id": "note_layers",
+      "type": "sticky_note",
+      "x": 145,
+      "y": 485,
+      "width": 245,
+      "height": 300,
+      "text": "📚 Capas e Imantación\n\n• Mantén Ctrl al mover: Desactiva guías magnéticas\n• ] / [: Traer adelante / Enviar atrás\n• Shift + ] / [: Al frente / Al fondo\n• Doble clic etiqueta: Renombrar marco",
+      "color": "#dcfce7",
+      "zIndex": 30
     }
   ]
 }

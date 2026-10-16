@@ -20,6 +20,7 @@ class CanvasEngine {
     // Herramienta activa: 'select', 'hand', 'sticky_note', 'shape', 'text', 'pen', 'connector', 'frame'
     this.activeTool = 'select';
     this.selectedShapeType = 'rectangle';
+    this.selectedTemplateType = 'apuntes';
     this.activeColor = '#fff9b0'; // Amarillo por defecto
 
     // Estados de interaccion
@@ -27,6 +28,7 @@ class CanvasEngine {
     this.panStart = { x: 0, y: 0 };
     this.isDraggingItem = false;
     this.isMiddleDragDuplicate = false;
+    this.isAltDragDuplicate = false;
     this.dragStart = { x: 0, y: 0 };
     this.isResizing = false;
     this.activeResizeHandle = null;
@@ -62,6 +64,8 @@ class CanvasEngine {
     this.onCommentClick = null;
     this.onCommentCreated = null;
     this.onEditingFinish = null;
+    this.onFrameHeaderClick = null;
+    this.potentialFrameHeaderClick = null;
 
     // ID del elemento que se esta editando in-situ (para no duplicar texto)
     this.editingItemId = null;
@@ -260,103 +264,155 @@ class CanvasEngine {
     if (this.onCameraChange) this.onCameraChange();
   }
 
+  getDefaultZIndex(it) {
+    if (!it) return 20;
+    if (typeof it.zIndex === 'number') return it.zIndex;
+    switch (it.type) {
+      case 'frame': return 0;
+      case 'connector': return 10;
+      case 'shape': return 20;
+      case 'code': return 22;
+      case 'embed':
+      case 'preview': return 24;
+      case 'image': return 26;
+      case 'sticky_note': return 30;
+      case 'text': return 40;
+      case 'pen': return 42;
+      case 'comment': return 100;
+      default: return 20;
+    }
+  }
+
+  getSortedItemsForRender(reverse = false) {
+    const mapped = this.items.map((it, idx) => ({
+      it,
+      idx,
+      z: this.getDefaultZIndex(it)
+    }));
+    mapped.sort((a, b) => {
+      if (a.z !== b.z) return reverse ? (b.z - a.z) : (a.z - b.z);
+      return reverse ? (b.idx - a.idx) : (a.idx - b.idx);
+    });
+    return mapped.map(m => m.it);
+  }
+
+  normalizeZIndices() {
+    const sorted = this.getSortedItemsForRender(false);
+    sorted.forEach((it, idx) => {
+      it.zIndex = (idx + 1) * 10;
+    });
+  }
+
+  bringForward(itemIds = null) {
+    const ids = itemIds ? new Set(itemIds) : this.selectedItemIds;
+    if (ids.size === 0) return;
+    this.normalizeZIndices();
+    const sorted = this.getSortedItemsForRender(false);
+    let changed = false;
+    for (let i = sorted.length - 2; i >= 0; i--) {
+      const current = sorted[i];
+      const next = sorted[i + 1];
+      if (ids.has(current.id) && !ids.has(next.id)) {
+        current.zIndex = next.zIndex + 5;
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.normalizeZIndices();
+      this.saveSnapshot();
+      if (this.onBoardModified) this.onBoardModified();
+      this.render();
+    }
+  }
+
+  sendBackward(itemIds = null) {
+    const ids = itemIds ? new Set(itemIds) : this.selectedItemIds;
+    if (ids.size === 0) return;
+    this.normalizeZIndices();
+    const sorted = this.getSortedItemsForRender(false);
+    let changed = false;
+    for (let i = 1; i < sorted.length; i++) {
+      const current = sorted[i];
+      const prev = sorted[i - 1];
+      if (ids.has(current.id) && !ids.has(prev.id)) {
+        current.zIndex = prev.zIndex - 5;
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.normalizeZIndices();
+      this.saveSnapshot();
+      if (this.onBoardModified) this.onBoardModified();
+      this.render();
+    }
+  }
+
+  bringToFront(itemIds = null) {
+    const ids = itemIds ? new Set(itemIds) : this.selectedItemIds;
+    if (ids.size === 0) return;
+    this.normalizeZIndices();
+    const sorted = this.getSortedItemsForRender(false);
+    let maxZ = sorted.length > 0 ? sorted[sorted.length - 1].zIndex : 10;
+    let changed = false;
+    sorted.forEach(it => {
+      if (ids.has(it.id)) {
+        maxZ += 10;
+        it.zIndex = maxZ;
+        changed = true;
+      }
+    });
+    if (changed) {
+      this.normalizeZIndices();
+      this.saveSnapshot();
+      if (this.onBoardModified) this.onBoardModified();
+      this.render();
+    }
+  }
+
+  sendToBack(itemIds = null) {
+    const ids = itemIds ? new Set(itemIds) : this.selectedItemIds;
+    if (ids.size === 0) return;
+    this.normalizeZIndices();
+    const sorted = this.getSortedItemsForRender(false);
+    let minZ = sorted.length > 0 ? sorted[0].zIndex : 10;
+    let changed = false;
+    const selected = sorted.filter(it => ids.has(it.id));
+    selected.reverse().forEach(it => {
+      minZ -= 10;
+      it.zIndex = minZ;
+      changed = true;
+    });
+    if (changed) {
+      this.normalizeZIndices();
+      this.saveSnapshot();
+      if (this.onBoardModified) this.onBoardModified();
+      this.render();
+    }
+  }
+
   getItemAt(wx, wy, excludeFrames = false) {
-    // Para respetar la jerarquía visual idéntica a render(), buscamos de la capa superior a la inferior:
-    // Capa 7: Comentarios (pins burbuja en el nivel superior)
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const it = this.items[i];
-      if (it.type === 'comment') {
-        const d = Math.hypot(it.x - wx, it.y - wy);
-        if (d <= 20) return it;
+    const sorted = this.getSortedItemsForRender(true);
+    for (const it of sorted) {
+      if (excludeFrames && it.type === 'frame') continue;
+      if (this.isPointInsideItem(wx, wy, it)) {
+        return it;
       }
     }
-
-    // Capa 6: Trazos de pluma (pen)
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const it = this.items[i];
-      if (it.type === 'pen' && it.points) {
-        for (const pt of it.points) {
-          const d = Math.hypot(pt.x - wx, pt.y - wy);
-          if (d < (it.strokeWidth || 4) + 6) return it;
-        }
-      }
-    }
-
-    // Capa 5: Textos (los textos van sobre formas e imágenes)
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const it = this.items[i];
-      if (it.type === 'text') {
-        if (wx >= it.x && wx <= it.x + (it.width || 100) && wy >= it.y && wy <= it.y + (it.height || 40)) {
-          return it;
-        }
-      }
-    }
-
-    // Capa 4: Notas adhesivas
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const it = this.items[i];
-      if (it.type === 'sticky_note') {
-        if (wx >= it.x && wx <= it.x + (it.width || 100) && wy >= it.y && wy <= it.y + (it.height || 100)) {
-          return it;
-        }
-      }
-    }
-
-    // Capa 3: Bloques de código, embeds, cartas, imágenes
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const it = this.items[i];
-      if (it.type === 'image' || it.type === 'code' || it.type === 'embed' || it.type === 'preview') {
-        if (wx >= it.x && wx <= it.x + (it.width || 100) && wy >= it.y && wy <= it.y + (it.height || 100)) {
-          return it;
-        }
-      }
-    }
-
-    // Capa 2: Formas (shapes)
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const it = this.items[i];
-      if (it.type === 'shape') {
-        if (wx >= it.x && wx <= it.x + (it.width || 100) && wy >= it.y && wy <= it.y + (it.height || 100)) {
-          return it;
-        }
-      }
-    }
-
-    // Capa 1: Conectores
-    for (let i = this.items.length - 1; i >= 0; i--) {
-      const it = this.items[i];
-      if (it.type === 'connector') {
-        if (!it.start || !it.end || typeof it.start.x !== 'number' || typeof it.end.x !== 'number') continue;
-        const d = this.distToSegment({ x: wx, y: wy }, it.start, it.end);
-        if (d < 10) return it;
-      }
-    }
-
-    // Capa 0: Marcos contenedores (frames de fondo)
-    if (!excludeFrames) {
-      for (let i = this.items.length - 1; i >= 0; i--) {
-        const it = this.items[i];
-        if (it.type === 'frame') {
-          if (wx >= it.x && wx <= it.x + (it.width || 200) && wy >= it.y && wy <= it.y + (it.height || 200)) {
-            return it;
-          }
-        }
-      }
-    }
-
     return null;
+  }
+
+  // Comprueba si un punto cae sobre la pestaña/etiqueta superior del marco
+  isPointOnFrameHeader(frame, wx, wy) {
+    if (!frame || frame.type !== 'frame') return false;
+    const tabHeight = 28;
+    const tabWidth = Math.max(80, (frame.title ? frame.title.length * 9 : 0) + 26);
+    return wx >= frame.x && wx <= frame.x + tabWidth && wy >= frame.y - tabHeight && wy <= frame.y + 4;
   }
 
   // Comprueba si un punto (wx, wy) cae sobre la pestaña del título o el borde perimetral del frame
   isPointOnFrameHeaderOrBorder(frame, wx, wy) {
     if (!frame) return false;
-    const tabHeight = 30;
-    const tabWidth = Math.max(80, (frame.title ? frame.title.length * 10 : 70) + 30);
-    // Pestaña superior del marco
-    if (wx >= frame.x && wx <= frame.x + tabWidth && wy >= frame.y - tabHeight && wy <= frame.y + 8) {
-      return true;
-    }
-    // Borde perimetral del marco (franja de 10px)
+    if (this.isPointOnFrameHeader(frame, wx, wy)) return true;
     const margin = 8;
     const isInsideOuter = wx >= frame.x - margin && wx <= frame.x + frame.width + margin &&
                           wy >= frame.y - margin && wy <= frame.y + frame.height + margin;
@@ -534,6 +590,26 @@ class CanvasEngine {
 
   isPointInsideItem(wx, wy, it) {
     if (!it) return false;
+    if (it.type === 'comment') {
+      return Math.hypot(it.x - wx, it.y - wy) <= 20;
+    }
+    if (it.type === 'pen' && it.points) {
+      const radius = (it.strokeWidth || 4) + 6;
+      for (const pt of it.points) {
+        if (Math.hypot(pt.x - wx, pt.y - wy) < radius) return true;
+      }
+      return false;
+    }
+    if (it.type === 'connector') {
+      if (!it.start || !it.end || typeof it.start.x !== 'number' || typeof it.end.x !== 'number') return false;
+      return this.distToSegment({ x: wx, y: wy }, it.start, it.end) < 10;
+    }
+    if (it.type === 'frame') {
+      if (this.isPointOnFrameHeader(it, wx, wy)) return true;
+      const w = it.width || 200;
+      const h = it.height || 200;
+      return wx >= it.x && wx <= it.x + w && wy >= it.y && wy <= it.y + h;
+    }
     const w = it.width || 100;
     const h = it.height || 40;
     return wx >= it.x && wx <= it.x + w && wy >= it.y && wy <= it.y + h;
@@ -1156,6 +1232,12 @@ class CanvasEngine {
         this.isSpacePressed = true;
         if (!this.isPanning) this.canvas.style.cursor = 'grab';
       }
+      if (e.key === 'Control' || e.key === 'Meta') {
+        if (this.isDraggingItem && this.activeGuides.length > 0) {
+          this.activeGuides = [];
+          this.render();
+        }
+      }
       if ((e.key === 'Control' || e.key === 'Meta') && !e.shiftKey && this.activeTool === 'select' && !this.isDraggingItem && !this.isPanning && !this.isSelectingMarquee) {
         if (this.hoveredConnectorPort) {
           this.hoveredConnectorPort = null;
@@ -1357,6 +1439,71 @@ class CanvasEngine {
         return;
       }
 
+      // Soporte Alt + Clic izquierdo: Duplicar elemento(s) al instante y permitir arrastre
+      if (e.altKey && !e.ctrlKey) {
+        let target = this.getItemAt(world.x, world.y, true);
+        if (!target) {
+          target = this.getItemAt(world.x, world.y, false);
+        }
+        if (target) {
+          if (!this.selectedItemIds.has(target.id)) {
+            this.selectedItemIds.clear();
+            this.selectedItemIds.add(target.id);
+          }
+        }
+        if (this.selectedItemIds.size > 0) {
+          const itemsToDuplicateIds = new Set(this.selectedItemIds);
+          this.items.forEach(it => {
+            if (this.selectedItemIds.has(it.id) && it.type === 'frame') {
+              const frame = it;
+              this.items.forEach(child => {
+                if (child.id !== frame.id && (child.parentId === frame.id || this.isItemInsideFrame(child, frame))) {
+                  itemsToDuplicateIds.add(child.id);
+                }
+              });
+            }
+          });
+
+          const idMap = new Map();
+          const newItems = [];
+          this.items.forEach(it => {
+            if (itemsToDuplicateIds.has(it.id)) {
+              const copy = JSON.parse(JSON.stringify(it));
+              copy.id = it.type + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+              if (typeof it.zIndex === 'number') copy.zIndex = it.zIndex + 1;
+              idMap.set(it.id, copy.id);
+              newItems.push(copy);
+            }
+          });
+
+          newItems.forEach(copy => {
+            if (copy.parentId && idMap.has(copy.parentId)) {
+              copy.parentId = idMap.get(copy.parentId);
+            }
+            if (copy.type === 'connector') {
+              if (copy.start?.item && idMap.has(copy.start.item)) copy.start.item = idMap.get(copy.start.item);
+              if (copy.end?.item && idMap.has(copy.end.item)) copy.end.item = idMap.get(copy.end.item);
+            }
+          });
+
+          this.saveSnapshot();
+          this.items.push(...newItems);
+          this.selectedItemIds.clear();
+          newItems.forEach(copy => this.selectedItemIds.add(copy.id));
+
+          if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
+
+          this.isDraggingItem = true;
+          this.isAltDragDuplicate = true;
+          this.dragStart = { x: world.x, y: world.y };
+          this.dragStartScreen = { x: e.clientX, y: e.clientY };
+          this.hasMovedItem = false;
+          this.canvas.style.cursor = 'move';
+          this.render();
+          return;
+        }
+      }
+
       // 1. Buscar elementos regulares interactivos (excluyendo frames contenedores)
       const clickedItem = this.getItemAt(world.x, world.y, true);
 
@@ -1420,7 +1567,14 @@ class CanvasEngine {
       const frameUnder = this.getItemAt(world.x, world.y, false);
       if (frameUnder && frameUnder.type === 'frame') {
         const isFrameSelected = this.selectedItemIds.has(frameUnder.id);
+        const onHeader = this.isPointOnFrameHeader(frameUnder, world.x, world.y);
         const onHeaderOrBorder = this.isPointOnFrameHeaderOrBorder(frameUnder, world.x, world.y);
+
+        if (onHeader) {
+          this.potentialFrameHeaderClick = frameUnder;
+        } else {
+          this.potentialFrameHeaderClick = null;
+        }
 
         if (isFrameSelected || onHeaderOrBorder) {
           // El usuario clickeó deliberadamente la cabecera, borde o un marco ya seleccionado
@@ -1611,6 +1765,83 @@ class CanvasEngine {
       this.render();
       return;
     }
+
+    if (this.activeTool === 'template') {
+      this.saveSnapshot();
+      const templateType = this.selectedTemplateType || 'apuntes';
+      const createdIds = this.insertTemplateAt(world.x, world.y, templateType);
+      this.activeTool = 'select';
+      if (this.onSelectionChange) this.onSelectionChange(createdIds);
+      if (this.onBoardModified) this.onBoardModified();
+      this.render();
+      return;
+    }
+  }
+
+  insertTemplateAt(targetCenterX, targetCenterY, templateType = 'apuntes') {
+    const now = Date.now();
+    const currentMaxZ = this.items.reduce((max, it) => Math.max(max, typeof it.zIndex === 'number' ? it.zIndex : 10), 10);
+    const createdItems = [];
+
+    if (templateType === 'apuntes') {
+      const frameW = 744;
+      const frameH = 454;
+      const frameX = Math.round(targetCenterX - frameW / 2);
+      const frameY = Math.round(targetCenterY - frameH / 2);
+      const frameId = 'frame_' + now + '_' + Math.random().toString(36).substr(2, 5);
+
+      const frame = {
+        id: frameId,
+        type: 'frame',
+        x: frameX,
+        y: frameY,
+        width: frameW,
+        height: frameH,
+        title: 'Plantilla',
+        zIndex: currentMaxZ + 1
+      };
+
+      const title = {
+        id: 'text_' + now + '_' + Math.random().toString(36).substr(2, 5),
+        type: 'text',
+        parentId: frameId,
+        x: Math.round(frameX + 23),
+        y: Math.round(frameY + 17),
+        width: 694,
+        height: 64,
+        text: 'TITULO DEL APUNTE',
+        fontSize: 48,
+        color: '#eff3f7',
+        textColor: '#eff3f7',
+        fillColor: '#1a1a1a',
+        isBold: true,
+        zIndex: currentMaxZ + 2
+      };
+
+      const notes = {
+        id: 'text_' + (now + 1) + '_' + Math.random().toString(36).substr(2, 5),
+        type: 'text',
+        parentId: frameId,
+        x: Math.round(frameX + 23),
+        y: Math.round(frameY + 126),
+        width: 365,
+        height: 215,
+        text: 'Texto de apuntes',
+        fontSize: 24,
+        color: this.isDarkMode ? '#eff3f7' : '#1a1a1a',
+        textColor: this.isDarkMode ? '#eff3f7' : '#1a1a1a',
+        isBold: false,
+        zIndex: currentMaxZ + 3
+      };
+
+      createdItems.push(frame, title, notes);
+    }
+
+    // Insertar elementos creados en el motor
+    this.items.push(...createdItems);
+    this.selectedItemIds.clear();
+    createdItems.forEach(it => this.selectedItemIds.add(it.id));
+    return createdItems.map(it => it.id);
   }
 
   onPointerMove(e) {
@@ -1710,7 +1941,7 @@ class CanvasEngine {
         if (screenDist < 4) {
           return;
         }
-        if (!this.isMiddleDragDuplicate) {
+        if (!this.isMiddleDragDuplicate && !this.isAltDragDuplicate) {
           this.saveSnapshot();
         }
         this.hasMovedItem = true;
@@ -1721,8 +1952,8 @@ class CanvasEngine {
       let moveDx = dx;
       let moveDy = dy;
 
-      // Smart Guides magnéticas si se arrastra un único elemento
-      if (this.selectedItemIds.size === 1) {
+      // Smart Guides magnéticas si se arrastra un único elemento (desactivadas si se pulsa Ctrl)
+      if (this.selectedItemIds.size === 1 && !e.ctrlKey) {
         const singleId = Array.from(this.selectedItemIds)[0];
         const singleItem = this.items.find(i => i.id === singleId);
         if (singleItem && singleItem.type !== 'pen' && singleItem.type !== 'connector') {
@@ -1881,24 +2112,25 @@ class CanvasEngine {
       return;
     }
 
-    if (this.isMiddleDragDuplicate) {
+    if (this.isMiddleDragDuplicate || this.isAltDragDuplicate) {
       if (!this.hasMovedItem) {
-        // Clic central rápido sin arrastrar: desplazar +30, +30 para que no quede solapado exactamente encima
+        // Clic rápido sin arrastrar: desplazar +25, +25 para que no quede solapado exactamente encima
         this.items.forEach(it => {
           if (this.selectedItemIds.has(it.id)) {
             if (it.type === 'connector') {
-              it.start.x += 30; it.start.y += 30;
-              it.end.x += 30; it.end.y += 30;
+              it.start.x += 25; it.start.y += 25;
+              it.end.x += 25; it.end.y += 25;
             } else if (it.type === 'pen') {
-              it.points.forEach(p => { p.x += 30; p.y += 30; });
+              it.points.forEach(p => { p.x += 25; p.y += 25; });
             } else {
-              it.x += 30;
-              it.y += 30;
+              it.x += 25;
+              it.y += 25;
             }
           }
         });
       }
       this.isMiddleDragDuplicate = false;
+      this.isAltDragDuplicate = false;
       this.isDraggingItem = false;
       this.hasMovedItem = false;
       this.dragStartScreen = null;
@@ -1919,6 +2151,7 @@ class CanvasEngine {
       this.resizeTargetItem = null;
       if (this.onBoardModified) this.onBoardModified();
     }
+    const wasMoved = this.hasMovedItem;
     if (this.hasMovedItem) {
       this.hasMovedItem = false;
       if (this.onBoardModified) this.onBoardModified();
@@ -1926,6 +2159,8 @@ class CanvasEngine {
     this.isDraggingItem = false;
     this.dragStartScreen = null;
     this.activeGuides = [];
+
+    this.potentialFrameHeaderClick = null;
 
     if (this.isSelectingMarquee) {
       if (this.potentialFrameClick) {
@@ -2001,51 +2236,27 @@ class CanvasEngine {
         return (ix + iw >= vpMinX && ix <= vpMaxX && iy + ih >= vpMinY && iy <= vpMaxY);
       };
 
-      // 1. Marcos (fondo)
-      this.items.filter(it => it.type === 'frame' && isVisible(it)).forEach(it => {
-        try { this.drawFrame(it); } catch (e) { console.error('Error al dibujar marco:', e); }
-      });
-
-      // 2. Conectores
-      this.items.filter(it => it.type === 'connector').forEach(it => {
-        try { this.drawConnector(it); } catch (e) { console.error('Error al dibujar conector:', e); }
-      });
-
-      // 3. Formas, embeds, codigo
-      this.items.filter(it => it.type === 'shape' && isVisible(it)).forEach(it => {
-        try { this.drawShape(it); } catch (e) { console.error('Error al dibujar forma:', e); }
-      });
-      this.items.filter(it => it.type === 'code' && isVisible(it)).forEach(it => {
-        try { this.drawCodeBlock(it); } catch (e) { console.error('Error al dibujar codigo:', e); }
-      });
-      this.items.filter(it => (it.type === 'embed' || it.type === 'preview') && isVisible(it)).forEach(it => {
-        try { this.drawEmbed(it); } catch (e) { console.error('Error al dibujar embed:', e); }
-      });
-
-      // 4. Imagenes
-      this.items.filter(it => it.type === 'image' && isVisible(it)).forEach(it => {
-        try { this.drawImage(it); } catch (e) { console.error('Error al dibujar imagen:', e); }
-      });
-
-      // 5. Notas adhesivas
-      this.items.filter(it => it.type === 'sticky_note' && isVisible(it)).forEach(it => {
-        try { this.drawStickyNote(it); } catch (e) { console.error('Error al dibujar nota adhesiva:', e); }
-      });
-
-      // 6. Textos y dibujo a mano alzada
-      this.items.filter(it => it.type === 'text' && it.fillColor && it.fillColor !== 'transparent' && isVisible(it)).forEach(it => {
-        try { this.drawText(it); } catch (e) { console.error('Error al dibujar texto con fondo:', e); }
-      });
-      this.items.filter(it => it.type === 'text' && (!it.fillColor || it.fillColor === 'transparent') && isVisible(it)).forEach(it => {
-        try { this.drawText(it); } catch (e) { console.error('Error al dibujar texto libre:', e); }
-      });
-      this.items.filter(it => it.type === 'pen').forEach(it => {
-        try { this.drawPen(it); } catch (e) { console.error('Error al dibujar trazo:', e); }
-      });
-
-      // 7. Comentarios (Pin burbuja)
-      this.items.filter(it => it.type === 'comment' && isVisible(it)).forEach(it => {
-        try { this.drawComment(it); } catch (e) { console.error('Error al dibujar comentario:', e); }
+      // Renderizado dinámico respetando la jerarquía de capas (zIndex)
+      const sortedItems = this.getSortedItemsForRender(false);
+      sortedItems.forEach(it => {
+        if (!isVisible(it)) return;
+        try {
+          switch (it.type) {
+            case 'frame': this.drawFrame(it); break;
+            case 'connector': this.drawConnector(it); break;
+            case 'shape': this.drawShape(it); break;
+            case 'code': this.drawCodeBlock(it); break;
+            case 'embed':
+            case 'preview': this.drawEmbed(it); break;
+            case 'image': this.drawImage(it); break;
+            case 'sticky_note': this.drawStickyNote(it); break;
+            case 'text': this.drawText(it); break;
+            case 'pen': this.drawPen(it); break;
+            case 'comment': this.drawComment(it); break;
+          }
+        } catch (e) {
+          console.error('Error al dibujar elemento:', it.id, e);
+        }
       });
 
       // 8. Smart Guides magnéticas
@@ -2868,13 +3079,13 @@ class CanvasEngine {
     this.ctx.lineWidth = 1;
     this.ctx.strokeRect(it.x, it.y, it.width, it.height);
 
-    // Etiqueta del marco arriba si tiene título
+    // Etiqueta del marco arriba si tiene título o ligero contorno sutil si está vacía
+    const tabHeight = 26;
     if (it.title) {
       const titleFont = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       this.ctx.font = titleFont;
       const textWidth = this.ctx.measureText(it.title).width;
       const tabWidth = Math.max(70, textWidth + 24);
-      const tabHeight = 26;
 
       this.ctx.fillStyle = tabColor;
       this.ctx.beginPath();
@@ -2891,6 +3102,16 @@ class CanvasEngine {
       this.ctx.textAlign = 'left';
       this.ctx.textBaseline = 'middle';
       this.ctx.fillText(it.title, it.x + 12, it.y - tabHeight / 2);
+    } else {
+      // Si en la etiqueta no hay nada, habrá un ligero contorno casi inapreciable
+      const tabWidth = 80;
+      this.ctx.save();
+      this.ctx.strokeStyle = this.isDarkMode ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.14)';
+      this.ctx.lineWidth = 1;
+      this.ctx.beginPath();
+      this.roundRect(this.ctx, it.x, it.y - tabHeight, tabWidth, tabHeight, 4);
+      this.ctx.stroke();
+      this.ctx.restore();
     }
     this.ctx.restore();
   }
@@ -3299,6 +3520,44 @@ class CanvasEngine {
     } catch (e) {
       return url;
     }
+  }
+
+  // Mover elementos seleccionados (simple o múltiple) con soporte para marcos, hijos, trazos y conectores
+  moveSelected(dx, dy, saveHistory = true) {
+    if (this.selectedItemIds.size === 0 || (dx === 0 && dy === 0)) return;
+    if (saveHistory) {
+      this.saveSnapshot();
+    }
+    const moveItemIds = new Set(this.selectedItemIds);
+    this.items.forEach(it => {
+      if (this.selectedItemIds.has(it.id) && it.type === 'frame') {
+        const frame = it;
+        this.items.forEach(child => {
+          if (child.id !== frame.id && (child.parentId === frame.id || this.isItemInsideFrame(child, frame))) {
+            moveItemIds.add(child.id);
+          }
+        });
+      }
+    });
+
+    this.items.forEach(it => {
+      if (moveItemIds.has(it.id)) {
+        if (it.type === 'pen') {
+          it.points.forEach(p => { p.x += dx; p.y += dy; });
+        } else if (it.type === 'connector') {
+          it.start.x += dx; it.start.y += dy;
+          it.end.x += dx; it.end.y += dy;
+        } else {
+          it.x += dx;
+          it.y += dy;
+          this.updateConnectedLinesForItem(it);
+        }
+      }
+    });
+
+    this.render();
+    if (this.onCameraChange) this.onCameraChange();
+    if (this.onBoardModified) this.onBoardModified();
   }
 
   selectAll() {

@@ -470,6 +470,40 @@ html, body {
   border-radius: 4px;
 }
 
+/* Menú flyout específico para plantillas */
+.template-flyout-menu {
+  min-width: 250px;
+}
+
+.template-flyout-menu .flyout-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+}
+
+.template-flyout-menu .flyout-item svg {
+  margin-top: 2px;
+}
+
+.flyout-item-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.flyout-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.flyout-item-desc {
+  font-size: 11px;
+  color: #64748b;
+  line-height: 1.3;
+}
+
 /* Barra flotante de propiedades del objeto seleccionado */
 /* Barra flotante de propiedades del objeto seleccionado estilo Miro */
 #properties-bar {
@@ -3108,6 +3142,44 @@ body.dark-theme .color-flyout {
   background: #1e222b;
   border-color: #2d323b;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+body.dark-theme .tool-flyout-menu {
+  background: #1e222b;
+  border-color: #2d323b;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-theme .flyout-title {
+  color: #64748b;
+}
+
+body.dark-theme .flyout-item {
+  color: #e2e8f0;
+}
+
+body.dark-theme .flyout-item:hover {
+  background: #282e3a;
+  color: #ffffff;
+}
+
+body.dark-theme .flyout-item.active {
+  background: #1e2d4d;
+  color: #60a5fa;
+}
+
+body.dark-theme .flyout-item-desc {
+  color: #94a3b8;
+}
+
+body.dark-theme .flyout-item:hover .flyout-item-desc {
+  color: #cbd5e1;
+}
+
+body.dark-theme .flyout-item kbd {
+  background: #282e3a;
+  border-color: #3b4252;
+  color: #94a3b8;
 }
 
 /* Barra flotante de propiedades del texto y objetos */
