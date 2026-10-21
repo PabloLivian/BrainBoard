@@ -1436,6 +1436,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (statItemType) statItemType.textContent = item.type || '-';
     if (statItemPos) statItemPos.textContent = `X: ${Math.round(item.x || 0)}, Y: ${Math.round(item.y || 0)}`;
     if (statItemSize) statItemSize.textContent = `${Math.round(item.width || 0)} × ${Math.round(item.height || 0)} px`;
+    const statItemCreatedDate = document.getElementById('stat-item-created-date');
+    if (statItemCreatedDate && typeof engine.getItemFreshnessInfo === 'function') {
+      const fInfo = engine.getItemFreshnessInfo(item);
+      statItemCreatedDate.textContent = `${fInfo.formattedDateTime} (${fInfo.relativeText})`;
+      statItemCreatedDate.style.color = fInfo.color;
+    }
 
     // Ocultar mensaje de error
     if (propModalErrorMsg) {
@@ -3042,6 +3048,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const idMap = new Map();
     const newClones = [];
+    const nowIso = new Date().toISOString();
 
     // Paso 1: Clonar y generar nuevos IDs únicos para cada elemento
     p.items.forEach(it => {
@@ -3050,6 +3057,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const newId = (it.type || 'item') + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
       idMap.set(it.id, newId);
       clone.id = newId;
+      clone.createdAt = nowIso;
+      clone.updatedAt = nowIso;
 
       if (typeof clone.zIndex === 'number') {
         clone.zIndex += zBaseOffset;
@@ -3176,9 +3185,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       engine.saveSnapshot();
+      const nowIso = new Date().toISOString();
       const imgItem = {
         id: 'pasted_img_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
         type: 'image',
+        createdAt: nowIso,
+        updatedAt: nowIso,
         src: dataUrl,
         x: target.x - finalW / 2,
         y: target.y - finalH / 2,
@@ -3253,9 +3265,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const cardHeight = hasThumbnail ? 260 : 130;
 
     engine.saveSnapshot();
+    const nowIso = new Date().toISOString();
     const newEmbed = {
       id: 'embed_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
       type: 'embed',
+      createdAt: nowIso,
+      updatedAt: nowIso,
       x: target.x - cardWidth / 2,
       y: target.y - cardHeight / 2,
       width: cardWidth,
@@ -3315,9 +3330,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const isShort = text.length < 120;
     const w = isShort ? 200 : 320;
     const h = isShort ? 200 : 160;
+    const nowIso = new Date().toISOString();
     const newItem = {
       id: 'text_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
       type: isShort ? 'sticky_note' : 'text',
+      createdAt: nowIso,
+      updatedAt: nowIso,
       x: target.x - w / 2,
       y: target.y - h / 2,
       width: w,
@@ -4196,6 +4214,57 @@ document.addEventListener('DOMContentLoaded', () => {
     .then(m => { window.__resourcesMap = m; })
     .catch(() => {});
 
+  // Cargar mapa de fechas históricas de colocación para hidratar sin destruir ediciones en IndexedDB
+  window.__historicalDatesMap = {};
+  fetch('whiteboard/historical_dates_map.json')
+    .then(r => r.json())
+    .then(m => {
+      if (m && typeof m === 'object') {
+        window.__historicalDatesMap = m;
+        if (engine && Array.isArray(engine.items)) {
+          hydrateBoardItemsDates(engine.items);
+        }
+      }
+    })
+    .catch(() => {});
+
+  function hydrateBoardItemsDates(items, seedItems = null, fallbackIso = null) {
+    if (!Array.isArray(items)) return;
+    const histMap = window.__historicalDatesMap || {};
+    const seedDateById = new Map();
+    if (Array.isArray(seedItems)) {
+      seedItems.forEach(s => {
+        if (s && s.id && s.createdAt) {
+          seedDateById.set(String(s.id), s.createdAt);
+        }
+      });
+    }
+    const defaultIso = fallbackIso || '2025-11-15T12:00:00.000Z';
+    items.forEach(it => {
+      if (!it) return;
+      if (!it.createdAt || isNaN(Date.parse(it.createdAt))) {
+        const idStr = String(it.id || '');
+        if (seedDateById.has(idStr)) {
+          it.createdAt = seedDateById.get(idStr);
+        } else if (histMap[idStr]) {
+          it.createdAt = histMap[idStr];
+        } else {
+          const m = idStr.match(/(?:^|_)(\d{13})(?:_|$)/);
+          if (m) {
+            const ms = Number(m[1]);
+            const nowMs = Date.now();
+            it.createdAt = new Date((ms > 1577836800000 && ms <= nowMs + 86400000) ? ms : nowMs).toISOString();
+          } else {
+            it.createdAt = defaultIso;
+          }
+        }
+      }
+      if (!it.updatedAt || isNaN(Date.parse(it.updatedAt))) {
+        it.updatedAt = it.createdAt;
+      }
+    });
+  }
+
   const boardSpecialUrlMappings = {
     // Redes sociales y creadores
     '3458764670964036717': 'https://x.com/nekodificador',
@@ -4255,9 +4324,10 @@ document.addEventListener('DOMContentLoaded', () => {
     '3458764653031466029': 'https://unavatar.io/'
   };
 
-  // Corrección y saneamiento proactivo de recursos de enlaces
-  function sanitizeEmbedResources(items) {
+  // Corrección y saneamiento proactivo de recursos de enlaces y fechas de colocación
+  function sanitizeEmbedResources(items, seedItems = null) {
     if (!Array.isArray(items)) return;
+    hydrateBoardItemsDates(items, seedItems);
     items.forEach(it => {
       if (it.type === 'embed' || it.type === 'preview') {
         const u = (it.url || '').toLowerCase();
@@ -4383,7 +4453,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (seedData && typeof seedData.seedVersion === 'number') {
         const savedVer = typeof savedData?.seedVersion === 'number' ? savedData.seedVersion : 0;
         // El trabajo del usuario es sagrado: solo considerar desactualizada una plantilla si el usuario NO la ha editado
-        if ((!savedData?.userModified && seedData.seedVersion > savedVer) || ((currentActiveBoardId === 'space' || currentActiveBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10) || (currentActiveBoardId === 'ejemplo' && seedData.seedVersion >= 5 && savedVer < 5)) {
+        if ((!savedData?.userModified && seedData.seedVersion > savedVer) || ((currentActiveBoardId === 'space' || currentActiveBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10) || (currentActiveBoardId === 'ejemplo' && seedData.seedVersion >= 10 && savedVer < 10)) {
           isOutdatedCache = true;
         }
       }
@@ -4392,7 +4462,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const hasValidSavedItems = !isOutdatedCache && savedData && Array.isArray(savedData.items) && savedData.items.length > 0;
 
     if (hasValidSavedItems) {
-      sanitizeEmbedResources(savedData.items);
+      sanitizeEmbedResources(savedData.items, seedData?.items);
       engine.items = savedData.items;
       engine.items.forEach(it => {
         if (it.imgElement && typeof it.imgElement.getAttribute !== 'function') {
@@ -4865,7 +4935,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (seedData && typeof seedData.seedVersion === 'number') {
         const savedVer = typeof saved?.seedVersion === 'number' ? saved.seedVersion : 0;
         // El trabajo del usuario es sagrado: solo considerar desactualizada una plantilla si el usuario NO la ha editado
-        if ((!saved?.userModified && seedData.seedVersion > savedVer) || ((targetBoardId === 'space' || targetBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10) || (targetBoardId === 'ejemplo' && seedData.seedVersion >= 5 && savedVer < 5)) {
+        if ((!saved?.userModified && seedData.seedVersion > savedVer) || ((targetBoardId === 'space' || targetBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10) || (targetBoardId === 'ejemplo' && seedData.seedVersion >= 10 && savedVer < 10)) {
           isOutdatedCache = true;
         }
       }
@@ -4874,7 +4944,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const hasValidSavedItems = !isOutdatedCache && saved && Array.isArray(saved.items) && saved.items.length > 0;
 
     if (hasValidSavedItems) {
-      sanitizeEmbedResources(saved.items);
+      sanitizeEmbedResources(saved.items, seedData?.items);
       engine.items = saved.items;
       engine.items.forEach(it => {
         if (it.imgElement && typeof it.imgElement.getAttribute !== 'function') {
@@ -5341,10 +5411,87 @@ document.addEventListener('DOMContentLoaded', () => {
   // =========================================================
   // OPCIONES DE DESARROLLADOR (DEV TOOLS)
   // =========================================================
+  const btnDevInspectCoords = document.getElementById('btn-dev-inspect-coords');
+  const devOptInspectCoords = document.getElementById('dev-opt-inspect-coords');
   const btnDevOptionsTrigger = document.getElementById('btn-dev-options-trigger');
   const devOptionsMenu = document.getElementById('dev-options-menu');
+  const devOptExportHires = document.getElementById('dev-opt-export-hires');
   const devOptSelectArrows = document.getElementById('dev-opt-select-arrows');
   const devOptSelectFrames = document.getElementById('dev-opt-select-frames');
+
+  function activateDevCoordsInspector() {
+    if (!engine) return;
+    const isCurrentlyActive = engine.activeTool === 'dev_coords';
+    if (isCurrentlyActive) {
+      engine.activeTool = 'select';
+      btnDevInspectCoords?.classList.remove('active');
+      showDevToast('Selector de coordenadas desactivado');
+    } else {
+      engine.activeTool = 'dev_coords';
+      btnDevInspectCoords?.classList.add('active');
+      document.querySelectorAll('#left-toolbar .tool-btn').forEach(b => b.classList.remove('active'));
+      showDevToast('Arrastra un recuadro en el tablero para copiar sus coordenadas');
+    }
+    devOptionsMenu?.classList.remove('visible');
+    engine.render();
+  }
+
+  btnDevInspectCoords?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    activateDevCoordsInspector();
+  });
+
+  devOptInspectCoords?.addEventListener('click', () => {
+    activateDevCoordsInspector();
+  });
+
+  // Callback al terminar la selección del área con la herramienta Dev
+  if (engine) {
+    engine.onDevCoordsSelected = async (coords) => {
+      btnDevInspectCoords?.classList.remove('active');
+      const activeBoardName = workspaceBoards.find(b => b.id === currentActiveBoardId)?.title || currentActiveBoardId || 'tablero';
+      
+      const payloadObj = {
+        boardId: currentActiveBoardId,
+        boardTitle: activeBoardName,
+        coords: {
+          x: coords.x,
+          y: coords.y,
+          width: coords.width,
+          height: coords.height
+        },
+        promptHint: `Coloca el contenido en las coordenadas x=${coords.x}, y=${coords.y}, ancho=${coords.width}, alto=${coords.height} del tablero "${activeBoardName}"`
+      };
+
+      const jsonStr = JSON.stringify(payloadObj, null, 2);
+      const shortStr = `x:${coords.x}, y:${coords.y}, w:${coords.width}, h:${coords.height} (Tablero: ${activeBoardName})`;
+
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+          await navigator.clipboard.writeText(jsonStr);
+        } else {
+          const ta = document.createElement('textarea');
+          ta.value = jsonStr;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand('copy');
+          ta.remove();
+        }
+        showDevToast(`✓ Coordenadas copiadas al portapapeles: [${shortStr}]`);
+      } catch (err) {
+        console.warn('Error al copiar al portapapeles:', err);
+        showDevToast(`Coordenadas: ${shortStr}`);
+      }
+
+      // Si el panel de Brain está visible, autocompletar una sugerencia sutil
+      if (brainAiInput && brainAiChatPanel && brainAiChatPanel.style.display !== 'none' && !brainAiInput.value.trim()) {
+        brainAiInput.value = `Quiero que coloques en estas coordenadas [x:${coords.x}, y:${coords.y}, w:${coords.width}, h:${coords.height}] lo siguiente: `;
+        brainAiInput.focus();
+      }
+    };
+  }
 
   btnDevOptionsTrigger?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -5368,6 +5515,11 @@ document.addEventListener('DOMContentLoaded', () => {
       : (count === 1 ? `1 ${labelSingular} seleccionado` : `${count} ${labelPlural} seleccionados`);
     showDevToast(msg);
   }
+
+  devOptExportHires?.addEventListener('click', () => {
+    devOptionsMenu?.classList.remove('visible');
+    openExportModal();
+  });
 
   devOptSelectArrows?.addEventListener('click', () => {
     devOptionsMenu?.classList.remove('visible');
@@ -6692,6 +6844,2136 @@ document.addEventListener('DOMContentLoaded', () => {
     boardControllerDrawer?.classList.remove('open');
     showHomeScreen();
   });
+
+  // =========================================================================
+  // 1. TOOLTIP HOVER 2 SEGUNDOS & MAPA VISUAL DE FRESCURA / FECHAS
+  // =========================================================================
+  const hoverDateTooltip = document.getElementById('item-hover-date-tooltip');
+  const hoverDateDot = document.getElementById('hover-date-dot');
+  const hoverDateRelative = document.getElementById('hover-date-relative');
+  const hoverDateTier = document.getElementById('hover-date-tier');
+  const hoverDateExact = document.getElementById('hover-date-exact');
+
+  const btnToggleFreshnessMap = document.getElementById('btn-toggle-freshness-map');
+  const freshnessMapBar = document.getElementById('freshness-map-bar');
+  const btnCloseFreshnessMap = document.getElementById('btn-close-freshness-map');
+
+  engine.onItemHoverDate = (item, screenX, screenY, info) => {
+    if (!hoverDateTooltip) return;
+    if (!item || !info) {
+      hoverDateTooltip.style.display = 'none';
+      return;
+    }
+    if (hoverDateDot) hoverDateDot.style.background = info.color || '#10b981';
+    if (hoverDateRelative) hoverDateRelative.textContent = info.relativeText || 'Reciente';
+    if (hoverDateTier) {
+      hoverDateTier.textContent = info.tierLabel || 'Actual';
+      hoverDateTier.style.borderColor = info.color || '#10b981';
+    }
+    if (hoverDateExact) {
+      hoverDateExact.textContent = `Colocado el ${info.formattedDateTime}`;
+    }
+
+    hoverDateTooltip.style.display = 'flex';
+    const pad = 16;
+    let left = screenX + 14;
+    let top = screenY + 16;
+    const rect = hoverDateTooltip.getBoundingClientRect();
+    if (left + (rect.width || 200) > window.innerWidth - pad) {
+      left = Math.max(pad, screenX - (rect.width || 200) - 12);
+    }
+    if (top + (rect.height || 64) > window.innerHeight - pad) {
+      top = Math.max(pad, screenY - (rect.height || 64) - 12);
+    }
+    hoverDateTooltip.style.left = `${Math.round(left)}px`;
+    hoverDateTooltip.style.top = `${Math.round(top)}px`;
+  };
+
+  function updateFreshnessMapCounters() {
+    if (!engine || !Array.isArray(engine.items)) return;
+    const counts = { all: 0, recent: 0, current: 0, aging: 0, obsolete: 0 };
+    engine.items.forEach(it => {
+      if (!it || it.type === 'connector' || it.type === 'pen') return;
+      counts.all++;
+      const info = engine.getItemFreshnessInfo(it);
+      if (info && counts[info.tier] !== undefined) {
+        counts[info.tier]++;
+      }
+    });
+    const elAll = document.getElementById('freshness-count-all');
+    const elRecent = document.getElementById('freshness-count-recent');
+    const elCurrent = document.getElementById('freshness-count-current');
+    const elAging = document.getElementById('freshness-count-aging');
+    const elObsolete = document.getElementById('freshness-count-obsolete');
+    if (elAll) elAll.textContent = String(counts.all);
+    if (elRecent) elRecent.textContent = String(counts.recent);
+    if (elCurrent) elCurrent.textContent = String(counts.current);
+    if (elAging) elAging.textContent = String(counts.aging);
+    if (elObsolete) elObsolete.textContent = String(counts.obsolete);
+  }
+
+  function toggleFreshnessMap(forceState = null) {
+    const nextState = typeof forceState === 'boolean' ? forceState : !engine.freshnessMapMode;
+    engine.setFreshnessMapMode(nextState, engine.freshnessFilterTier || 'all');
+    if (btnToggleFreshnessMap) {
+      btnToggleFreshnessMap.classList.toggle('active', nextState);
+    }
+    if (freshnessMapBar) {
+      freshnessMapBar.style.display = nextState ? 'flex' : 'none';
+    }
+    if (nextState) {
+      updateFreshnessMapCounters();
+    }
+  }
+
+  btnToggleFreshnessMap?.addEventListener('click', () => {
+    toggleFreshnessMap();
+  });
+
+  btnCloseFreshnessMap?.addEventListener('click', () => {
+    toggleFreshnessMap(false);
+  });
+
+  freshnessMapBar?.querySelectorAll('.freshness-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const tier = pill.getAttribute('data-tier') || 'all';
+      freshnessMapBar.querySelectorAll('.freshness-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      engine.setFreshnessMapMode(true, tier);
+      updateFreshnessMapCounters();
+    });
+  });
+
+  // =========================================================================
+  // 2. CEREBRO IA DE BRAIN BOARD (CLAUDE CLI / GEMINI CLI / API KEYS + COORDENADAS)
+  // =========================================================================
+  const brainAiDockTrigger = document.getElementById('brain-ai-dock-trigger');
+  const brainAiDockProviderTag = document.getElementById('brain-ai-dock-provider-tag');
+  const brainAiChatPanel = document.getElementById('brain-ai-chat-panel');
+  const brainAiProviderBadge = document.getElementById('brain-ai-provider-badge');
+  const brainAiProviderName = document.getElementById('brain-ai-provider-name');
+  const brainAiSubtitle = document.getElementById('brain-ai-subtitle');
+  const brainAiStatsPill = document.getElementById('brain-ai-stats-pill');
+  const brainAiTargetBoardSelect = document.getElementById('brain-ai-target-board');
+  const brainAiMessages = document.getElementById('brain-ai-messages');
+  const brainAiInput = document.getElementById('brain-ai-input');
+  const btnBrainAiSend = document.getElementById('btn-brain-ai-send');
+  const btnBrainAiSettings = document.getElementById('btn-brain-ai-settings');
+  const btnBrainAiExpand = document.getElementById('btn-brain-ai-expand');
+  const btnBrainAiClear = document.getElementById('btn-brain-ai-clear');
+  const btnBrainAiClose = document.getElementById('btn-brain-ai-close');
+
+  const brainAiSettingsModal = document.getElementById('brain-ai-settings-modal');
+  const btnCloseBrainAiSettings = document.getElementById('btn-close-brain-ai-settings');
+  const btnCancelBrainAiSettings = document.getElementById('btn-cancel-brain-ai-settings');
+  const btnSaveBrainAiSettings = document.getElementById('btn-save-brain-ai-settings');
+  const brainAiProviderSelect = document.getElementById('brain-ai-provider-select');
+  const brainAiCliConfigBox = document.getElementById('brain-ai-cli-config-box');
+  const brainAiApikeyConfigBox = document.getElementById('brain-ai-apikey-config-box');
+  const brainAiCliDetectedBadge = document.getElementById('brain-ai-cli-detected-badge');
+  const btnBrainAiTestCli = document.getElementById('btn-brain-ai-test-cli');
+  const brainAiCliPathInput = document.getElementById('brain-ai-cli-path-input');
+  const brainAiApikeyInput = document.getElementById('brain-ai-apikey-input');
+  const brainAiApikeyLabel = document.getElementById('brain-ai-apikey-label');
+  const brainAiApikeyStatus = document.getElementById('brain-ai-apikey-status');
+  const btnBrainAiTestApikey = document.getElementById('btn-brain-ai-test-apikey');
+  const brainAiGeminiFreeBanner = document.getElementById('brain-ai-gemini-free-banner');
+  const btnBrainAiGetGeminiKey = document.getElementById('btn-brain-ai-get-gemini-key');
+  const brainAiAutodetectStatus = document.getElementById('brain-ai-autodetect-status');
+  const btnBrainAiAutodetect = document.getElementById('btn-brain-ai-autodetect');
+  const brainAiModelSelect = document.getElementById('brain-ai-model-select');
+  const brainAiEffortSelect = document.getElementById('brain-ai-effort-select');
+  const brainAiInlineModel = document.getElementById('brain-ai-inline-model');
+  const brainAiInlineEffort = document.getElementById('brain-ai-inline-effort');
+
+  const BRAIN_AI_SETTINGS_KEY = 'brainboard_ai_settings_v1';
+  const BRAIN_AI_HISTORY_KEY = 'brainboard_ai_chat_history_v1';
+
+  // Catálogo de Modelos y Effort por proveedor (Gemini 2.5 Flash y Claude 5.5 Haiku por defecto)
+  const PROVIDER_MODEL_CATALOG = {
+    claude_cli: [
+      { value: 'haiku', label: 'Claude 5.5 Haiku' },
+      { value: 'sonnet', label: 'Claude 5.5 Sonnet' },
+      { value: 'opus', label: 'Claude 5.5 Opus' }
+    ],
+    claude_api: [
+      { value: 'claude-5-5-haiku-latest', label: 'Claude 5.5 Haiku' },
+      { value: 'claude-5-5-sonnet-latest', label: 'Claude 5.5 Sonnet' },
+      { value: 'claude-5-5-opus-latest', label: 'Claude 5.5 Opus' }
+    ],
+    gemini_cli: [
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' }
+    ],
+    gemini_api: [
+      { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+      { value: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+      { value: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' }
+    ],
+    openai_api: [
+      { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+      { value: 'gpt-4o', label: 'GPT-4o' },
+      { value: 'o3-mini', label: 'o3-mini' }
+    ],
+    ollama: [
+      { value: 'qwen2.5:7b', label: 'Qwen 2.5 7B' },
+      { value: 'llama3.1:8b', label: 'Llama 3.1 8B' }
+    ]
+  };
+
+  const PROVIDER_EFFORT_CATALOG = {
+    claude: [
+      { value: 'medium', label: 'Medium' },
+      { value: 'low', label: 'Low' },
+      { value: 'high', label: 'High' },
+      { value: 'max', label: 'Max' }
+    ],
+    gemini: [
+      { value: 'medium', label: 'Medium' },
+      { value: 'low', label: 'Low' },
+      { value: 'high', label: 'High' }
+    ],
+    other: [
+      { value: 'medium', label: 'Medium' },
+      { value: 'low', label: 'Low' },
+      { value: 'high', label: 'High' }
+    ]
+  };
+
+  function getCatalogForProvider(provider) {
+    const models = PROVIDER_MODEL_CATALOG[provider] || PROVIDER_MODEL_CATALOG.gemini_api;
+    const isClaude = provider === 'claude_cli' || provider === 'claude_api';
+    const isGemini = provider === 'gemini_cli' || provider === 'gemini_api';
+    const efforts = isClaude
+      ? PROVIDER_EFFORT_CATALOG.claude
+      : (isGemini ? PROVIDER_EFFORT_CATALOG.gemini : PROVIDER_EFFORT_CATALOG.other);
+    return { models, efforts };
+  }
+
+  function getRecommendedModelForProvider(provider) {
+    const { models } = getCatalogForProvider(provider);
+    return models[0]?.value || 'gemini-2.5-flash';
+  }
+
+  function getRecommendedEffortForProvider() {
+    return 'medium';
+  }
+
+  function detectDefaultClaudeCliPath() {
+    if (typeof window !== 'undefined' && typeof window.require === 'function') {
+      try {
+        const fs = window.require('fs');
+        const path = window.require('path');
+        const os = window.require('os');
+        const home = os.homedir();
+        const candidates = [
+          path.join(home, '.local', 'bin', 'claude.exe'),
+          'C:\\Users\\Usuario\\.local\\bin\\claude.exe',
+          path.join(process.env.APPDATA || '', 'npm', 'claude.cmd'),
+          path.join(home, '.local', 'bin', 'claude')
+        ];
+        for (const c of candidates) {
+          if (c && fs.existsSync(c)) return c;
+        }
+      } catch (e) {}
+    }
+    return '';
+  }
+
+  function detectDefaultGeminiCliPath() {
+    if (typeof window !== 'undefined' && typeof window.require === 'function') {
+      try {
+        const fs = window.require('fs');
+        const path = window.require('path');
+        const os = window.require('os');
+        const home = os.homedir();
+        const candidates = [
+          path.join(process.env.APPDATA || '', 'npm', 'gemini.cmd'),
+          path.join(home, '.local', 'bin', 'gemini.exe'),
+          path.join(home, '.local', 'bin', 'gemini')
+        ];
+        for (const c of candidates) {
+          if (c && fs.existsSync(c)) return c;
+        }
+      } catch (e) {}
+    }
+    return '';
+  }
+
+  // Autodetección inteligente: 1º Claude CLI local, 2º Gemini CLI local, 3º Gemini 2.5 Flash Gratis por defecto
+  function autoDetectBestAiProvider() {
+    const claudePath = detectDefaultClaudeCliPath();
+    if (claudePath) {
+      return {
+        provider: 'claude_cli',
+        cliPath: claudePath,
+        model: 'haiku',
+        effort: 'medium',
+        detectedSummary: `✓ Claude CLI autodetectado (${claudePath})`
+      };
+    }
+    const geminiPath = detectDefaultGeminiCliPath();
+    if (geminiPath) {
+      return {
+        provider: 'gemini_cli',
+        cliPath: geminiPath,
+        model: 'gemini-2.5-flash',
+        effort: 'medium',
+        detectedSummary: `✓ Gemini CLI autodetectado (${geminiPath})`
+      };
+    }
+    return {
+      provider: 'gemini_api',
+      cliPath: '',
+      model: 'gemini-2.5-flash',
+      effort: 'medium',
+      detectedSummary: '✨ Sin CLI local → Gemini 2.5 Flash (Gratis) activado por defecto'
+    };
+  }
+
+  function loadBrainAiSettings() {
+    const autoDetected = autoDetectBestAiProvider();
+    const defaults = {
+      provider: autoDetected.provider,
+      cliPath: autoDetected.cliPath,
+      apiKey: '',
+      model: autoDetected.model,
+      effort: autoDetected.effort
+    };
+    try {
+      const raw = localStorage.getItem(BRAIN_AI_SETTINGS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        // Si estaba en claude_cli por defecto pero en este PC no existe claude, cambiar automáticamente a Gemini 2.5 Flash Gratis
+        if (parsed.provider === 'claude_cli' && !parsed.cliPath && !detectDefaultClaudeCliPath()) {
+          parsed.provider = 'gemini_api';
+          parsed.model = 'gemini-2.5-flash';
+        } else if (!parsed.cliPath && parsed.provider === 'claude_cli' && autoDetected.cliPath) {
+          parsed.cliPath = autoDetected.cliPath;
+        }
+        const merged = { ...defaults, ...parsed };
+        const { models, efforts } = getCatalogForProvider(merged.provider);
+        if (!models.some(m => m.value === merged.model)) {
+          merged.model = models[0].value;
+        }
+        if (!efforts.some(ef => ef.value === merged.effort)) {
+          merged.effort = efforts[0].value;
+        }
+        return merged;
+      }
+    } catch (e) {}
+    return defaults;
+  }
+
+  let brainAiSettings = loadBrainAiSettings();
+  let isBrainAiGenerating = false;
+
+  function saveBrainAiSettingsToStorage() {
+    try {
+      localStorage.setItem(BRAIN_AI_SETTINGS_KEY, JSON.stringify(brainAiSettings));
+    } catch (e) {}
+  }
+
+  function populateModelAndEffortSelects(provider, targetModelSelect, targetEffortSelect, selectedModel, selectedEffort) {
+    const { models, efforts } = getCatalogForProvider(provider);
+    if (targetModelSelect) {
+      targetModelSelect.innerHTML = '';
+      models.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m.value;
+        opt.textContent = m.label;
+        targetModelSelect.appendChild(opt);
+      });
+      targetModelSelect.value = models.some(m => m.value === selectedModel) ? selectedModel : models[0].value;
+    }
+    if (targetEffortSelect) {
+      targetEffortSelect.innerHTML = '';
+      efforts.forEach(ef => {
+        const opt = document.createElement('option');
+        opt.value = ef.value;
+        opt.textContent = ef.label;
+        targetEffortSelect.appendChild(opt);
+      });
+      targetEffortSelect.value = efforts.some(ef => ef.value === selectedEffort) ? selectedEffort : efforts[0].value;
+    }
+  }
+
+  function syncInlineModelAndEffortBar() {
+    populateModelAndEffortSelects(
+      brainAiSettings.provider,
+      brainAiInlineModel,
+      brainAiInlineEffort,
+      brainAiSettings.model,
+      brainAiSettings.effort
+    );
+  }
+
+  brainAiInlineModel?.addEventListener('change', () => {
+    brainAiSettings.model = brainAiInlineModel.value;
+    try { localStorage.setItem(BRAIN_AI_SETTINGS_KEY, JSON.stringify(brainAiSettings)); } catch (e) {}
+    syncBrainAiHeaderBadges();
+  });
+
+  brainAiInlineEffort?.addEventListener('change', () => {
+    brainAiSettings.effort = brainAiInlineEffort.value;
+    try { localStorage.setItem(BRAIN_AI_SETTINGS_KEY, JSON.stringify(brainAiSettings)); } catch (e) {}
+    syncBrainAiHeaderBadges();
+  });
+
+  function getProviderDisplayName(provider) {
+    switch (provider) {
+      case 'claude_cli': return 'Claude CLI';
+      case 'gemini_cli': return 'Gemini CLI';
+      case 'claude_api': return 'Claude API';
+      case 'gemini_api': return 'Gemini 2.5';
+      case 'openai_api': return 'OpenAI API';
+      case 'ollama': return 'Ollama Local';
+      default: return 'Claude CLI';
+    }
+  }
+
+  function getModelShortDisplayName(provider, model) {
+    if (provider === 'claude_cli') {
+      if (model === 'haiku') return 'Claude 5.5 Haiku';
+      if (model === 'sonnet') return 'Claude 5.5 Sonnet';
+      if (model === 'opus') return 'Claude 5.5 Opus';
+    }
+    const { models } = getCatalogForProvider(provider);
+    const found = models.find(m => m.value === model);
+    if (found) return found.label.replace('★ ', '').replace(/\s*\(.*?\)/, '');
+    return (model || 'auto').replace('claude-', '').replace('gemini-', '');
+  }
+
+  function syncBrainAiHeaderBadges() {
+    const label = getProviderDisplayName(brainAiSettings.provider);
+    const shortModel = getModelShortDisplayName(brainAiSettings.provider, brainAiSettings.model);
+    const eff = brainAiSettings.effort || 'medium';
+    if (brainAiProviderName) brainAiProviderName.textContent = `${label} · ${shortModel} (${eff})`;
+    if (brainAiDockProviderTag) brainAiDockProviderTag.textContent = label.replace(' CLI', '').replace(' API', '');
+    syncInlineModelAndEffortBar();
+  }
+
+  function populateBrainAiTargetBoards() {
+    if (!brainAiTargetBoardSelect) return;
+    const prevVal = brainAiTargetBoardSelect.value || 'auto';
+    brainAiTargetBoardSelect.innerHTML = `<option value="auto">Automático (según tu mensaje o tablero activo)</option>`;
+    if (Array.isArray(workspaceBoards)) {
+      workspaceBoards.forEach(b => {
+        const opt = document.createElement('option');
+        opt.value = b.id;
+        opt.textContent = `${b.title || b.id} (${b.category || 'General'})`;
+        brainAiTargetBoardSelect.appendChild(opt);
+      });
+    }
+    if (prevVal && Array.from(brainAiTargetBoardSelect.options).some(o => o.value === prevVal)) {
+      brainAiTargetBoardSelect.value = prevVal;
+    }
+  }
+
+  // Cargar datos completos de TODOS los tableros para el índice del Cerebro
+  async function loadAllBoardsForBrainIndex() {
+    const allBoardsData = [];
+    const boardsList = Array.isArray(workspaceBoards) ? workspaceBoards : [];
+
+    for (const meta of boardsList) {
+      const bId = meta.id;
+      let items = [];
+      if (bId === currentActiveBoardId && engine && Array.isArray(engine.items) && engine.items.length > 0) {
+        items = engine.getCleanItems ? engine.getCleanItems() : engine.items;
+      } else {
+        let saved = await idbLoadBoard(bId);
+        if (!saved) {
+          try {
+            const ls = localStorage.getItem(`brainboard_board_${bId}`);
+            if (ls) saved = JSON.parse(ls);
+          } catch (e) {}
+        }
+        if (saved && Array.isArray(saved.items) && saved.items.length > 0) {
+          items = saved.items;
+        } else {
+          const seed = await fetchBoardSeedData(bId);
+          if (seed && Array.isArray(seed.items)) {
+            items = seed.items;
+          }
+        }
+      }
+      hydrateBoardItemsDates(items);
+      allBoardsData.push({
+        id: bId,
+        title: meta.title || bId,
+        category: meta.category || 'General',
+        updatedAt: meta.updatedAt || null,
+        items
+      });
+    }
+    return allBoardsData;
+  }
+
+  let currentBrainNoteSummaryMode = 'medio';
+
+  // Calcular coordenadas libres de colisión en un tablero o dentro de un marco (siguiendo BoardInstructorAI.md)
+  function computeNextSmartPlacement(boardData, preferredFrameTitle = null, summaryMode = 'medio') {
+    const items = Array.isArray(boardData?.items) ? boardData.items : [];
+    const frames = items.filter(it => it && it.type === 'frame');
+
+    const modeNorm = String(summaryMode || 'medio').toLowerCase();
+    const isDesarrollado = modeNorm.includes('desarrollado');
+    const isBreve = modeNorm.includes('breve');
+
+    const cardHeight = isDesarrollado ? 360 : (isBreve ? 195 : 260);
+    const frameBaseW = isDesarrollado ? 860 : (isBreve ? 800 : 820);
+    const frameBaseH = isDesarrollado ? 510 : (isBreve ? 350 : 420);
+    const noteCardW = isDesarrollado ? 435 : (isBreve ? 375 : 395);
+
+    // Buscar si existe un marco apropiado o el último marco activo
+    let targetFrame = null;
+    if (preferredFrameTitle) {
+      const q = preferredFrameTitle.toLowerCase();
+      targetFrame = frames.find(f => (f.title || '').toLowerCase().includes(q));
+    }
+
+    if (targetFrame) {
+      const children = items.filter(it => it.id !== targetFrame.id && (it.parentId === targetFrame.id || (
+        typeof it.x === 'number' && typeof it.y === 'number' &&
+        it.x >= targetFrame.x && it.x <= targetFrame.x + (targetFrame.width || 600) &&
+        it.y >= targetFrame.y && it.y <= targetFrame.y + (targetFrame.height || 400)
+      )));
+
+      let maxChildBottom = targetFrame.y + 45;
+      children.forEach(c => {
+        const b = (c.y || 0) + (c.height || 100);
+        if (b > maxChildBottom) maxChildBottom = b;
+      });
+
+      const newY = Math.round(maxChildBottom + 28);
+      const embedX = Math.round(targetFrame.x + 35);
+      const noteX = Math.round(targetFrame.x + 385);
+      const neededHeight = (newY + cardHeight) - targetFrame.y + 35;
+
+      return {
+        mode: 'inside_existing_frame',
+        frameId: targetFrame.id,
+        frameTitle: targetFrame.title || 'Marco',
+        expandFrameHeightTo: Math.max(targetFrame.height || 450, neededHeight),
+        embedRect: { x: embedX, y: newY, width: 320, height: cardHeight },
+        noteRect: { x: noteX, y: newY, width: Math.max(380, noteCardW), height: cardHeight }
+      };
+    }
+
+    // Si no hay marco específico, calcular posición limpia a la derecha o debajo de los marcos existentes para un nuevo marco o par de tarjetas
+    let maxRight = 0;
+    let minTop = 0;
+    let hasBounds = false;
+    items.forEach(it => {
+      if (typeof it.x === 'number' && typeof it.y === 'number') {
+        const r = it.x + (it.width || 200);
+        if (!hasBounds || r > maxRight) maxRight = r;
+        if (!hasBounds || it.y < minTop) minTop = it.y;
+        hasBounds = true;
+      }
+    });
+
+    const newFrameX = hasBounds ? Math.round(maxRight + 120) : 100;
+    const newFrameY = hasBounds ? Math.round(minTop) : 100;
+    const newFrameW = frameBaseW;
+    const newFrameH = frameBaseH;
+
+    return {
+      mode: 'new_curated_frame',
+      newFrameRect: { x: newFrameX, y: newFrameY, width: newFrameW, height: newFrameH },
+      headerRect: { x: newFrameX + 30, y: newFrameY + 24, width: newFrameW - 60, height: 54 },
+      embedRect: { x: newFrameX + 30, y: newFrameY + 104, width: 330, height: cardHeight },
+      noteRect: { x: newFrameX + 390, y: newFrameY + 104, width: noteCardW, height: cardHeight }
+    };
+  }
+
+  // Calcular coordenadas limpias para "Añadir recurso" (Tarjeta compacta 310x135 + mini descripción debajo)
+  function computeNextResourcePlacement(boardData, preferredFrameTitle = null, manualCoords = null) {
+    const cardW = 310;
+    const cardH = 135;
+    const captionGap = 14;
+    const captionH = 34;
+
+    if (manualCoords && typeof manualCoords.x === 'number' && typeof manualCoords.y === 'number') {
+      const rx = Math.round(manualCoords.x);
+      const ry = Math.round(manualCoords.y);
+      return {
+        mode: 'standalone_resource',
+        frameId: null,
+        embedRect: { x: rx, y: ry, width: cardW, height: cardH },
+        captionRect: { x: rx, y: ry + cardH + captionGap, width: cardW + 20, height: captionH }
+      };
+    }
+
+    const items = Array.isArray(boardData?.items) ? boardData.items : [];
+    const frames = items.filter(it => it && it.type === 'frame');
+
+    let targetFrame = null;
+    if (preferredFrameTitle) {
+      const q = String(preferredFrameTitle).toLowerCase().trim();
+      if (q) {
+        targetFrame = frames.find(f => (f.title || '').toLowerCase().includes(q));
+      }
+    }
+
+    if (targetFrame) {
+      const children = items.filter(it => it.id !== targetFrame.id && (it.parentId === targetFrame.id || (
+        typeof it.x === 'number' && typeof it.y === 'number' &&
+        it.x >= targetFrame.x && it.x <= targetFrame.x + (targetFrame.width || 600) &&
+        it.y >= targetFrame.y && it.y <= targetFrame.y + (targetFrame.height || 400)
+      )));
+
+      let maxChildBottom = targetFrame.y + 45;
+      children.forEach(c => {
+        const b = (c.y || 0) + (c.height || 100);
+        if (b > maxChildBottom) maxChildBottom = b;
+      });
+
+      const newX = Math.round(targetFrame.x + 35);
+      const newY = Math.round(maxChildBottom + 28);
+      const neededHeight = (newY + cardH + captionGap + captionH) - targetFrame.y + 35;
+
+      return {
+        mode: 'inside_existing_frame',
+        frameId: targetFrame.id,
+        expandFrameHeightTo: Math.max(targetFrame.height || 450, neededHeight),
+        embedRect: { x: newX, y: newY, width: cardW, height: cardH },
+        captionRect: { x: newX, y: newY + cardH + captionGap, width: cardW + 20, height: captionH }
+      };
+    }
+
+    // Buscar posición limpia a la derecha del contenido actual (o apilado en columna si ya hay un recurso compacto reciente en el borde derecho)
+    let maxRight = 0;
+    let minTop = 0;
+    let hasBounds = false;
+    items.forEach(it => {
+      if (typeof it.x === 'number' && typeof it.y === 'number') {
+        const r = it.x + (it.width || 200);
+        if (!hasBounds || r > maxRight) maxRight = r;
+        if (!hasBounds || it.y < minTop) minTop = it.y;
+        hasBounds = true;
+      }
+    });
+
+    const compactRightResources = items.filter(it =>
+      it && it.type === 'embed' && !it.parentId &&
+      typeof it.x === 'number' && typeof it.y === 'number' &&
+      (it.width || 310) <= 350 &&
+      Math.abs((it.x + (it.width || 310)) - maxRight) <= 60
+    );
+
+    if (compactRightResources.length > 0 && compactRightResources.length < 4) {
+      const lowestRes = compactRightResources.reduce((a, b) => (b.y > a.y ? b : a), compactRightResources[0]);
+      const colX = Math.round(lowestRes.x);
+      const colY = Math.round(lowestRes.y + (lowestRes.height || cardH) + captionGap + captionH + 38);
+      return {
+        mode: 'standalone_resource',
+        frameId: null,
+        embedRect: { x: colX, y: colY, width: cardW, height: cardH },
+        captionRect: { x: colX, y: colY + cardH + captionGap, width: cardW + 20, height: captionH }
+      };
+    }
+
+    const rx = hasBounds ? Math.round(maxRight + 100) : 100;
+    const ry = hasBounds ? Math.round(minTop) : 100;
+
+    return {
+      mode: 'standalone_resource',
+      frameId: null,
+      embedRect: { x: rx, y: ry, width: cardW, height: cardH },
+      captionRect: { x: rx, y: ry + cardH + captionGap, width: cardW + 20, height: captionH }
+    };
+  }
+
+  // Extraer texto legible de un elemento del tablero
+  function getItemReadableSummary(it, framesById) {
+    if (!it) return '';
+    const parts = [];
+    if (it.title) parts.push(String(it.title).trim());
+    if (it.text) parts.push(String(it.text).replace(/\s+/g, ' ').trim());
+    if (it.description) parts.push(String(it.description).replace(/\s+/g, ' ').trim());
+    if (it.url) parts.push(`URL: ${it.url}`);
+    if (it.parentId && framesById && framesById.has(it.parentId)) {
+      parts.push(`[En marco: "${framesById.get(it.parentId).title || it.parentId}"]`);
+    }
+    return parts.filter(Boolean).join(' — ');
+  }
+
+  // Obtener información en vivo de una URL (GitHub API, Tweet/X, YouTube o metadatos web) cuando el usuario pega un enlace en el chat
+  async function fetchLiveUrlContextForAi(urlStr) {
+    if (!urlStr) return null;
+    try {
+      const u = new URL(urlStr);
+      const host = u.hostname.toLowerCase();
+
+      // 1. Si es un repositorio de GitHub, consultar API pública de GitHub + extracto del README
+      if (host.includes('github.com')) {
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts.length >= 2) {
+          const owner = parts[0];
+          const repo = parts[1].replace(/\.git$/i, '');
+          const repoRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`);
+          if (repoRes.ok) {
+            const repoData = await repoRes.json();
+            let readmeSnippet = '';
+            try {
+              const readmeRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/readme`, {
+                headers: { Accept: 'application/vnd.github.v3.raw' }
+              });
+              if (readmeRes.ok) {
+                const rawReadme = await readmeRes.text();
+                readmeSnippet = rawReadme.replace(/<!--[\s\S]*?-->/g, '').trim().slice(0, 1800);
+              }
+            } catch (eR) {}
+            return {
+              url: urlStr,
+              type: 'github_repo',
+              title: `${repoData.full_name || (owner + '/' + repo)}`,
+              description: repoData.description || '',
+              topics: Array.isArray(repoData.topics) ? repoData.topics.join(', ') : '',
+              stars: repoData.stargazers_count,
+              language: repoData.language || '',
+              readmeSnippet
+            };
+          }
+        }
+      }
+
+      // 2. Si es un Tweet / Post de X (x.com o twitter.com)
+      if (host === 'x.com' || host.endsWith('.x.com') || host.includes('twitter.com')) {
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (parts.length >= 3 && parts[1] === 'status') {
+          try {
+            const fxRes = await fetch(`https://api.fxtwitter.com/${parts[0]}/status/${parts[2]}`);
+            if (fxRes.ok) {
+              const fxData = await fxRes.json();
+              if (fxData && fxData.tweet) {
+                const author = fxData.tweet.author?.screen_name || parts[0];
+                const authorName = fxData.tweet.author?.name || author;
+                const tweetText = fxData.tweet.text || '';
+                return {
+                  url: urlStr,
+                  type: 'tweet_x',
+                  title: `@${author} (${authorName})`,
+                  description: tweetText.slice(0, 500)
+                };
+              }
+            }
+          } catch (eFx) {}
+        }
+        try {
+          const oembedRes = await fetch(`https://publish.twitter.com/oembed?url=${encodeURIComponent(urlStr)}&omit_script=true`);
+          if (oembedRes.ok) {
+            const oembedData = await oembedRes.json();
+            const plainTweet = String(oembedData.html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+            return {
+              url: urlStr,
+              type: 'tweet_x',
+              title: oembedData.author_name ? `@${oembedData.author_name}` : engine.extractTitle(urlStr),
+              description: plainTweet.slice(0, 500)
+            };
+          }
+        } catch (eTw) {}
+      }
+
+      // 3. Si es YouTube
+      if (host.includes('youtube.com') || host.includes('youtu.be')) {
+        try {
+          const ytRes = await fetch(`https://noembed.com/embed?url=${encodeURIComponent(urlStr)}`);
+          if (ytRes.ok) {
+            const ytData = await ytRes.json();
+            if (ytData && ytData.title) {
+              return {
+                url: urlStr,
+                type: 'youtube_video',
+                title: ytData.title,
+                description: ytData.author_name ? `Canal: ${ytData.author_name}` : ''
+              };
+            }
+          }
+        } catch (eYt) {}
+      }
+
+      // 4. Fallback general usando fetchUrlMetadata de Electron si existe
+      const fetchApi = window.brainBoard?.fetchUrlMetadata || window.miro?.fetchUrlMetadata;
+      if (fetchApi) {
+        const meta = await fetchApi(urlStr);
+        if (meta) {
+          return {
+            url: urlStr,
+            type: 'web_page',
+            title: meta.title || engine.extractTitle(urlStr),
+            description: meta.description || '',
+            image: meta.image || ''
+          };
+        }
+      }
+    } catch (e) {}
+    return {
+      url: urlStr,
+      type: 'url',
+      title: engine.extractTitle(urlStr) || urlStr,
+      description: ''
+    };
+  }
+
+  // Construir el contexto estructurado completo del "Cerebro" para enviar a Claude / Gemini
+  async function buildBrainCompleteContext(userQuery, preferredBoardId = 'auto') {
+    const allBoards = await loadAllBoardsForBrainIndex();
+    const allIndexedItems = [];
+    const boardsCatalogLines = [];
+
+    allBoards.forEach(b => {
+      const framesById = new Map();
+      const framesList = [];
+      b.items.forEach(it => {
+        if (it && it.type === 'frame') {
+          framesById.set(it.id, it);
+          framesList.push(`"${it.title || 'Sin título'}" (id:${it.id}, x:${Math.round(it.x || 0)}, y:${Math.round(it.y || 0)}, w:${Math.round(it.width || 0)}, h:${Math.round(it.height || 0)})`);
+        }
+      });
+
+      const placement = computeNextSmartPlacement(b);
+      boardsCatalogLines.push(
+        `- TABLERO id="${b.id}" | Nombre="${b.title}" | Categoría="${b.category}" | Elementos=${b.items.length}` +
+        (framesList.length > 0 ? `\n  Marcos: ${framesList.slice(0, 12).join(' ; ')}` : '') +
+        `\n  Coordenadas recomendadas para nueva inserción: ${JSON.stringify(placement)}`
+      );
+
+      b.items.forEach(it => {
+        if (!it || it.type === 'connector' || it.type === 'pen') return;
+        const summary = getItemReadableSummary(it, framesById);
+        if (!summary && it.type !== 'image') return;
+        const fInfo = engine.getItemFreshnessInfo(it);
+        allIndexedItems.push({
+          id: it.id,
+          boardId: b.id,
+          boardTitle: b.title,
+          category: b.category,
+          type: it.type,
+          title: it.title || '',
+          text: it.text || '',
+          url: it.url || '',
+          parentId: it.parentId || null,
+          frameTitle: (it.parentId && framesById.get(it.parentId)?.title) || '',
+          x: Math.round(it.x || 0),
+          y: Math.round(it.y || 0),
+          width: Math.round(it.width || 0),
+          height: Math.round(it.height || 0),
+          createdAt: fInfo.createdAtIso,
+          createdMs: fInfo.createdMs,
+          formattedDate: fInfo.formattedDateTime,
+          relativeText: fInfo.relativeText,
+          tier: fInfo.tier,
+          tierLabel: fInfo.tierLabel,
+          summary
+        });
+      });
+    });
+
+    if (brainAiStatsPill) {
+      brainAiStatsPill.textContent = `${allBoards.length} tableros · ${allIndexedItems.length} nodos con fecha`;
+    }
+
+    // 1. Últimos elementos colocados en todo el Cerebro (ordenados por fecha descendente)
+    const sortedByNewest = [...allIndexedItems].sort((a, b) => b.createdMs - a.createdMs);
+    const latestItemsLines = sortedByNewest.slice(0, 45).map(it =>
+      `• [${it.formattedDate} | ${it.relativeText}] Tablero "${it.boardTitle}" (boardId:${it.boardId}, itemId:${it.id}, tipo:${it.type}, pos:${it.x},${it.y}): ${it.summary.slice(0, 260)}`
+    );
+
+    // 2. Últimos enlaces / repositorios (URLs y embeds) ordenados por fecha descendente
+    const allLinksAndRepos = sortedByNewest.filter(it => Boolean(it.url) || it.type === 'embed' || it.type === 'preview' || /https?:\/\/|github\.com/i.test(it.summary));
+    const latestReposLines = allLinksAndRepos.slice(0, 45).map(it =>
+      `• [${it.formattedDate} | ${it.relativeText}] Tablero "${it.boardTitle}" (boardId:${it.boardId}, itemId:${it.id}): ${it.summary.slice(0, 280)}`
+    );
+
+    // 3. Búsqueda semántica/léxica por palabras clave de la consulta del usuario
+    const stopWords = new Set(['el', 'la', 'los', 'las', 'un', 'una', 'de', 'del', 'en', 'con', 'por', 'para', 'que', 'qué', 'cuales', 'cuáles', 'son', 'mis', 'mi', 'me', 'he', 'has', 'como', 'cómo', 'este', 'esta', 'estos', 'estas', 'sobre', 'tablero', 'cerebro', 'cosas', 'puesto', 'pegado', 'hazme', 'dime', 'quiero']);
+    const queryTokens = String(userQuery || '')
+      .toLowerCase()
+      .replace(/[^\p{L}\p{N}_./:-]+/gu, ' ')
+      .split(/\s+/)
+      .filter(w => w.length >= 2 && !stopWords.has(w));
+
+    const scoredMatches = [];
+    if (queryTokens.length > 0) {
+      allIndexedItems.forEach(it => {
+        const hay = `${it.boardTitle} ${it.category} ${it.frameTitle} ${it.summary}`.toLowerCase();
+        let score = 0;
+        queryTokens.forEach(tok => {
+          if (hay.includes(tok)) score += (it.url ? 3 : 2);
+        });
+        if (score > 0) {
+          scoredMatches.push({ it, score });
+        }
+      });
+      scoredMatches.sort((a, b) => (b.score !== a.score) ? (b.score - a.score) : (b.it.createdMs - a.it.createdMs));
+    }
+
+    const matchedLines = scoredMatches.slice(0, 45).map(({ it }) =>
+      `• [${it.formattedDate} | ${it.relativeText}] Tablero "${it.boardTitle}" (boardId:${it.boardId}, itemId:${it.id}, marco:"${it.frameTitle}", pos:${it.x},${it.y}): ${it.summary.slice(0, 300)}`
+    );
+
+    // 4. Elementos más antiguos / potencialmente obsoletos (> 6 meses)
+    const sortedByOldest = [...allIndexedItems].sort((a, b) => a.createdMs - b.createdMs);
+    const oldestLines = sortedByOldest.slice(0, 25).map(it =>
+      `• [${it.formattedDate} | ${it.relativeText} - ${it.tierLabel}] Tablero "${it.boardTitle}" (boardId:${it.boardId}, itemId:${it.id}): ${it.summary.slice(0, 240)}`
+    );
+
+    // 5. Detectar ventana temporal solicitada para Briefing (Últimas 24 horas, Últimos 3 días, Últimos 7 días)
+    const nowMs = Date.now();
+    const qLower = String(userQuery || '').toLowerCase();
+    let requestedWindowLabel = '';
+    let requestedWindowMs = 0;
+    if (/24\s*horas|24h|últimas\s*24|ultimas\s*24|hoy/i.test(qLower)) {
+      requestedWindowLabel = 'Últimas 24 horas';
+      requestedWindowMs = 24 * 60 * 60 * 1000;
+    } else if (/3\s*días|3\s*dias|últimos\s*3|ultimos\s*3|72\s*horas/i.test(qLower)) {
+      requestedWindowLabel = 'Últimos 3 días';
+      requestedWindowMs = 3 * 24 * 60 * 60 * 1000;
+    } else if (/7\s*días|7\s*dias|últimos\s*7|ultimos\s*7|última\s*semana|ultima\s*semana/i.test(qLower)) {
+      requestedWindowLabel = 'Últimos 7 días';
+      requestedWindowMs = 7 * 24 * 60 * 60 * 1000;
+    }
+
+    let timeWindowFilteredLines = [];
+    if (requestedWindowMs > 0) {
+      const filteredInWindow = sortedByNewest.filter(it => (nowMs - it.createdMs) <= requestedWindowMs);
+      timeWindowFilteredLines = filteredInWindow.slice(0, 60).map(it =>
+        `• [${it.formattedDate} | ${it.relativeText}] Tablero "${it.boardTitle}" (boardId:${it.boardId}, itemId:${it.id}, tipo:${it.type}, marco:"${it.frameTitle}"): ${it.summary.slice(0, 280)}`
+      );
+    }
+
+    // 6. Detectar si el usuario ha pegado alguna URL en su mensaje y extraer su información en vivo
+    const urlsInPrompt = String(userQuery || '').match(/https?:\/\/[^\s<>")]+/gi) || [];
+    const liveUrlsInfo = [];
+    for (const u of urlsInPrompt.slice(0, 3)) {
+      const info = await fetchLiveUrlContextForAi(u);
+      if (info) liveUrlsInfo.push(info);
+    }
+
+    return {
+      allBoards,
+      allIndexedItems,
+      boardsCatalogLines,
+      latestItemsLines,
+      latestReposLines,
+      matchedLines,
+      oldestLines,
+      requestedWindowLabel,
+      timeWindowFilteredLines,
+      liveUrlsInfo,
+      activeBoardId: currentActiveBoardId,
+      preferredBoardId
+    };
+  }
+
+  // Construir el System + Context Prompt completo con las reglas de BoardInstructorAI.md y protocolo de acciones
+  function buildFullPromptForAi(userMessage, ctx, chatHistory = []) {
+    const recentHistoryText = chatHistory.slice(-6).map(m => `${m.role === 'user' ? 'USUARIO' : 'CEREBRO IA'}: ${m.text}`).join('\n\n');
+    const targetBoardHint = ctx.preferredBoardId && ctx.preferredBoardId !== 'auto'
+      ? `El usuario ha seleccionado explícitamente el tablero destino id="${ctx.preferredBoardId}" en el selector.`
+      : `Tablero actualmente abierto en pantalla: id="${ctx.activeBoardId || 'dev_ai'}".`;
+
+    const liveUrlSection = ctx.liveUrlsInfo.length > 0
+      ? `\n=== METADATOS EN VIVO DE LA URL / REPOSITORIO PEGADO POR EL USUARIO ===\n${JSON.stringify(ctx.liveUrlsInfo, null, 2)}\n`
+      : '';
+
+    const timeWindowSection = ctx.requestedWindowLabel
+      ? `\n=== ELEMENTOS COLOCADOS EN EL PERIODO SOLICITADO (${ctx.requestedWindowLabel.toUpperCase()}) ===\n` +
+        (ctx.timeWindowFilteredLines.length > 0
+          ? `Se han encontrado ${ctx.timeWindowFilteredLines.length} elementos colocados en "${ctx.requestedWindowLabel}":\n${ctx.timeWindowFilteredLines.join('\n')}\n`
+          : `No se registraron elementos nuevos estrictamente dentro del rango "${ctx.requestedWindowLabel}". Infórmalo con claridad al usuario y muéstrale como referencia cuáles fueron los últimos elementos colocados anteriormente según la lista general.\n`)
+      : '';
+
+    return `Eres "Brain", el Segundo Cerebro de IA integrado nativamente en la aplicación de escritorio Brain Board del usuario.
+Tu misión es actuar como su Segundo Cerebro técnico y visual:
+1. Conoces todos sus tableros, marcos contenedores, notas, textos, enlaces y repositorios, incluyendo la FECHA EXACTA DE COLOCACIÓN (\`createdAt\`) y las COORDENADAS ESPACIALES (\`x, y, width, height\`) de cada elemento.
+2. **BRIEFING POR PERIODO TEMPORAL (Últimos 7 días / Últimos 3 días / Últimas 24 horas)**:
+   - Cuando el usuario pida un **Briefing** (ya sea de los **Últimos 7 días**, **Últimos 3 días**, **Últimas 24 horas** o general):
+   - Prioriza siempre la sección \`=== ELEMENTOS COLOCADOS EN EL PERIODO SOLICITADO ===\` si está presente.
+   - Agrupa y ordena con claridad por fecha de colocación y por tablero.
+   - Explica para qué sirve cada repositorio/herramienta/apunte y cómo se conectan en un workflow práctico (por ejemplo: generación de escenas 3D, blockout, iluminación, render, IA, código, etc.).
+   - Para que el usuario pueda saltar con un clic desde el chat a cualquier elemento o tablero que menciones, añade referencias interactivas con este formato exacto: \`[[cite:boardId|itemId|Texto del botón]]\` (ejemplo: \`[[cite:dev_ai|3458764668350677074|Ver en DEV / AI]]\`).
+3. **HACER APUNTE CON MODO DE RESUMEN (Desarrollado / Medio / Breve resumen) E INSERCIÓN INTELIGENTE**:
+   - Cuando el usuario te pida **hacer un apunte** (botón **✍️ Apunte**), anotar una idea/workflow o explicar un tema en un tablero, adapta la extensión y profundidad tanto de tu respuesta en el chat como del campo \`"noteText"\` del bloque \`<brainboard_action>\` según el **Modo de resumen** elegido (por defecto actual: \`${currentBrainNoteSummaryMode}\`):
+     * **Modo \`Desarrollado\` (\`"summaryMode": "desarrollado"\`)**: Redacta un apunte técnico extenso, profundo y muy completo (entre 6 y 9 viñetas detalladas en \`"noteText"\`). Incluye: (1) Qué es y arquitectura/fundamento técnico, (2) Workflow paso a paso detallado de principio a fin, (3) Integración práctica en el pipeline con otras herramientas del tablero, y (4) Casos de uso, parámetros clave y ventajas.
+     * **Modo \`Medio\` (\`"summaryMode": "medio"\`)**: Redacta un resumen equilibrado y estructurado (entre 3 y 4 viñetas claras en \`"noteText"\`). Incluye: Propósito principal, Flujo de trabajo esencial e Integración práctica.
+     * **Modo \`Breve resumen\` (\`"summaryMode": "breve"\`)**: Redacta una síntesis ejecutiva ultra concisa y directa al grano (máximo 2 a 3 viñetas cortas de una línea en \`"noteText"\`, con la idea esencial y aplicación inmediata sin rodeos).
+   - Para un apunte usa \`"action": "insert_knowledge"\` en el bloque \`<brainboard_action>\`.
+4. **AÑADIR RECURSO CON MINI DESCRIPCIÓN DEBAJO (Botón 🔗 Añadir recurso — \`"action": "insert_resource"\`)**:
+   - Cuando el usuario pulse **🔗 Añadir recurso** o pida **añadir un recurso** (ya sea una página web, un tweet / post de X, un repositorio de GitHub, un vídeo, un plugin o cualquier enlace/herramienta):
+   - **NO crees un bloque de apunte extenso ni un marco grande.** En su lugar, utiliza \`"action": "insert_resource"\` en \`<brainboard_action>\` para que Brain Board coloque el recurso con su formato visual limpio de dos piezas:
+     1. **Tarjeta compacta del recurso (\`type: "embed"\`)**: Muestra el dominio (\`github.com\`, \`x.com\`, \`youtube.com\`, web), el título limpio (\`"embedTitle"\`, ej. \`"scenario-labs/blender-plugin"\`) y dentro de la tarjeta una descripción concisa de 1 a 2 líneas (\`"embedDescription"\`, máx. 160 caracteres, ej. \`"Plugin de Blender 5.0+ para generar imágenes, vídeo, 3D y materiales PBR con Scenario, con servidor MCP local para agentes."\` ).
+     2. **Mini descripción inferior (\`"resourceCaption"\`, colocada justo debajo de la tarjeta)**: Una frase muy corta y directa de **3 a 8 palabras** (sin punto final ni adornos) que identifique qué es ese recurso de un vistazo (ejemplos: \`"Repositorio IA integrada en Blender"\`, \`"Tweet sobre workflow de retopología"\`, \`"Web de materiales PBR gratuitos"\`, \`"Vídeo tutorial de iluminación 3D"\`).
+
+FORMATO EXACTO DEL BLOQUE DE ACCIÓN PARA "AÑADIR RECURSO" (\`"action": "insert_resource"\`):
+<brainboard_action>
+{
+  "action": "insert_resource",
+  "boardId": "ID_DEL_TABLERO_DESTINO",
+  "frameTitle": "",
+  "url": "https://...",
+  "embedTitle": "autor/repositorio o Título limpio del recurso",
+  "embedDescription": "Descripción concisa de 1-2 líneas dentro de la tarjeta explicando qué hace o aporta el recurso.",
+  "resourceCaption": "Mini descripción de 3 a 8 palabras debajo de la tarjeta (ej: Repositorio IA integrada en Blender)"
+}
+</brainboard_action>
+
+FORMATO EXACTO DEL BLOQUE DE ACCIÓN PARA "APUNTE" (\`"action": "insert_knowledge"\`):
+<brainboard_action>
+{
+  "action": "insert_knowledge",
+  "summaryMode": "desarrollado | medio | breve",
+  "boardId": "ID_DEL_TABLERO_DESTINO",
+  "createNewBoardIfMissing": false,
+  "newBoardTitle": "",
+  "frameTitle": "Título descriptivo del Marco o Sección",
+  "url": "https://... (o vacío si es solo apunte de texto)",
+  "embedTitle": "Título corto del recurso o apunte",
+  "embedDescription": "Descripción concisa",
+  "noteTitle": "TÍTULO DEL APUNTE / WORKFLOW",
+  "noteText": "• Puntos del apunte adaptados al Modo de resumen (Desarrollado, Medio o Breve)..."
+}
+</brainboard_action>
+
+=== ESTADO ACTUAL DEL ESPACIO DE TRABAJO ===
+Fecha y hora actual: ${new Date().toISOString()}
+Modo de resumen activo por defecto para apuntes: ${currentBrainNoteSummaryMode}
+${targetBoardHint}
+
+=== CATÁLOGO DE TABLEROS Y COORDENADAS RECOMENDADAS ===
+${ctx.boardsCatalogLines.join('\n')}
+${liveUrlSection}${timeWindowSection}
+=== ÚLTIMOS ELEMENTOS COLOCADOS EN EL CEREBRO (ORDENADOS POR FECHA MÁS RECIENTE) ===
+${ctx.latestItemsLines.join('\n') || '(Sin elementos)'}
+
+=== ENLACES Y REPOSITORIOS REGISTRADOS EN EL CEREBRO ===
+${ctx.latestReposLines.join('\n') || '(Sin enlaces)'}
+
+=== COINCIDENCIAS RELEVANTES EN LOS APUNTES PARA ESTA CONSULTA ===
+${ctx.matchedLines.join('\n') || '(Usa los listados anteriores)'}
+
+=== ELEMENTOS MÁS ANTIGUOS / CANDIDATOS A REVISIÓN POR OBSOLESCENCIA ===
+${ctx.oldestLines.join('\n') || '(Sin elementos antiguos)'}
+
+${recentHistoryText ? `=== HISTORIAL RECIENTE DE LA CONVERSACIÓN ===\n${recentHistoryText}\n` : ''}
+=== MENSAJE DEL USUARIO ===
+${userMessage}
+
+Responde en español, con formato Markdown claro, directo, estructurado y útil.`;
+  }
+
+  // Ejecutar acción de inserción espacial devuelta por la IA en el tablero destino (Apunte o Añadir Recurso)
+  async function executeBrainAiAction(actionObj, userPromptText = '') {
+    if (!actionObj || typeof actionObj !== 'object') return null;
+    let targetBoardId = actionObj.boardId || (brainAiTargetBoardSelect?.value !== 'auto' ? brainAiTargetBoardSelect?.value : currentActiveBoardId) || 'dev_ai';
+
+    // Buscar tablero por ID o por coincidencia de título
+    let boardMeta = workspaceBoards.find(b => b.id.toLowerCase() === String(targetBoardId).toLowerCase()) ||
+                    workspaceBoards.find(b => (b.title || '').toLowerCase() === String(targetBoardId).toLowerCase()) ||
+                    workspaceBoards.find(b => (b.title || '').toLowerCase().includes(String(targetBoardId).toLowerCase()));
+
+    if (!boardMeta && actionObj.createNewBoardIfMissing && actionObj.newBoardTitle) {
+      boardMeta = await createNewBoard(actionObj.newBoardTitle);
+    }
+    if (!boardMeta) {
+      boardMeta = workspaceBoards.find(b => b.id === (currentActiveBoardId || 'dev_ai')) || workspaceBoards[0];
+    }
+    targetBoardId = boardMeta.id;
+
+    // Cargar datos actuales del tablero destino
+    const allBoards = await loadAllBoardsForBrainIndex();
+    const targetBoardData = allBoards.find(b => b.id === targetBoardId) || {
+      id: targetBoardId,
+      title: boardMeta.title || targetBoardId,
+      category: boardMeta.category || 'General',
+      items: []
+    };
+
+    const now = Date.now();
+    const nowIso = new Date(now).toISOString();
+    const currentMaxZ = targetBoardData.items.reduce((max, it) => Math.max(max, typeof it.zIndex === 'number' ? it.zIndex : 10), 10);
+
+    const isResourceAction =
+      String(actionObj.action || '').toLowerCase() === 'insert_resource' ||
+      String(actionObj.summaryMode || '').toLowerCase() === 'recurso' ||
+      Boolean(actionObj.resourceCaption && !actionObj.noteText) ||
+      /añade este recurso|añadir recurso|guardar recurso/i.test(String(userPromptText || ''));
+
+    const createdItems = [];
+    let primaryItemId = null;
+    let placement = null;
+
+    if (isResourceAction) {
+      placement = computeNextResourcePlacement(targetBoardData, actionObj.frameTitle, actionObj.coords);
+
+      if (placement.mode === 'inside_existing_frame' && placement.frameId) {
+        const frameInBoard = targetBoardData.items.find(it => it.id === placement.frameId);
+        if (frameInBoard && placement.expandFrameHeightTo > (frameInBoard.height || 0)) {
+          frameInBoard.height = placement.expandFrameHeightTo;
+          frameInBoard.updatedAt = nowIso;
+        }
+      }
+
+      const cleanUrl = String(actionObj.url || '').trim();
+      const embedId = `embed_${now}_${Math.random().toString(36).substr(2, 4)}`;
+      primaryItemId = embedId;
+
+      createdItems.push({
+        id: embedId,
+        type: 'embed',
+        parentId: placement.frameId || null,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        x: placement.embedRect.x,
+        y: placement.embedRect.y,
+        width: placement.embedRect.width,
+        height: placement.embedRect.height,
+        title: actionObj.embedTitle || (cleanUrl ? engine.extractTitle(cleanUrl) : 'Recurso'),
+        domain: cleanUrl ? engine.extractDomain(cleanUrl) : 'RECURSO',
+        url: cleanUrl,
+        src: '',
+        description: actionObj.embedDescription || actionObj.noteText || '',
+        zIndex: currentMaxZ + 2
+      });
+
+      const rawCaption = actionObj.resourceCaption || actionObj.noteTitle || actionObj.embedTitle || 'Recurso';
+      const cleanCaption = String(rawCaption)
+        .replace(/^[•\-*]\s*/, '')
+        .split('\n')[0]
+        .trim();
+
+      const captionId = `text_${now + 1}_${Math.random().toString(36).substr(2, 4)}`;
+      createdItems.push({
+        id: captionId,
+        type: 'text',
+        parentId: placement.frameId || null,
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        x: placement.captionRect.x,
+        y: placement.captionRect.y,
+        width: placement.captionRect.width,
+        height: placement.captionRect.height,
+        text: cleanCaption,
+        fontSize: 20,
+        isBold: false,
+        fillColor: null,
+        color: '#1a1a1a',
+        textAlign: 'left',
+        zIndex: currentMaxZ + 3
+      });
+    } else {
+      const effectiveSummaryMode = String(actionObj.summaryMode || currentBrainNoteSummaryMode || 'medio').toLowerCase();
+      placement = computeNextSmartPlacement(targetBoardData, actionObj.frameTitle, effectiveSummaryMode);
+
+      // Ajustar dinámicamente la altura si el texto del apunte es muy extenso (especialmente en modo Desarrollado)
+      if (actionObj.noteText) {
+        const rawNoteStr = String(actionObj.noteText);
+        const estimatedLines = rawNoteStr.split('\n').reduce((acc, line) => acc + Math.max(1, Math.ceil(line.length / 44)), 0) + 3;
+        const estimatedNoteH = Math.max(placement.noteRect.height, Math.min(620, estimatedLines * 24 + 44));
+        if (estimatedNoteH > placement.noteRect.height) {
+          const extraH = estimatedNoteH - placement.noteRect.height;
+          placement.noteRect.height = estimatedNoteH;
+          if (placement.newFrameRect) {
+            placement.newFrameRect.height += extraH;
+          }
+          if (placement.expandFrameHeightTo) {
+            placement.expandFrameHeightTo += extraH;
+          }
+        }
+      }
+
+      // Si el usuario especificó coordenadas manuales explícitas (ej: copiadas con la herramienta Dev Inspector)
+      if (actionObj.coords && typeof actionObj.coords.x === 'number' && typeof actionObj.coords.y === 'number') {
+        const customW = Math.max(300, actionObj.coords.width || 720);
+        const customH = Math.max(200, actionObj.coords.height || 420);
+        placement = {
+          mode: 'new_frame',
+          newFrameRect: {
+            x: actionObj.coords.x,
+            y: actionObj.coords.y,
+            width: customW,
+            height: customH
+          },
+          headerRect: {
+            x: actionObj.coords.x + 28,
+            y: actionObj.coords.y + 24,
+            width: customW - 56,
+            height: 38
+          },
+          embedRect: {
+            x: actionObj.coords.x + 28,
+            y: actionObj.coords.y + 78,
+            width: actionObj.url ? Math.min(340, Math.round(customW * 0.46)) : customW - 56,
+            height: Math.max(160, customH - 106)
+          },
+          noteRect: {
+            x: actionObj.coords.x + (actionObj.url ? Math.min(340, Math.round(customW * 0.46)) + 52 : 28),
+            y: actionObj.coords.y + 78,
+            width: actionObj.url ? (customW - Math.min(340, Math.round(customW * 0.46)) - 80) : customW - 56,
+            height: Math.max(160, customH - 106)
+          }
+        };
+      }
+
+      if (placement.mode === 'inside_existing_frame') {
+        const frameInBoard = targetBoardData.items.find(it => it.id === placement.frameId);
+        if (frameInBoard && placement.expandFrameHeightTo > (frameInBoard.height || 0)) {
+          frameInBoard.height = placement.expandFrameHeightTo;
+          frameInBoard.updatedAt = nowIso;
+        }
+
+        if (actionObj.url) {
+          const cleanUrl = actionObj.url.trim();
+          const embedId = `embed_${now}_${Math.random().toString(36).substr(2, 4)}`;
+          primaryItemId = embedId;
+          createdItems.push({
+            id: embedId,
+            type: 'embed',
+            parentId: placement.frameId,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            x: placement.embedRect.x,
+            y: placement.embedRect.y,
+            width: placement.embedRect.width,
+            height: placement.embedRect.height,
+            title: actionObj.embedTitle || engine.extractTitle(cleanUrl),
+            domain: engine.extractDomain(cleanUrl),
+            url: cleanUrl,
+            src: '',
+            description: actionObj.embedDescription || '',
+            zIndex: currentMaxZ + 2
+          });
+        }
+
+        if (actionObj.noteText || actionObj.noteTitle) {
+          const noteId = `text_${now + 1}_${Math.random().toString(36).substr(2, 4)}`;
+          if (!primaryItemId) primaryItemId = noteId;
+          const fullNoteText = actionObj.noteTitle
+            ? `${actionObj.noteTitle.toUpperCase()}\n\n${actionObj.noteText || ''}`
+            : (actionObj.noteText || '');
+          createdItems.push({
+            id: noteId,
+            type: 'text',
+            parentId: placement.frameId,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            x: actionObj.url ? placement.noteRect.x : placement.embedRect.x,
+            y: placement.noteRect.y,
+            width: actionObj.url ? placement.noteRect.width : 680,
+            height: placement.noteRect.height,
+            text: fullNoteText.trim(),
+            fontSize: 16,
+            color: '#f1f5f9',
+            textColor: '#f1f5f9',
+            fillColor: '#161b26',
+            zIndex: currentMaxZ + 3
+          });
+        }
+      } else {
+        // Crear un nuevo marco curado siguiendo BoardInstructorAI.md
+        const frameId = `frame_${now}_${Math.random().toString(36).substr(2, 4)}`;
+        primaryItemId = frameId;
+        const frameItem = {
+          id: frameId,
+          type: 'frame',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          x: placement.newFrameRect.x,
+          y: placement.newFrameRect.y,
+          width: placement.newFrameRect.width,
+          height: placement.newFrameRect.height,
+          title: actionObj.frameTitle || actionObj.embedTitle || 'Apunte Cerebro IA',
+          fillColor: '#0f141d',
+          zIndex: currentMaxZ + 1
+        };
+        createdItems.push(frameItem);
+
+        const headerId = `text_${now + 1}_${Math.random().toString(36).substr(2, 4)}`;
+        createdItems.push({
+          id: headerId,
+          type: 'text',
+          parentId: frameId,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          x: placement.headerRect.x,
+          y: placement.headerRect.y,
+          width: placement.headerRect.width,
+          height: placement.headerRect.height,
+          text: (actionObj.noteTitle || actionObj.embedTitle || actionObj.frameTitle || 'NUEVO RECURSO REGISTRADO').toUpperCase(),
+          fontSize: 22,
+          isBold: true,
+          color: '#f1f5f9',
+          textColor: '#f1f5f9',
+          fillColor: '#161b26',
+          zIndex: currentMaxZ + 2
+        });
+
+        if (actionObj.url) {
+          const cleanUrl = actionObj.url.trim();
+          const embedId = `embed_${now + 2}_${Math.random().toString(36).substr(2, 4)}`;
+          primaryItemId = embedId;
+          createdItems.push({
+            id: embedId,
+            type: 'embed',
+            parentId: frameId,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            x: placement.embedRect.x,
+            y: placement.embedRect.y,
+            width: placement.embedRect.width,
+            height: placement.embedRect.height,
+            title: actionObj.embedTitle || engine.extractTitle(cleanUrl),
+            domain: engine.extractDomain(cleanUrl),
+            url: cleanUrl,
+            src: '',
+            description: actionObj.embedDescription || '',
+            zIndex: currentMaxZ + 3
+          });
+        }
+
+        if (actionObj.noteText) {
+          const noteId = `text_${now + 3}_${Math.random().toString(36).substr(2, 4)}`;
+          createdItems.push({
+            id: noteId,
+            type: 'text',
+            parentId: frameId,
+            createdAt: nowIso,
+            updatedAt: nowIso,
+            x: actionObj.url ? placement.noteRect.x : placement.embedRect.x,
+            y: placement.noteRect.y,
+            width: actionObj.url ? placement.noteRect.width : (placement.newFrameRect.width - 60),
+            height: placement.noteRect.height,
+            text: String(actionObj.noteText).trim(),
+            fontSize: 16,
+            color: '#e2e8f0',
+            textColor: '#e2e8f0',
+            fillColor: '#161b26',
+            zIndex: currentMaxZ + 4
+          });
+        }
+      }
+    }
+
+    if (createdItems.length === 0) return null;
+
+    // Si el tablero destino es el que está abierto actualmente en el lienzo
+    if (targetBoardId === currentActiveBoardId) {
+      engine.saveSnapshot();
+      engine.items.push(...createdItems);
+      engine.selectedItemIds.clear();
+      createdItems.forEach(it => engine.selectedItemIds.add(it.id));
+      engine.render();
+      updateMinimap();
+      await autoSaveBoardImmediately(targetBoardId);
+    } else {
+      // Guardar directamente en el tablero destino (IndexedDB + LocalStorage + Disco JSON)
+      targetBoardData.items.push(...createdItems);
+      const savePayload = {
+        id: targetBoardId,
+        name: boardMeta.title || targetBoardData.title || targetBoardId,
+        category: boardMeta.category || 'General',
+        updatedAt: nowIso,
+        userModified: true,
+        seedVersion: 4,
+        items: targetBoardData.items
+      };
+      await idbSaveBoard(targetBoardId, savePayload);
+      try {
+        localStorage.setItem(`brainboard_board_${targetBoardId}`, JSON.stringify(savePayload));
+      } catch (e) {}
+      saveBoardToDisk(targetBoardId, savePayload);
+    }
+
+    return {
+      boardId: targetBoardId,
+      boardTitle: boardMeta.title || targetBoardId,
+      primaryItemId,
+      createdCount: createdItems.length,
+      coords: placement.embedRect || placement.newFrameRect
+    };
+  }
+
+  // Fallback gratuito instantáneo sin configuración (0 MB adicionales en el instalador)
+  async function callFreeIntegratedGeminiFallback(fullPrompt) {
+    const res = await fetch('https://text.pollinations.ai/openai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gemini',
+        messages: [{ role: 'user', content: fullPrompt }],
+        private: true
+      })
+    });
+    if (!res.ok) {
+      throw new Error('Introduce tu API Key gratuita de Google Gemini 2.5 Flash en Configurar Brain (⚙️).');
+    }
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content || '';
+    if (!content.trim()) {
+      throw new Error('Introduce tu API Key gratuita de Google Gemini 2.5 Flash en Configurar Brain (⚙️).');
+    }
+    return content.trim();
+  }
+
+  // Invocar al proveedor de IA configurado (Claude CLI, Gemini CLI, Gemini 2.5 Flash Gratis, API Keys u Ollama)
+  async function callConfiguredAiProvider(fullPrompt) {
+    const provider = brainAiSettings.provider || 'claude_cli';
+    const selectedModel = (brainAiSettings.model || '').trim();
+    const selectedEffort = (brainAiSettings.effort || 'medium').trim();
+
+    // 1. CLAUDE CODE CLI LOCAL O GEMINI CLI LOCAL
+    if (provider === 'claude_cli' || provider === 'gemini_cli') {
+      if (typeof window !== 'undefined' && typeof window.require === 'function') {
+        const { spawn } = window.require('child_process');
+        const isClaude = provider === 'claude_cli';
+        const defaultCmd = isClaude
+          ? (detectDefaultClaudeCliPath() || 'claude')
+          : (detectDefaultGeminiCliPath() || 'gemini');
+        const cmd = (brainAiSettings.cliPath && brainAiSettings.cliPath.trim()) || defaultCmd;
+        const args = isClaude
+          ? [
+              '-p',
+              '--model', selectedModel || 'haiku',
+              '--effort', selectedEffort || 'medium',
+              '--tools', ''
+            ]
+          : [
+              '-p', '',
+              '-m', selectedModel || 'gemini-2.5-flash'
+            ];
+
+        try {
+          return await new Promise((resolve, reject) => {
+            let stdout = '';
+            let stderr = '';
+            let finished = false;
+
+            const child = spawn(cmd, args, {
+              cwd: process.cwd(),
+              env: { ...process.env, FORCE_COLOR: '0' },
+              windowsHide: true,
+              shell: cmd.endsWith('.cmd') || cmd.endsWith('.bat') || (!cmd.includes('\\') && !cmd.includes('/'))
+            });
+
+            const timeoutId = setTimeout(() => {
+              if (!finished) {
+                finished = true;
+                try { child.kill(); } catch (e) {}
+                reject(new Error('Tiempo de espera agotado esperando al CLI local (90s).'));
+              }
+            }, 90000);
+
+            child.stdout.on('data', (chunk) => {
+              stdout += chunk.toString('utf8');
+            });
+            child.stderr.on('data', (chunk) => {
+              stderr += chunk.toString('utf8');
+            });
+            child.on('error', (err) => {
+              if (finished) return;
+              finished = true;
+              clearTimeout(timeoutId);
+              reject(err);
+            });
+            child.on('close', (code) => {
+              if (finished) return;
+              finished = true;
+              clearTimeout(timeoutId);
+              if (code === 0 && stdout.trim()) {
+                resolve(stdout.trim());
+              } else if (stdout.trim()) {
+                resolve(stdout.trim());
+              } else {
+                reject(new Error(stderr.trim() || `El CLI finalizó con código ${code}`));
+              }
+            });
+
+            try {
+              child.stdin.write(fullPrompt, 'utf8');
+              child.stdin.end();
+            } catch (eWrite) {
+              clearTimeout(timeoutId);
+              reject(eWrite);
+            }
+          });
+        } catch (cliErr) {
+          // Si el usuario no tiene el ejecutable instalado en este PC, hacer fallback transparente a IA gratuita en la nube
+          const errMsg = String(cliErr?.message || cliErr || '');
+          if (errMsg.includes('ENOENT') || errMsg.includes('no se reconoce') || errMsg.includes('not recognized') || errMsg.includes('código 1')) {
+            if ((brainAiSettings.apiKey || '').trim()) {
+              brainAiSettings.provider = 'gemini_api';
+              brainAiSettings.model = 'gemini-2.5-flash';
+              syncBrainAiHeaderBadges();
+            } else {
+              return await callFreeIntegratedGeminiFallback(fullPrompt);
+            }
+          } else {
+            throw cliErr;
+          }
+        }
+      }
+    }
+
+    // 2. ANTHROPIC CLAUDE API KEY
+    if (provider === 'claude_api') {
+      const apiKey = (brainAiSettings.apiKey || '').trim();
+      if (!apiKey) throw new Error('Introduce tu API Key de Anthropic Claude en Configurar Brain (⚙️).');
+      const model = selectedModel || 'claude-sonnet-4-20250514';
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true'
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 2500,
+          messages: [{ role: 'user', content: fullPrompt }]
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || `Error HTTP ${res.status} en Claude API`);
+      return data?.content?.[0]?.text || '';
+    }
+
+    // 3. GOOGLE GEMINI 2.5 FLASH (GRATIS / API KEY OFICIAL + MODO ZERO-CONFIG)
+    if (provider === 'gemini_api') {
+      const apiKey = (brainAiSettings.apiKey || '').trim();
+      // Si el usuario recién descargó Brain Board y aún no ha pegado su API Key de AI Studio, usar modo gratuito integrado
+      if (!apiKey) {
+        return await callFreeIntegratedGeminiFallback(fullPrompt);
+      }
+      const model = selectedModel || 'gemini-2.5-flash';
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+      const generationConfig = {
+        temperature: 0.35,
+        maxOutputTokens: 4096
+      };
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: fullPrompt }] }],
+          generationConfig
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || `Error HTTP ${res.status} en Google Gemini API`);
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      return parts.filter(p => !p.thought).map(p => p.text || '').join('\n') || '';
+    }
+
+    // 4. OPENAI API KEY
+    if (provider === 'openai_api') {
+      const apiKey = (brainAiSettings.apiKey || '').trim();
+      if (!apiKey) throw new Error('Introduce tu API Key de OpenAI en Configurar Brain (⚙️).');
+      const model = selectedModel || 'gpt-4o';
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: fullPrompt }]
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || `Error HTTP ${res.status} en OpenAI API`);
+      return data?.choices?.[0]?.message?.content || '';
+    }
+
+    // 5. OLLAMA LOCAL
+    if (provider === 'ollama') {
+      const endpoint = (brainAiSettings.apiKey || 'http://localhost:11434').replace(/\/$/, '');
+      const model = selectedModel || 'llama3.1';
+      const res = await fetch(`${endpoint}/api/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model, prompt: fullPrompt, stream: false })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || `Error conectando a Ollama en ${endpoint}`);
+      return data?.response || '';
+    }
+
+    throw new Error('Proveedor de IA no reconocido.');
+  }
+
+  // Navegar y hacer zoom a un tablero y elemento específico al pulsar una cita interactiva en el chat
+  async function jumpToBoardAndItemFromAi(boardId, itemId = null) {
+    if (!boardId) return;
+    if (currentActiveBoardId !== boardId || document.getElementById('home-screen')?.style.display !== 'none') {
+      await openBoardTab(boardId);
+    }
+    if (itemId && engine && Array.isArray(engine.items)) {
+      const target = engine.items.find(it => String(it.id) === String(itemId));
+      if (target) {
+        engine.selectedItemIds.clear();
+        engine.selectedItemIds.add(target.id);
+        engine.zoomToItem(target, 0.85);
+        if (engine.onSelectionChange) engine.onSelectionChange([target.id]);
+      }
+    }
+  }
+  window.jumpToBoardAndItemFromAi = jumpToBoardAndItemFromAi;
+
+  // Renderizar Markdown ligero + botones interactivos [[cite:boardId|itemId|Label]]
+  function formatAiMarkdownToHtml(rawText) {
+    if (!rawText) return '';
+    // Extraer bloques <brainboard_action> para no mostrarlos crudos
+    const cleanText = String(rawText).replace(/<brainboard_action>[\s\S]*?<\/brainboard_action>/gi, '').trim();
+
+    const escapeHtml = (s) => s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    const lines = cleanText.split('\n');
+    let html = '';
+    let inList = false;
+
+    const formatInline = (str) => {
+      let out = escapeHtml(str);
+      // Citas interactivas [[cite:boardId|itemId|Label]]
+      out = out.replace(/\[\[cite:([^|\]]+)\|([^|\]]*)\|([^\]]+)\]\]/g, (_, bId, iId, label) => {
+        const safeB = bId.trim().replace(/'/g, '');
+        const safeI = iId.trim().replace(/'/g, '');
+        return `<button class="brain-ai-inline-cite" data-board="${safeB}" data-item="${safeI}" title="Ir al elemento en el tablero">📍 ${label.trim()} ↗</button>`;
+      });
+      // Negrita y código inline
+      out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+      return out;
+    };
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) {
+        if (inList) { html += '</ul>'; inList = false; }
+        continue;
+      }
+      if (line.startsWith('### ')) {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += `<h4>${formatInline(line.slice(4))}</h4>`;
+      } else if (line.startsWith('## ') || line.startsWith('# ')) {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += `<h3>${formatInline(line.replace(/^#+\s*/, ''))}</h3>`;
+      } else if (line.startsWith('- ') || line.startsWith('* ') || line.startsWith('• ')) {
+        if (!inList) { html += '<ul>'; inList = true; }
+        html += `<li>${formatInline(line.slice(2))}</li>`;
+      } else {
+        if (inList) { html += '</ul>'; inList = false; }
+        html += `<p>${formatInline(line)}</p>`;
+      }
+    }
+    if (inList) html += '</ul>';
+    return html;
+  }
+
+  let brainAiChatHistory = [];
+  try {
+    const savedHist = localStorage.getItem(BRAIN_AI_HISTORY_KEY);
+    if (savedHist) brainAiChatHistory = JSON.parse(savedHist) || [];
+  } catch (e) {}
+
+  function saveBrainAiChatHistory() {
+    try {
+      localStorage.setItem(BRAIN_AI_HISTORY_KEY, JSON.stringify(brainAiChatHistory.slice(-30)));
+    } catch (e) {}
+  }
+
+  function renderBrainAiWelcomeMessage() {
+    if (!brainAiMessages) return;
+    brainAiMessages.innerHTML = `
+      <div class="brain-ai-msg assistant">
+        <div class="brain-ai-bubble">
+          <h4>🧠 Brain está activo</h4>
+          <p>Cada elemento de tus tableros registra su <strong>fecha exacta de colocación</strong> (mantén el cursor <strong>2 segundos</strong> sobre cualquier objeto o activa el <strong>Mapa de Frescura 🕒</strong> en la barra superior).</p>
+          <p>Puedo ayudarte a:</p>
+          <ul>
+            <li><strong>✍️ Apunte (Modo de resumen):</strong> despliega para elegir entre <strong>Desarrollado</strong>, <strong>Medio</strong> o <strong>Breve resumen</strong> y colocar tu nota o workflow en el tablero sin colisiones.</li>
+            <li><strong>🔗 Añadir recurso:</strong> coloca cualquier página web, tweet, repositorio o vídeo como tarjeta compacta con una mini descripción justo debajo.</li>
+            <li><strong>📋 Briefing (7 días / 3 días / 24 horas):</strong> despliega el periodo que quieras consultar para resumir tus últimos repositorios, enlaces y workflows por fecha.</li>
+            <li><strong>🕒 Detectar obsoletos:</strong> revisar apuntes antiguos para actualizar o archivar.</li>
+          </ul>
+        </div>
+      </div>
+    `;
+  }
+
+  function appendBrainAiMessage(role, text, actionResult = null) {
+    if (!brainAiMessages) return;
+    const wrap = document.createElement('div');
+    wrap.className = `brain-ai-msg ${role}`;
+    const bubble = document.createElement('div');
+    bubble.className = 'brain-ai-bubble';
+
+    if (role === 'user') {
+      bubble.textContent = text;
+    } else {
+      bubble.innerHTML = formatAiMarkdownToHtml(text);
+      if (actionResult) {
+        const card = document.createElement('div');
+        card.className = 'brain-ai-action-card';
+        card.innerHTML = `
+          <div class="brain-ai-action-card-header">
+            <span>✓ Colocado automáticamente en "${actionResult.boardTitle}"</span>
+            <span>X:${actionResult.coords?.x || 0}, Y:${actionResult.coords?.y || 0}</span>
+          </div>
+          <button class="brain-ai-jump-btn" data-board="${actionResult.boardId}" data-item="${actionResult.primaryItemId || ''}">
+            Abrir en "${actionResult.boardTitle}" y hacer zoom →
+          </button>
+        `;
+        bubble.appendChild(card);
+      }
+    }
+
+    wrap.appendChild(bubble);
+    brainAiMessages.appendChild(wrap);
+    brainAiMessages.scrollTop = brainAiMessages.scrollHeight;
+  }
+
+  // Delegación de clics para saltar a tableros/elementos desde el chat
+  brainAiMessages?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-board]');
+    if (!btn) return;
+    const bId = btn.getAttribute('data-board');
+    const iId = btn.getAttribute('data-item');
+    if (bId) {
+      jumpToBoardAndItemFromAi(bId, iId || null);
+    }
+  });
+
+  async function handleSendBrainAiMessage(customPrompt = null) {
+    if (isBrainAiGenerating) return;
+    const text = (customPrompt !== null ? customPrompt : (brainAiInput?.value || '')).trim();
+    if (!text) return;
+
+    if (customPrompt === null && brainAiInput) {
+      brainAiInput.value = '';
+    }
+
+    appendBrainAiMessage('user', text);
+    brainAiChatHistory.push({ role: 'user', text });
+    saveBrainAiChatHistory();
+
+    isBrainAiGenerating = true;
+    if (btnBrainAiSend) btnBrainAiSend.disabled = true;
+
+    const loadingWrap = document.createElement('div');
+    loadingWrap.className = 'brain-ai-msg assistant';
+    loadingWrap.innerHTML = `
+      <div class="brain-ai-bubble">
+        <span>🔄 Consultando a <strong>${getProviderDisplayName(brainAiSettings.provider)}</strong> (${getModelShortDisplayName(brainAiSettings.provider, brainAiSettings.model)} · effort ${brainAiSettings.effort || 'medium'})...</span>
+      </div>
+    `;
+    brainAiMessages?.appendChild(loadingWrap);
+    if (brainAiMessages) brainAiMessages.scrollTop = brainAiMessages.scrollHeight;
+
+    try {
+      const preferredBoard = brainAiTargetBoardSelect?.value || 'auto';
+      const ctx = await buildBrainCompleteContext(text, preferredBoard);
+      const fullPrompt = buildFullPromptForAi(text, ctx, brainAiChatHistory);
+      const aiResponse = await callConfiguredAiProvider(fullPrompt);
+
+      loadingWrap.remove();
+
+      // Comprobar si la IA devolvió un bloque <brainboard_action>
+      let actionResult = null;
+      const actionMatch = String(aiResponse).match(/<brainboard_action>([\s\S]*?)<\/brainboard_action>/i);
+      if (actionMatch && actionMatch[1]) {
+        try {
+          const actionJson = JSON.parse(actionMatch[1].trim());
+          actionResult = await executeBrainAiAction(actionJson, text);
+        } catch (eAct) {
+          console.warn('No se pudo parsear brainboard_action:', eAct);
+        }
+      }
+
+      appendBrainAiMessage('assistant', aiResponse, actionResult);
+      brainAiChatHistory.push({ role: 'assistant', text: aiResponse });
+      saveBrainAiChatHistory();
+    } catch (err) {
+      loadingWrap.remove();
+      appendBrainAiMessage(
+        'assistant',
+        `⚠️ **No se pudo completar la consulta con ${getProviderDisplayName(brainAiSettings.provider)}:** ${err.message || String(err)}\n\nPuedes pulsar el icono **⚙️ Configurar Brain** en la esquina superior derecha del chat para revisar la ruta de tu CLI local (\`claude\` / \`gemini\`) o configurar una API Key.`
+      );
+    } finally {
+      isBrainAiGenerating = false;
+      if (btnBrainAiSend) btnBrainAiSend.disabled = false;
+    }
+  }
+
+  function toggleBrainAiChatPanel(forceOpen = null) {
+    if (!brainAiChatPanel) return;
+    const isCurrentlyOpen = brainAiChatPanel.style.display !== 'none';
+    const nextOpen = typeof forceOpen === 'boolean' ? forceOpen : !isCurrentlyOpen;
+    brainAiChatPanel.style.display = nextOpen ? 'flex' : 'none';
+    brainAiDockTrigger?.classList.toggle('active', nextOpen);
+    if (nextOpen) {
+      populateBrainAiTargetBoards();
+      syncBrainAiHeaderBadges();
+      if (brainAiMessages && brainAiMessages.children.length === 0) {
+        if (brainAiChatHistory.length > 0) {
+          brainAiChatHistory.forEach(m => appendBrainAiMessage(m.role, m.text));
+        } else {
+          renderBrainAiWelcomeMessage();
+        }
+      }
+      buildBrainCompleteContext('', 'auto').catch(() => {});
+      setTimeout(() => brainAiInput?.focus(), 60);
+    }
+  }
+
+  brainAiDockTrigger?.addEventListener('click', () => {
+    toggleBrainAiChatPanel();
+  });
+
+  btnBrainAiClose?.addEventListener('click', () => {
+    toggleBrainAiChatPanel(false);
+  });
+
+  btnBrainAiExpand?.addEventListener('click', () => {
+    brainAiChatPanel?.classList.toggle('expanded');
+  });
+
+  btnBrainAiClear?.addEventListener('click', () => {
+    brainAiChatHistory = [];
+    saveBrainAiChatHistory();
+    renderBrainAiWelcomeMessage();
+  });
+
+  btnBrainAiSend?.addEventListener('click', () => {
+    handleSendBrainAiMessage();
+  });
+
+  brainAiInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendBrainAiMessage();
+    }
+  });
+
+  // Desplegables de Apunte (Modo de resumen), Botón Añadir recurso y Briefing (7 días, 3 días, 24 horas) + Chips de acción rápida
+  const btnBrainAiMakeNote = document.getElementById('btn-brain-ai-make-note');
+  const brainAiNoteMenu = document.getElementById('brain-ai-note-menu');
+  const btnBrainAiAddResource = document.getElementById('btn-brain-ai-add-resource');
+  const btnBrainAiBriefing = document.getElementById('btn-brain-ai-briefing');
+  const brainAiBriefingMenu = document.getElementById('brain-ai-briefing-menu');
+
+  function closeAllBrainAiDropdowns() {
+    if (brainAiNoteMenu) brainAiNoteMenu.style.display = 'none';
+    if (brainAiBriefingMenu) brainAiBriefingMenu.style.display = 'none';
+    btnBrainAiMakeNote?.classList.remove('menu-open');
+    btnBrainAiBriefing?.classList.remove('menu-open');
+  }
+
+  function stripBrainAiActionPrefix(val) {
+    return String(val || '')
+      .replace(/^Haz un apunte(?:\s*\[Modo de resumen:[^\]]*\])?\s+en\s+.*?\s+con lo siguiente:\s*/i, '')
+      .replace(/^Añade este recurso\s+en\s+.*?\s+con su mini descripción:\s*/i, '');
+  }
+
+  btnBrainAiMakeNote?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = brainAiNoteMenu && brainAiNoteMenu.style.display !== 'none';
+    closeAllBrainAiDropdowns();
+    if (!isOpen && brainAiNoteMenu) {
+      brainAiNoteMenu.style.display = 'flex';
+      btnBrainAiMakeNote.classList.add('menu-open');
+    }
+  });
+
+  // Botón directo: Añadir recurso (Tarjeta compacta + mini descripción debajo)
+  btnBrainAiAddResource?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    closeAllBrainAiDropdowns();
+    if (brainAiInput) {
+      const boardTitle = (brainAiTargetBoardSelect && brainAiTargetBoardSelect.value !== 'auto')
+        ? (brainAiTargetBoardSelect.options[brainAiTargetBoardSelect.selectedIndex]?.text || '').replace(/\s*\(.*?\)\s*$/, '')
+        : (workspaceBoards.find(b => b.id === currentActiveBoardId)?.title || 'el tablero');
+
+      const cleanedTail = stripBrainAiActionPrefix(brainAiInput.value || '');
+      brainAiInput.value = `Añade este recurso en ${boardTitle} con su mini descripción: ${cleanedTail}`;
+      brainAiInput.focus();
+      brainAiInput.setSelectionRange(brainAiInput.value.length, brainAiInput.value.length);
+    }
+  });
+
+  btnBrainAiBriefing?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = brainAiBriefingMenu && brainAiBriefingMenu.style.display !== 'none';
+    closeAllBrainAiDropdowns();
+    if (!isOpen && brainAiBriefingMenu) {
+      brainAiBriefingMenu.style.display = 'flex';
+      btnBrainAiBriefing.classList.add('menu-open');
+    }
+  });
+
+  // Selección de opción en "Modo de resumen" de Apunte
+  document.querySelectorAll('#brain-ai-note-menu .brain-ai-dropdown-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const mode = item.getAttribute('data-note-mode') || 'medio';
+      const modeLabel = item.getAttribute('data-mode-label') || 'Medio';
+      currentBrainNoteSummaryMode = mode;
+
+      document.querySelectorAll('#brain-ai-note-menu .brain-ai-dropdown-item').forEach(el => {
+        el.classList.toggle('active', el === item);
+      });
+
+      closeAllBrainAiDropdowns();
+
+      if (brainAiInput) {
+        const boardTitle = (brainAiTargetBoardSelect && brainAiTargetBoardSelect.value !== 'auto')
+          ? (brainAiTargetBoardSelect.options[brainAiTargetBoardSelect.selectedIndex]?.text || '').replace(/\s*\(.*?\)\s*$/, '')
+          : (workspaceBoards.find(b => b.id === currentActiveBoardId)?.title || 'el tablero');
+
+        const cleanedTail = stripBrainAiActionPrefix(brainAiInput.value || '');
+        brainAiInput.value = `Haz un apunte [Modo de resumen: ${modeLabel}] en ${boardTitle} con lo siguiente: ${cleanedTail}`;
+        brainAiInput.focus();
+        brainAiInput.setSelectionRange(brainAiInput.value.length, brainAiInput.value.length);
+      }
+    });
+  });
+
+  // Selección de periodo en "Briefing" (Últimos 7 días, Últimos 3 días, Últimas 24 horas)
+  document.querySelectorAll('#brain-ai-briefing-menu .brain-ai-dropdown-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const range = item.getAttribute('data-briefing-range') || '7d';
+      const rangeLabel = item.getAttribute('data-range-label') || 'Últimos 7 días';
+      closeAllBrainAiDropdowns();
+
+      let promptForBriefing = '';
+      if (range === '24h') {
+        promptForBriefing = 'Hazme un briefing detallado de las últimas 24 horas con las cosas, enlaces, repositorios y apuntes que he colocado hoy en mi cerebro ordenados por fecha y hora, indicando a qué tablero pertenece cada uno y resumiendo sus workflows.';
+      } else if (range === '3d') {
+        promptForBriefing = 'Hazme un briefing detallado de los últimos 3 días con las cosas, enlaces, repositorios y apuntes que he colocado en mi cerebro ordenados por fecha, indicando a qué tablero pertenece cada uno y resumiendo sus workflows.';
+      } else {
+        promptForBriefing = `Hazme un briefing detallado de los ${rangeLabel.toLowerCase()} con las cosas, enlaces, repositorios y apuntes que he colocado en mi cerebro ordenados por fecha, indicando a qué tablero pertenece cada uno y resumiendo sus workflows.`;
+      }
+      handleSendBrainAiMessage(promptForBriefing);
+    });
+  });
+
+  // Cerrar desplegables al hacer clic fuera
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.brain-ai-chip-dropdown')) {
+      closeAllBrainAiDropdowns();
+    }
+  });
+
+  // Chips de acción rápida directa (ej. Revisar apuntes obsoletos)
+  document.querySelectorAll('#brain-ai-quick-actions > .brain-ai-chip[data-prompt]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      closeAllBrainAiDropdowns();
+      const promptText = chip.getAttribute('data-prompt');
+      if (promptText) {
+        handleSendBrainAiMessage(promptText);
+      }
+    });
+  });
+
+  // Modal de Configuración de Proveedor IA
+  function syncSettingsModalVisibilityByProvider() {
+    const prov = brainAiProviderSelect?.value || 'claude_cli';
+    const isCli = (prov === 'claude_cli' || prov === 'gemini_cli');
+    if (brainAiCliConfigBox) brainAiCliConfigBox.style.display = isCli ? 'block' : 'none';
+    if (brainAiApikeyConfigBox) brainAiApikeyConfigBox.style.display = isCli ? 'none' : 'block';
+    if (brainAiGeminiFreeBanner) {
+      brainAiGeminiFreeBanner.style.display = (prov === 'gemini_api') ? 'flex' : 'none';
+    }
+    if (brainAiApikeyLabel) {
+      if (prov === 'gemini_api') {
+        brainAiApikeyLabel.textContent = 'Google AI Studio API Key (Gratis · o déjalo vacío para modo integrado)';
+        if (brainAiApikeyInput) brainAiApikeyInput.placeholder = 'AIzaSy... (opcional si usas el modo gratuito integrado)';
+      } else if (prov === 'ollama') {
+        brainAiApikeyLabel.textContent = 'Endpoint de Ollama Local';
+        if (brainAiApikeyInput) brainAiApikeyInput.placeholder = 'http://localhost:11434';
+      } else if (prov === 'claude_api') {
+        brainAiApikeyLabel.textContent = 'Anthropic Claude API Key';
+        if (brainAiApikeyInput) brainAiApikeyInput.placeholder = 'sk-ant-api03-...';
+      } else {
+        brainAiApikeyLabel.textContent = 'OpenAI API Key';
+        if (brainAiApikeyInput) brainAiApikeyInput.placeholder = 'sk-proj-...';
+      }
+    }
+    if (brainAiApikeyStatus) {
+      brainAiApikeyStatus.style.display = 'none';
+      brainAiApikeyStatus.className = 'brain-ai-apikey-status';
+    }
+
+    populateModelAndEffortSelects(
+      prov,
+      brainAiModelSelect,
+      brainAiEffortSelect,
+      brainAiSettings.provider === prov ? brainAiSettings.model : null,
+      brainAiSettings.provider === prov ? brainAiSettings.effort : null
+    );
+
+    if (isCli && brainAiCliDetectedBadge) {
+      const detectedPath = prov === 'claude_cli' ? detectDefaultClaudeCliPath() : detectDefaultGeminiCliPath();
+      if (detectedPath) {
+        brainAiCliDetectedBadge.textContent = `✓ Detectado en tu PC: ${detectedPath}`;
+        brainAiCliDetectedBadge.classList.remove('missing');
+        if (brainAiCliPathInput && !brainAiCliPathInput.value) {
+          brainAiCliPathInput.value = detectedPath;
+        }
+      } else {
+        brainAiCliDetectedBadge.textContent = `⚠️ No se encontró "${prov === 'claude_cli' ? 'claude' : 'gemini'}" en este PC (se usará Gemini 2.5 Flash Gratis si falla)`;
+        brainAiCliDetectedBadge.classList.add('missing');
+      }
+    }
+  }
+
+  function updateAutodetectStatusBanner() {
+    if (!brainAiAutodetectStatus) return;
+    const auto = autoDetectBestAiProvider();
+    brainAiAutodetectStatus.textContent = auto.detectedSummary;
+  }
+
+  function openBrainAiSettingsModal() {
+    if (!brainAiSettingsModal) return;
+    if (brainAiProviderSelect) brainAiProviderSelect.value = brainAiSettings.provider || 'claude_cli';
+    if (brainAiCliPathInput) brainAiCliPathInput.value = brainAiSettings.cliPath || '';
+    if (brainAiApikeyInput) brainAiApikeyInput.value = brainAiSettings.apiKey || '';
+    updateAutodetectStatusBanner();
+    syncSettingsModalVisibilityByProvider();
+    brainAiSettingsModal.style.display = 'flex';
+  }
+
+  function closeBrainAiSettingsModal() {
+    if (brainAiSettingsModal) brainAiSettingsModal.style.display = 'none';
+  }
+
+  brainAiProviderSelect?.addEventListener('change', syncSettingsModalVisibilityByProvider);
+  btnBrainAiSettings?.addEventListener('click', openBrainAiSettingsModal);
+  brainAiProviderBadge?.addEventListener('click', openBrainAiSettingsModal);
+  btnCloseBrainAiSettings?.addEventListener('click', closeBrainAiSettingsModal);
+  btnCancelBrainAiSettings?.addEventListener('click', closeBrainAiSettingsModal);
+
+  // Botón de Autodetección Inteligente de IA
+  btnBrainAiAutodetect?.addEventListener('click', () => {
+    const auto = autoDetectBestAiProvider();
+    if (brainAiProviderSelect) brainAiProviderSelect.value = auto.provider;
+    if (brainAiCliPathInput) brainAiCliPathInput.value = auto.cliPath || '';
+    syncSettingsModalVisibilityByProvider();
+    if (brainAiModelSelect) brainAiModelSelect.value = auto.model;
+    if (brainAiEffortSelect) brainAiEffortSelect.value = auto.effort;
+    if (brainAiAutodetectStatus) {
+      brainAiAutodetectStatus.textContent = auto.detectedSummary;
+    }
+    showDevToast(auto.detectedSummary);
+  });
+
+  // Botón para conseguir API Key gratuita de Google Gemini 2.5 Flash en 1 clic
+  btnBrainAiGetGeminiKey?.addEventListener('click', () => {
+    const targetUrl = 'https://aistudio.google.com/app/apikey';
+    try {
+      if (typeof window !== 'undefined' && typeof window.require === 'function') {
+        const { shell } = window.require('electron');
+        if (shell && typeof shell.openExternal === 'function') {
+          shell.openExternal(targetUrl);
+          return;
+        }
+      }
+    } catch (e) {}
+    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+  });
+
+  // Botón para probar la API Key (especialmente Gemini 2.5 Flash) o el modo gratuito integrado
+  btnBrainAiTestApikey?.addEventListener('click', async () => {
+    if (!brainAiApikeyStatus) return;
+    const prov = brainAiProviderSelect?.value || 'gemini_api';
+    const keyVal = (brainAiApikeyInput?.value || '').trim();
+    const modelVal = brainAiModelSelect?.value || getRecommendedModelForProvider(prov);
+
+    brainAiApikeyStatus.style.display = 'block';
+    brainAiApikeyStatus.className = 'brain-ai-apikey-status';
+    brainAiApikeyStatus.textContent = 'Probando conexión con IA...';
+
+    try {
+      if (prov === 'gemini_api') {
+        if (!keyVal) {
+          const testReply = await callFreeIntegratedGeminiFallback('Responde únicamente con la palabra: OK');
+          brainAiApikeyStatus.className = 'brain-ai-apikey-status ok';
+          brainAiApikeyStatus.textContent = `✓ Modo gratuito integrado listo (${testReply.slice(0, 24)}). Puedes pegar tu clave de AI Studio cuando quieras para mayor cuota.`;
+          return;
+        }
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(modelVal)}:generateContent?key=${encodeURIComponent(keyVal)}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Responde solo OK' }] }],
+            generationConfig: { maxOutputTokens: 16 }
+          })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error?.message || `HTTP ${res.status}`);
+        brainAiApikeyStatus.className = 'brain-ai-apikey-status ok';
+        brainAiApikeyStatus.textContent = `✓ Conectado a Google ${modelVal} correctamente.`;
+      } else {
+        brainAiApikeyStatus.className = 'brain-ai-apikey-status ok';
+        brainAiApikeyStatus.textContent = keyVal
+          ? `✓ Clave configurada para ${getProviderDisplayName(prov)} (${modelVal}).`
+          : `⚠️ Introduce una clave válida para ${getProviderDisplayName(prov)}.`;
+      }
+    } catch (err) {
+      brainAiApikeyStatus.className = 'brain-ai-apikey-status err';
+      brainAiApikeyStatus.textContent = `⚠️ Error al verificar: ${err.message || err}`;
+    }
+  });
+
+  btnBrainAiTestCli?.addEventListener('click', async () => {
+    if (!brainAiCliDetectedBadge) return;
+    brainAiCliDetectedBadge.textContent = 'Verificando ejecutable CLI...';
+    const prov = brainAiProviderSelect?.value || 'claude_cli';
+    const customCmd = brainAiCliPathInput?.value?.trim() || (prov === 'claude_cli' ? (detectDefaultClaudeCliPath() || 'claude') : (detectDefaultGeminiCliPath() || 'gemini'));
+    try {
+      const { execFileSync } = window.require('child_process');
+      const out = execFileSync(customCmd, ['--version'], { encoding: 'utf8', timeout: 5000, windowsHide: true }).trim();
+      brainAiCliDetectedBadge.textContent = `✓ Conectado: ${out}`;
+      brainAiCliDetectedBadge.classList.remove('missing');
+    } catch (e) {
+      brainAiCliDetectedBadge.textContent = `⚠️ No se pudo ejecutar "${customCmd}"`;
+      brainAiCliDetectedBadge.classList.add('missing');
+    }
+  });
+
+  btnSaveBrainAiSettings?.addEventListener('click', () => {
+    const prov = brainAiProviderSelect?.value || 'claude_cli';
+    brainAiSettings = {
+      provider: prov,
+      cliPath: brainAiCliPathInput?.value?.trim() || '',
+      apiKey: brainAiApikeyInput?.value?.trim() || '',
+      model: brainAiModelSelect?.value || getRecommendedModelForProvider(prov),
+      effort: brainAiEffortSelect?.value || getRecommendedEffortForProvider(prov)
+    };
+    saveBrainAiSettingsToStorage();
+    syncBrainAiHeaderBadges();
+    closeBrainAiSettingsModal();
+    showDevToast(`Brain conectado: ${getProviderDisplayName(brainAiSettings.provider)}`);
+  });
+
+  // Atajo global Ctrl+K para abrir/cerrar el Cerebro IA desde cualquier pantalla
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      toggleBrainAiChatPanel();
+    }
+  });
+
+  syncBrainAiHeaderBadges();
 
   // Renderizar la pantalla de inicio de inmediato
   showHomeScreen();

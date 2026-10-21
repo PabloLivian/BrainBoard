@@ -46,6 +46,11 @@ class CanvasEngine {
     this.hoveredSnapPort = null;
     this.hoveredConnectorPort = null;
 
+    // Herramienta Dev: Selector de Coordenadas de Área para IA ('dev_coords')
+    this.isSelectingDevCoords = false;
+    this.devCoordsBox = null;
+    this.onDevCoordsSelected = null;
+
     // Smart Guides magnéticas (Alineación inteligente)
     this.smartGuidesEnabled = true;
     this.activeGuides = [];
@@ -75,8 +80,166 @@ class CanvasEngine {
     this.lastPointerWorld = null;
     this.lastPointerScreen = null;
 
+    // Seguimiento de Fecha de Colocación, Hover 2s y Mapa Visual de Frescura
+    this.freshnessMapMode = false;
+    this.freshnessFilterTier = 'all'; // 'all' | 'recent' | 'current' | 'aging' | 'obsolete'
+    this.hoverDateTimer = null;
+    this.hoverDateTargetId = null;
+    this.onItemHoverDate = null;
+
     this.initCanvasSize();
     this.bindEvents();
+    this.render();
+  }
+
+  clearHoverDateTooltip() {
+    if (this.hoverDateTimer) {
+      clearTimeout(this.hoverDateTimer);
+      this.hoverDateTimer = null;
+    }
+    if (this.hoverDateTargetId !== null) {
+      this.hoverDateTargetId = null;
+      if (this.onItemHoverDate) {
+        this.onItemHoverDate(null, 0, 0, null);
+      }
+    }
+  }
+
+  scheduleHoverDateTooltip(item, screenX, screenY) {
+    if (!item || !item.id) {
+      this.clearHoverDateTooltip();
+      return;
+    }
+    this.hoverDateLastScreen = { x: screenX, y: screenY };
+    if (this.hoverDateTargetId === item.id) {
+      return;
+    }
+    if (this.hoverDateTimer) {
+      clearTimeout(this.hoverDateTimer);
+      this.hoverDateTimer = null;
+    }
+    if (this.onItemHoverDate) {
+      this.onItemHoverDate(null, 0, 0, null);
+    }
+    this.hoverDateTargetId = item.id;
+    this.hoverDateTimer = setTimeout(() => {
+      this.hoverDateTimer = null;
+      if (this.hoverDateTargetId === item.id && !this.isDraggingItem && !this.isPanning && !this.isSelectingMarquee) {
+        const currentItem = this.items.find(i => i.id === item.id) || item;
+        const info = this.getItemFreshnessInfo(currentItem);
+        const pos = this.hoverDateLastScreen || { x: screenX, y: screenY };
+        if (this.onItemHoverDate) {
+          this.onItemHoverDate(currentItem, pos.x, pos.y, info);
+        }
+      }
+    }, 2000);
+  }
+
+  getItemCreatedAtMs(it) {
+    if (!it) return null;
+    if (it.createdAt) {
+      const parsed = Date.parse(it.createdAt);
+      if (!isNaN(parsed)) return parsed;
+    }
+    if (it.updatedAt) {
+      const parsed = Date.parse(it.updatedAt);
+      if (!isNaN(parsed)) return parsed;
+    }
+    const idStr = String(it.id || '');
+    const m = idStr.match(/(?:^|_)(\d{13})(?:_|$)/);
+    if (m) {
+      const ms = Number(m[1]);
+      if (ms > 1577836800000 && ms <= Date.now() + 86400000) return ms;
+    }
+    return null;
+  }
+
+  getItemFreshnessInfo(it) {
+    const createdMs = this.getItemCreatedAtMs(it);
+    const nowMs = Date.now();
+    const validMs = createdMs || nowMs;
+    const diffMs = Math.max(0, nowMs - validMs);
+    const ageDays = diffMs / 86400000;
+    const ageHours = diffMs / 3600000;
+    const ageMinutes = diffMs / 60000;
+
+    let relativeText = '';
+    if (!createdMs) {
+      relativeText = 'Fecha registrada';
+    } else if (ageMinutes < 2) {
+      relativeText = 'Justo ahora';
+    } else if (ageMinutes < 60) {
+      relativeText = `Hace ${Math.floor(ageMinutes)} min`;
+    } else if (ageHours < 24) {
+      const h = Math.floor(ageHours);
+      relativeText = `Hace ${h} ${h === 1 ? 'hora' : 'horas'}`;
+    } else if (ageDays < 2) {
+      relativeText = 'Ayer';
+    } else if (ageDays < 30) {
+      relativeText = `Hace ${Math.floor(ageDays)} días`;
+    } else if (ageDays < 365) {
+      const months = Math.max(1, Math.floor(ageDays / 30.4));
+      relativeText = `Hace ${months} ${months === 1 ? 'mes' : 'meses'}`;
+    } else {
+      const years = (ageDays / 365.25).toFixed(1).replace(/\.0$/, '');
+      relativeText = `Hace ${years} ${years === '1' ? 'año' : 'años'}`;
+    }
+
+    const d = new Date(validMs);
+    const monthsShort = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    const dayNum = d.getDate();
+    const monStr = monthsShort[d.getMonth()];
+    const yearNum = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const formattedDate = `${dayNum} ${monStr} ${yearNum}`;
+    const formattedDateTime = `${dayNum} ${monStr} ${yearNum}, ${hh}:${mm}`;
+
+    let tier = 'recent';
+    let tierLabel = 'Reciente';
+    let color = '#10b981'; // Esmeralda
+    if (ageDays <= 7) {
+      tier = 'recent';
+      tierLabel = 'Reciente (≤7d)';
+      color = '#10b981';
+    } else if (ageDays <= 30) {
+      tier = 'current';
+      tierLabel = 'Actual (≤30d)';
+      color = '#3b82f6';
+    } else if (ageDays <= 180) {
+      tier = 'aging';
+      tierLabel = 'Intermedio (≤6m)';
+      color = '#f59e0b';
+    } else {
+      tier = 'obsolete';
+      tierLabel = 'Antiguo (>6m)';
+      color = '#ef4444';
+    }
+
+    return {
+      createdMs: validMs,
+      createdAtIso: new Date(validMs).toISOString(),
+      ageDays,
+      tier,
+      tierLabel,
+      color,
+      relativeText,
+      formattedDate,
+      formattedDateTime
+    };
+  }
+
+  matchesFreshnessFilter(it) {
+    if (!this.freshnessMapMode || !this.freshnessFilterTier || this.freshnessFilterTier === 'all') {
+      return true;
+    }
+    const info = this.getItemFreshnessInfo(it);
+    return info.tier === this.freshnessFilterTier;
+  }
+
+  setFreshnessMapMode(enabled, filterTier = 'all') {
+    this.freshnessMapMode = Boolean(enabled);
+    this.freshnessFilterTier = filterTier || 'all';
     this.render();
   }
 
@@ -1221,10 +1384,15 @@ class CanvasEngine {
 
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
+      this.clearHoverDateTooltip();
       // Zoom directo con rueda centrado en el cursor
       const factor = e.deltaY < 0 ? 1.12 : 0.88;
       this.zoomAt(e.clientX, e.clientY, factor);
     }, { passive: false });
+
+    this.canvas.addEventListener('pointerleave', () => {
+      this.clearHoverDateTooltip();
+    });
 
     // Soporte para desplazar (pan) manteniendo la barra espaciadora pulsada
     window.addEventListener('keydown', (e) => {
@@ -1260,6 +1428,7 @@ class CanvasEngine {
   }
 
   onPointerDown(e) {
+    this.clearHoverDateTooltip();
     if (this.onEditingFinish) {
       this.onEditingFinish();
     }
@@ -1270,79 +1439,10 @@ class CanvasEngine {
 
     // =========================================================
     // CLIC CENTRAL (Rueda del ratón, e.button === 1):
-    // Solo se duplica si el ratón está encima de alguno de los objetos seleccionados.
-    // Si no está encima, con la rueda se navega (Pan) sobre el lienzo.
+    // Siempre hace Pan (desplazarse por el lienzo), nunca duplica elementos.
     // =========================================================
     if (e.button === 1) {
       e.preventDefault();
-
-      const isOverSelected = this.isPointerOverSelection(world.x, world.y);
-
-      // Si está encima de la selección -> DUPLICAR Y ARRASTRAR
-      if (isOverSelected) {
-        this.saveSnapshot();
-
-        // 1. Recopilar todos los elementos a duplicar (incluyendo hijos de marcos seleccionados)
-        const itemsToDuplicateIds = new Set(this.selectedItemIds);
-        this.items.forEach(it => {
-          if (this.selectedItemIds.has(it.id) && it.type === 'frame') {
-            const frame = it;
-            this.items.forEach(child => {
-              if (child.id !== frame.id && (child.parentId === frame.id || this.isItemInsideFrame(child, frame))) {
-                itemsToDuplicateIds.add(child.id);
-              }
-            });
-          }
-        });
-
-        // 2. Mapear IDs viejos a nuevos y clonar
-        const idMap = new Map();
-        const newItems = [];
-        this.items.forEach(it => {
-          if (itemsToDuplicateIds.has(it.id)) {
-            const copy = JSON.parse(JSON.stringify(it));
-            copy.id = it.type + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-            idMap.set(it.id, copy.id);
-            newItems.push(copy);
-          }
-        });
-
-        // 3. Remapear parentId y conectores si apuntan a elementos dentro de la selección
-        newItems.forEach(copy => {
-          if (copy.parentId && idMap.has(copy.parentId)) {
-            copy.parentId = idMap.get(copy.parentId);
-          }
-          if (copy.type === 'connector') {
-            if (copy.start?.item && idMap.has(copy.start.item)) {
-              copy.start.item = idMap.get(copy.start.item);
-            }
-            if (copy.end?.item && idMap.has(copy.end.item)) {
-              copy.end.item = idMap.get(copy.end.item);
-            }
-          }
-        });
-
-        // 4. Agregar copias al lienzo y seleccionarlas
-        this.items.push(...newItems);
-        this.selectedItemIds.clear();
-        newItems.forEach(copy => {
-          this.selectedItemIds.add(copy.id);
-        });
-
-        if (this.onSelectionChange) this.onSelectionChange(Array.from(this.selectedItemIds));
-
-        // 5. Iniciar arrastre inmediato con la rueda del ratón
-        this.isDraggingItem = true;
-        this.isMiddleDragDuplicate = true;
-        this.dragStart = { x: world.x, y: world.y };
-        this.dragStartScreen = { x: e.clientX, y: e.clientY };
-        this.hasMovedItem = false;
-        this.canvas.style.cursor = 'move';
-        this.render();
-        return;
-      }
-
-      // Si no hay elementos seleccionados ni bajo el cursor, clic central = Pan
       this.isPanning = true;
       this.panStart = { x: e.clientX, y: e.clientY };
       this.canvas.style.cursor = 'grabbing';
@@ -1354,6 +1454,15 @@ class CanvasEngine {
       this.isPanning = true;
       this.panStart = { x: e.clientX, y: e.clientY };
       this.canvas.style.cursor = 'grabbing';
+      return;
+    }
+
+    // Herramienta Dev: Selección cuadrada de coordenadas para la IA
+    if (this.activeTool === 'dev_coords') {
+      this.isSelectingDevCoords = true;
+      this.devCoordsBox = { startX: world.x, startY: world.y, currentX: world.x, currentY: world.y };
+      this.canvas.style.cursor = 'crosshair';
+      this.render();
       return;
     }
 
@@ -1399,9 +1508,12 @@ class CanvasEngine {
         this.isConnectingFromPort = true;
         this.connectorStartItem = portHit.item;
         this.connectorStartPort = portHit.port;
+        const nowIso = new Date().toISOString();
         this.activeConnector = {
           id: Date.now().toString(),
           type: 'connector',
+          createdAt: nowIso,
+          updatedAt: nowIso,
           start: {
             x: portHit.port.x,
             y: portHit.port.y,
@@ -1466,10 +1578,13 @@ class CanvasEngine {
 
           const idMap = new Map();
           const newItems = [];
+          const nowIso = new Date().toISOString();
           this.items.forEach(it => {
             if (itemsToDuplicateIds.has(it.id)) {
               const copy = JSON.parse(JSON.stringify(it));
               copy.id = it.type + '_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+              copy.createdAt = nowIso;
+              copy.updatedAt = nowIso;
               if (typeof it.zIndex === 'number') copy.zIndex = it.zIndex + 1;
               idMap.set(it.id, copy.id);
               newItems.push(copy);
@@ -1624,9 +1739,12 @@ class CanvasEngine {
 
     if (this.activeTool === 'sticky_note') {
       this.saveSnapshot();
+      const nowIso = new Date().toISOString();
       const newNote = {
         id: 'note_' + Date.now(),
         type: 'sticky_note',
+        createdAt: nowIso,
+        updatedAt: nowIso,
         x: world.x - 90,
         y: world.y - 90,
         width: 180,
@@ -1646,9 +1764,12 @@ class CanvasEngine {
 
     if (this.activeTool === 'shape') {
       this.saveSnapshot();
+      const nowIso = new Date().toISOString();
       const newShape = {
         id: 'shape_' + Date.now(),
         type: 'shape',
+        createdAt: nowIso,
+        updatedAt: nowIso,
         shape: this.selectedShapeType,
         x: world.x - 80,
         y: world.y - 50,
@@ -1671,9 +1792,12 @@ class CanvasEngine {
 
     if (this.activeTool === 'text') {
       this.saveSnapshot();
+      const nowIso = new Date().toISOString();
       const newText = {
         id: 'text_' + Date.now(),
         type: 'text',
+        createdAt: nowIso,
+        updatedAt: nowIso,
         x: world.x,
         y: world.y,
         width: 160,
@@ -1694,9 +1818,12 @@ class CanvasEngine {
 
     if (this.activeTool === 'pen') {
       this.saveSnapshot();
+      const nowIso = new Date().toISOString();
       this.currentDrawing = {
         id: 'pen_' + Date.now(),
         type: 'pen',
+        createdAt: nowIso,
+        updatedAt: nowIso,
         points: [{ x: world.x, y: world.y }],
         color: this.activeColor === '#fff9b0' ? '#1a1a1a' : this.activeColor,
         strokeWidth: 3
@@ -1708,9 +1835,12 @@ class CanvasEngine {
 
     if (this.activeTool === 'connector') {
       this.saveSnapshot();
+      const nowIso = new Date().toISOString();
       this.activeConnector = {
         id: 'conn_' + Date.now(),
         type: 'connector',
+        createdAt: nowIso,
+        updatedAt: nowIso,
         start: { x: world.x, y: world.y },
         end: { x: world.x, y: world.y },
         color: '#1a1a1a',
@@ -1723,9 +1853,12 @@ class CanvasEngine {
 
     if (this.activeTool === 'frame') {
       this.saveSnapshot();
+      const nowIso = new Date().toISOString();
       const newFrame = {
         id: 'frame_' + Date.now(),
         type: 'frame',
+        createdAt: nowIso,
+        updatedAt: nowIso,
         x: world.x - 200,
         y: world.y - 150,
         width: 400,
@@ -1744,9 +1877,12 @@ class CanvasEngine {
 
     if (this.activeTool === 'comment') {
       this.saveSnapshot();
+      const nowIso = new Date().toISOString();
       const newComment = {
         id: 'comment_' + Date.now(),
         type: 'comment',
+        createdAt: nowIso,
+        updatedAt: nowIso,
         x: world.x,
         y: world.y,
         text: '',
@@ -1780,6 +1916,7 @@ class CanvasEngine {
 
   insertTemplateAt(targetCenterX, targetCenterY, templateType = 'apuntes') {
     const now = Date.now();
+    const nowIso = new Date(now).toISOString();
     const currentMaxZ = this.items.reduce((max, it) => Math.max(max, typeof it.zIndex === 'number' ? it.zIndex : 10), 10);
     const createdItems = [];
 
@@ -1793,6 +1930,8 @@ class CanvasEngine {
       const frame = {
         id: frameId,
         type: 'frame',
+        createdAt: nowIso,
+        updatedAt: nowIso,
         x: frameX,
         y: frameY,
         width: frameW,
@@ -1804,6 +1943,8 @@ class CanvasEngine {
       const title = {
         id: 'text_' + now + '_' + Math.random().toString(36).substr(2, 5),
         type: 'text',
+        createdAt: nowIso,
+        updatedAt: nowIso,
         parentId: frameId,
         x: Math.round(frameX + 23),
         y: Math.round(frameY + 17),
@@ -1821,6 +1962,8 @@ class CanvasEngine {
       const notes = {
         id: 'text_' + (now + 1) + '_' + Math.random().toString(36).substr(2, 5),
         type: 'text',
+        createdAt: nowIso,
+        updatedAt: nowIso,
         parentId: frameId,
         x: Math.round(frameX + 23),
         y: Math.round(frameY + 126),
@@ -2033,19 +2176,36 @@ class CanvasEngine {
       const handleHit = this.getResizeHandleAt(world.x, world.y);
       if (handleHit) {
         this.canvas.style.cursor = handleHit.cursor;
+        this.clearHoverDateTooltip();
       } else {
         const itemUnder = this.getItemAt(world.x, world.y, true);
         if (itemUnder) {
           this.canvas.style.cursor = 'move';
+          this.scheduleHoverDateTooltip(itemUnder, e.clientX, e.clientY);
         } else {
           const frameUnder = this.getItemAt(world.x, world.y, false);
           if (frameUnder && frameUnder.type === 'frame' && (this.selectedItemIds.has(frameUnder.id) || this.isPointOnFrameHeaderOrBorder(frameUnder, world.x, world.y))) {
             this.canvas.style.cursor = 'move';
+            this.scheduleHoverDateTooltip(frameUnder, e.clientX, e.clientY);
           } else {
             this.canvas.style.cursor = 'default';
+            this.clearHoverDateTooltip();
           }
         }
       }
+    } else {
+      this.clearHoverDateTooltip();
+    }
+
+    if (this.activeTool === 'dev_coords') {
+      this.canvas.style.cursor = 'crosshair';
+    }
+
+    if (this.isSelectingDevCoords && this.devCoordsBox) {
+      this.devCoordsBox.currentX = world.x;
+      this.devCoordsBox.currentY = world.y;
+      this.render();
+      return;
     }
 
     if (this.isSelectingMarquee && this.marqueeBox) {
@@ -2162,6 +2322,39 @@ class CanvasEngine {
 
     this.potentialFrameHeaderClick = null;
 
+    if (this.isSelectingDevCoords && this.devCoordsBox) {
+      const minX = Math.round(Math.min(this.devCoordsBox.startX, this.devCoordsBox.currentX));
+      const maxX = Math.round(Math.max(this.devCoordsBox.startX, this.devCoordsBox.currentX));
+      const minY = Math.round(Math.min(this.devCoordsBox.startY, this.devCoordsBox.currentY));
+      const maxY = Math.round(Math.max(this.devCoordsBox.startY, this.devCoordsBox.currentY));
+      let width = maxX - minX;
+      let height = maxY - minY;
+
+      // Si fue solo un clic sin arrastrar, asignar tamaño por defecto 400x300 centrado en el clic
+      if (width < 6 && height < 6) {
+        width = 400;
+        height = 300;
+      }
+
+      const coordsResult = {
+        x: width === 400 && maxX - minX < 6 ? Math.round(minX - width / 2) : minX,
+        y: height === 300 && maxY - minY < 6 ? Math.round(minY - height / 2) : minY,
+        width,
+        height
+      };
+
+      this.isSelectingDevCoords = false;
+      this.devCoordsBox = null;
+      this.activeTool = 'select';
+      this.canvas.style.cursor = 'default';
+
+      if (typeof this.onDevCoordsSelected === 'function') {
+        this.onDevCoordsSelected(coordsResult);
+      }
+      this.render();
+      return;
+    }
+
     if (this.isSelectingMarquee) {
       if (this.potentialFrameClick) {
         // Clic simple en el interior de un frame sin arrastrar (< 4px de movimiento)
@@ -2240,6 +2433,11 @@ class CanvasEngine {
       const sortedItems = this.getSortedItemsForRender(false);
       sortedItems.forEach(it => {
         if (!isVisible(it)) return;
+        const matchesFilter = this.matchesFreshnessFilter(it);
+        this.ctx.save();
+        if (this.freshnessMapMode && !matchesFilter) {
+          this.ctx.globalAlpha = 0.16;
+        }
         try {
           switch (it.type) {
             case 'frame': this.drawFrame(it); break;
@@ -2254,8 +2452,13 @@ class CanvasEngine {
             case 'pen': this.drawPen(it); break;
             case 'comment': this.drawComment(it); break;
           }
+          if (this.freshnessMapMode && matchesFilter && it.type !== 'connector' && it.type !== 'pen') {
+            this.drawFreshnessOverlay(it);
+          }
         } catch (e) {
           console.error('Error al dibujar elemento:', it.id, e);
+        } finally {
+          this.ctx.restore();
         }
       });
 
@@ -2265,6 +2468,7 @@ class CanvasEngine {
       // 9. Seleccion y recuadro marquee
       this.drawSelectionOutline();
       this.drawMarquee();
+      this.drawDevCoordsMarquee();
     } finally {
       this.ctx.restore();
     }
@@ -2767,7 +2971,7 @@ class CanvasEngine {
   }
 
   drawEmbed(it) {
-    if (!it.src && it.url) {
+    if (!it.src && it.url && (it.height || 0) > 150) {
       const ytId = this.extractYouTubeVideoId(it.url);
       if (ytId) {
         it.src = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
@@ -2775,7 +2979,7 @@ class CanvasEngine {
     }
     this.ctx.save();
     const r = 10;
-    const isCompact = !it.src || it.height < 120;
+    const isCompact = !it.src || it.height <= 145;
     const thumbH = isCompact ? 0 : Math.max(60, Math.round(it.height * 0.52));
 
     // 1. Sombra suave de la tarjeta widget
@@ -2892,6 +3096,12 @@ class CanvasEngine {
       this.ctx.textAlign = 'center';
       this.ctx.textBaseline = 'middle';
       this.ctx.fillText('⚡', badgeX + badgeSize / 2, badgeY + badgeSize / 2);
+    } else if (domain === 'X.COM' || domain.includes('TWITTER') || domain.endsWith('.X.COM')) {
+      this.ctx.fillStyle = this.isDarkMode ? '#F1F5F9' : '#0f172a';
+      this.ctx.font = '700 13px sans-serif';
+      this.ctx.textAlign = 'center';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText('𝕏', badgeX + badgeSize / 2, badgeY + badgeSize / 2);
     } else {
       this.ctx.fillStyle = '#3b82f6';
       this.ctx.font = '13px sans-serif';
@@ -3375,6 +3585,66 @@ class CanvasEngine {
     this.ctx.restore();
   }
 
+  drawDevCoordsMarquee() {
+    if (!this.isSelectingDevCoords || !this.devCoordsBox) return;
+    const minX = Math.min(this.devCoordsBox.startX, this.devCoordsBox.currentX);
+    const maxX = Math.max(this.devCoordsBox.startX, this.devCoordsBox.currentX);
+    const minY = Math.min(this.devCoordsBox.startY, this.devCoordsBox.currentY);
+    const maxY = Math.max(this.devCoordsBox.startY, this.devCoordsBox.currentY);
+    const w = Math.round(maxX - minX);
+    const h = Math.round(maxY - minY);
+    if (w < 2 && h < 2) return;
+
+    this.ctx.save();
+    const z = this.camera.zoom;
+
+    // Relleno cian/azul translúcido
+    this.ctx.fillStyle = 'rgba(2, 132, 199, 0.14)';
+    this.ctx.fillRect(minX, minY, w, h);
+
+    // Borde brillante con guiones tipo selección
+    this.ctx.strokeStyle = '#0284c7';
+    this.ctx.lineWidth = Math.max(1.5, 2 / z);
+    this.ctx.setLineDash([6 / z, 4 / z]);
+    this.ctx.strokeRect(minX, minY, w, h);
+
+    // Esquinas resaltadas
+    this.ctx.setLineDash([]);
+    this.ctx.fillStyle = '#38bdf8';
+    const cSize = Math.max(4, 5 / z);
+    this.ctx.fillRect(minX - cSize / 2, minY - cSize / 2, cSize, cSize);
+    this.ctx.fillRect(maxX - cSize / 2, minY - cSize / 2, cSize, cSize);
+    this.ctx.fillRect(minX - cSize / 2, maxY - cSize / 2, cSize, cSize);
+    this.ctx.fillRect(maxX - cSize / 2, maxY - cSize / 2, cSize, cSize);
+
+    // Etiqueta flotante con coordenadas y dimensiones en tiempo real
+    const fontSize = Math.max(11, Math.min(18, Math.round(12 / Math.sqrt(z))));
+    this.ctx.font = `600 ${fontSize}px "Fira Code", monospace`;
+    const labelText = `X: ${Math.round(minX)}  Y: ${Math.round(minY)}  [${w} × ${h}px]`;
+    const padX = 8 / z;
+    const padY = 5 / z;
+    const textW = this.ctx.measureText(labelText).width;
+    const badgeW = textW + padX * 2;
+    const badgeH = fontSize + padY * 2;
+    const badgeX = minX;
+    const badgeY = minY - badgeH - (4 / z);
+
+    this.ctx.fillStyle = this.isDarkMode ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)';
+    this.ctx.strokeStyle = '#0284c7';
+    this.ctx.lineWidth = 1.2 / z;
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, badgeX, badgeY, badgeW, badgeH, 4 / z);
+    this.ctx.fill();
+    this.ctx.stroke();
+
+    this.ctx.fillStyle = this.isDarkMode ? '#38bdf8' : '#0369a1';
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(labelText, badgeX + padX, badgeY + badgeH / 2);
+
+    this.ctx.restore();
+  }
+
   roundRect(ctx, x, y, width, height, radius) {
     ctx.moveTo(x + radius, y);
     ctx.lineTo(x + width - radius, y);
@@ -3434,6 +3704,58 @@ class CanvasEngine {
     return renderLines.length;
   }
 
+  drawFreshnessOverlay(it) {
+    if (!it || typeof it.x !== 'number' || typeof it.y !== 'number') return;
+    const info = this.getItemFreshnessInfo(it);
+    const x = it.x;
+    const y = it.y;
+    const w = it.width || 100;
+    const h = it.height || 40;
+
+    this.ctx.save();
+    // Contorno coloreado según antigüedad
+    const lineWidth = Math.max(2, 2.5 / Math.max(0.25, Math.min(2, this.camera.zoom)));
+    this.ctx.strokeStyle = info.color;
+    this.ctx.lineWidth = lineWidth;
+    this.roundRect(this.ctx, x - 2, y - 2, w + 4, h + 4, 8);
+    this.ctx.stroke();
+
+    // Si el zoom permite leer etiquetas o el objeto es suficientemente grande, dibujar píldora de fecha arriba a la derecha
+    if (this.camera.zoom >= 0.18) {
+      const badgeScale = Math.max(0.65, Math.min(1.4, 1 / Math.sqrt(this.camera.zoom)));
+      const fontSize = Math.round(11 * badgeScale);
+      this.ctx.font = `600 ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+      const labelText = `${info.relativeText} · ${info.formattedDate}`;
+      const textWidth = this.ctx.measureText(labelText).width;
+      const padX = 8 * badgeScale;
+      const dotR = 3.5 * badgeScale;
+      const badgeW = textWidth + padX * 2 + dotR * 2 + 5 * badgeScale;
+      const badgeH = 20 * badgeScale;
+      const bx = x + w - badgeW;
+      const by = y - badgeH - 4 * badgeScale;
+
+      this.ctx.fillStyle = this.isDarkMode ? 'rgba(15, 23, 42, 0.94)' : 'rgba(255, 255, 255, 0.96)';
+      this.ctx.strokeStyle = info.color;
+      this.ctx.lineWidth = Math.max(1, 1.2 * badgeScale);
+      this.roundRect(this.ctx, bx, by, badgeW, badgeH, 6 * badgeScale);
+      this.ctx.fill();
+      this.ctx.stroke();
+
+      // Punto de color de frescura
+      this.ctx.beginPath();
+      this.ctx.fillStyle = info.color;
+      this.ctx.arc(bx + padX + dotR, by + badgeH / 2, dotR, 0, Math.PI * 2);
+      this.ctx.fill();
+
+      // Texto de fecha
+      this.ctx.fillStyle = this.isDarkMode ? '#f1f5f9' : '#1e293b';
+      this.ctx.textAlign = 'left';
+      this.ctx.textBaseline = 'middle';
+      this.ctx.fillText(labelText, bx + padX + dotR * 2 + 5 * badgeScale, by + badgeH / 2 + 0.5);
+    }
+    this.ctx.restore();
+  }
+
   // Eliminar seleccionados
   deleteSelected() {
     if (this.selectedItemIds.size === 0) return;
@@ -3450,10 +3772,13 @@ class CanvasEngine {
     if (this.selectedItemIds.size === 0) return;
     this.saveSnapshot();
     const newItems = [];
+    const nowIso = new Date().toISOString();
     this.items.forEach(it => {
       if (this.selectedItemIds.has(it.id)) {
         const copy = JSON.parse(JSON.stringify(it));
         copy.id = it.type + '_' + Date.now() + Math.random().toString(36).substr(2, 4);
+        copy.createdAt = nowIso;
+        copy.updatedAt = nowIso;
         copy.x += 30;
         copy.y += 30;
         newItems.push(copy);
