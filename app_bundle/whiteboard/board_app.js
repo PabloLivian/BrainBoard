@@ -6997,9 +6997,9 @@ document.addEventListener('DOMContentLoaded', () => {
       { value: 'opus', label: 'Claude 5.5 Opus' }
     ],
     claude_api: [
-      { value: 'claude-5-5-haiku-latest', label: 'Claude 5.5 Haiku' },
-      { value: 'claude-5-5-sonnet-latest', label: 'Claude 5.5 Sonnet' },
-      { value: 'claude-5-5-opus-latest', label: 'Claude 5.5 Opus' }
+      { value: 'claude-haiku-5-5', label: 'Claude 5.5 Haiku' },
+      { value: 'claude-sonnet-5-5', label: 'Claude 5.5 Sonnet' },
+      { value: 'claude-opus-5-5', label: 'Claude 5.5 Opus' }
     ],
     gemini_cli: [
       { value: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
@@ -8321,7 +8321,7 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
     if (provider === 'claude_api') {
       const apiKey = (brainAiSettings.apiKey || '').trim();
       if (!apiKey) throw new Error('Introduce tu API Key de Anthropic Claude en Configurar Brain (⚙️).');
-      const model = selectedModel || 'claude-sonnet-4-20250514';
+      const model = selectedModel || 'claude-haiku-5-5';
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
