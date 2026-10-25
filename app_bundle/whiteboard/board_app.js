@@ -1746,13 +1746,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const stagingDir = path.join(os.tmpdir(), 'bb_export_' + Date.now());
         fs.mkdirSync(stagingDir, { recursive: true });
 
-        const appData = (process && process.env && process.env.APPDATA) || (process.platform === 'win32' ? 'C:\\Users\\Usuario\\AppData\\Roaming' : (process.platform === 'darwin' ? (process.env.HOME || '') + '/Library/Application Support' : '/var/local'));
-        const sourceDirs = [
-          path.join(appData, 'BrainBoard', 'extracted_board'),
-          'C:\\Users\\Usuario\\AppData\\Roaming\\BrainBoard\\extracted_board',
-          'C:\\Users\\Usuario\\Desktop\\DEV\\BrainBoard\\extracted_board',
-          path.resolve('extracted_board')
-        ];
+        const sourceDirs = [getUserImagesDir(), getBundledAssetsDir()];
 
         const copiedMedia = [];
         const resourcesMeta = [];
@@ -2002,13 +1996,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
           }
 
-          const appData = (process && process.env && process.env.APPDATA) || (process.platform === 'win32' ? 'C:\\Users\\Usuario\\AppData\\Roaming' : (process.platform === 'darwin' ? (process.env.HOME || '') + '/Library/Application Support' : '/var/local'));
-          const targetDirs = [
-            path.join(appData, 'BrainBoard', 'extracted_board'),
-            'C:\\Users\\Usuario\\AppData\\Roaming\\BrainBoard\\extracted_board',
-            'C:\\Users\\Usuario\\Desktop\\DEV\\BrainBoard\\extracted_board',
-            path.resolve('extracted_board')
-          ];
+          const targetDirs = [getUserImagesDir()];
 
           targetDirs.forEach(td => {
             try { if (!fs.existsSync(td)) fs.mkdirSync(td, { recursive: true }); } catch (e) {}
@@ -4041,6 +4029,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let saveTimeout = null;
 
+  // Carpeta de imágenes del usuario: <appData>/BrainBoard/extracted_board (misma base que userData en main.js)
+  function getUserImagesDir() {
+    const path = window.require('path');
+    const os = window.require('os');
+    const appData = process.env.APPDATA || (process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Library', 'Application Support')
+      : path.join(os.homedir(), '.config'));
+    return path.join(appData, 'BrainBoard', 'extracted_board');
+  }
+
+  // Imágenes incluidas en la propia app (tablero Ejemplo): app_bundle/assets
+  function getBundledAssetsDir() {
+    return window.require('path').join(__dirname, 'assets');
+  }
+
   function resolveImageSrc(src) {
     if (!src) return src;
     if (src.startsWith('data:') || src.startsWith('http:') || src.startsWith('https:')) {
@@ -4050,23 +4053,11 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const fs = window.require('fs');
         const path = window.require('path');
-        let filename = src;
-        if (src.includes('extracted_board/')) {
-          filename = src.split('extracted_board/').pop();
-        } else if (src.includes('extracted_board\\')) {
-          filename = src.split('extracted_board\\').pop();
-        }
-        filename = filename.replace(/\\/g, '/').split('/').pop();
+        const filename = src.replace(/\\/g, '/').split('/').pop();
 
-        const appData = (process && process.env && process.env.APPDATA) || (process.platform === 'win32' ? 'C:\\Users\\Usuario\\AppData\\Roaming' : (process.platform === 'darwin' ? (process.env.HOME || '') + '/Library/Application Support' : '/var/local'));
         const candidates = [
-          path.join(appData, 'BrainBoard', 'extracted_board', filename),
-          'C:\\Users\\Usuario\\AppData\\Roaming\\BrainBoard\\extracted_board\\' + filename,
-          'C:\\Users\\Usuario\\Desktop\\DEV\\BrainBoard\\extracted_board\\' + filename,
-          path.resolve(__dirname, src),
-          path.resolve(process.cwd(), src),
-          path.resolve('c:/Users/Usuario/Desktop/DEV/BrainBoard/extracted_board', filename),
-          path.resolve('c:/Users/Usuario/Desktop/DEV/BrainBoard', src.replace(/^\.\.\//, ''))
+          path.join(getUserImagesDir(), filename),
+          path.join(getBundledAssetsDir(), filename)
         ];
 
         for (const cand of candidates) {
@@ -4074,7 +4065,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return 'file:///' + cand.replace(/\\/g, '/');
           }
         }
-        return 'file:///' + (appData + '/BrainBoard/extracted_board/' + filename).replace(/\\/g, '/');
+        return 'file:///' + candidates[0].replace(/\\/g, '/');
       } catch (e) {}
     }
     return src;
@@ -7069,7 +7060,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const home = os.homedir();
         const candidates = [
           path.join(home, '.local', 'bin', 'claude.exe'),
-          'C:\\Users\\Usuario\\.local\\bin\\claude.exe',
           path.join(process.env.APPDATA || '', 'npm', 'claude.cmd'),
           path.join(home, '.local', 'bin', 'claude')
         ];
