@@ -11,6 +11,7 @@ extracted_ultimo/
 /*.png
 
 # Documentos privados de IA y tableros personales
+CLAUDE.md
 GEMINI.md
 AGENTS.md
 boards/DEV_AI.json

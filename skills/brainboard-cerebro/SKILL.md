@@ -5,7 +5,7 @@ description: Skill de gestión del Segundo Cerebro de Brain Board. Úsala para c
 
 # Brain Board — Skill de Modo Cerebro y Coordenadas Espaciales
 
-Esta skill proporciona las reglas exactas para operar sobre los tableros de **Brain Board** (`boards/*.json` y `app_bundle/boards/*.json`), analizar fechas de colocación (`createdAt`) e insertar nuevos recursos, repositorios, enlaces y apuntes con precisión geométrica.
+Esta skill proporciona las reglas exactas para operar sobre los tableros de **Brain Board** (`app_bundle/boards/*.json`), analizar fechas de colocación (`createdAt`) e insertar nuevos recursos, repositorios, enlaces y apuntes con precisión geométrica.
 
 ## 1. Estructura de un Elemento con Fecha y Coordenadas
 
@@ -45,7 +45,7 @@ Todo elemento en `board.items` debe poseer:
 3. **Estética Obligatoria (`BoardInstructorAI.md`)**:
    - Paleta sobria: fondos `#161b26` / `#0f141d`, textos `#f1f5f9` / `#e2e8f0`, acentos `#38bdf8`.
    - **Cero flechas (`connector`) por defecto.**
-   - Sincronizar siempre tanto `boards/<id>.json` como `app_bundle/boards/<id>.json` y mantener `"userModified": true`.
+   - Guardar en `app_bundle/boards/<id>.json`. Los tableros reales viven en IndexedDB y la app ignora los cambios en disco de los tableros con `"userModified": true`.
 
 ## 3. Las 4 Acciones Rápidas de Brain: "Apunte", "Añadir recurso", "Briefing" y "Revisar apuntes obsoletos"
 

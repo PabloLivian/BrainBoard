@@ -1,7 +1,7 @@
 # BoardInstructorAI.md — Guía Maestra para la Creación de Tableros en Brain Board
 
 > **Propósito de este documento:**  
-> Este archivo sirve como directriz técnica, estética y operativa para el asistente de IA al generar, estructurar o enriquecer nuevos tableros (`boards/*.json`) en **Brain Board**. Define las reglas visuales, dimensionamiento, paletas cromáticas y estándares de contenido para garantizar siempre un resultado profesional, limpio y equilibrado.
+> Este archivo sirve como directriz técnica, estética y operativa para el asistente de IA al generar, estructurar o enriquecer nuevos tableros (`app_bundle/boards/*.json`) en **Brain Board**. Define las reglas visuales, dimensionamiento, paletas cromáticas y estándares de contenido para garantizar siempre un resultado profesional, limpio y equilibrado.
 
 ---
 
@@ -130,14 +130,14 @@ Todo tablero debe respetar la siguiente organización temática:
    ```
 2. **Incrementar siempre `seedVersion`:**
    - Al regenerar o actualizar un tablero de semilla, incrementar `seedVersion` para que `board_app.js` purgue la caché local de IndexedDB.
-3. **Persistencia Dual en Disco:**
-   - Escribir siempre el JSON tanto en `boards/<id>.json` como en `app_bundle/boards/<id>.json`.
+3. **Archivo en Disco:**
+   - Escribir el JSON en `app_bundle/boards/<id>.json` (la carpeta `boards/` de la raíz ya no existe).
 4. **Registro en el Catálogo de la App (`app_bundle/whiteboard/board_app.js`):**
    - Registrar la miniatura en `DEFAULT_BOARD_THUMBNAILS['<id>']`.
    - Añadir la entrada del tablero a `defaultBoards` dentro de `loadWorkspaceBoards()`.
    - Comprobar la condición de purga en `loadInitialBoard` y `switchBoard` para el nuevo `id`.
-5. **Recompilación del Paquete Distribuible:**
-   - Ejecutar `npm run build` tras actualizar los archivos para refrescar `dist/app.asar`.
+5. **Distribución:**
+   - Solo hace falta recompilar si el tablero va dentro del instalador (`npm run pack:installer`; ver `electron-builder.yml`).
 
 ---
 
@@ -152,4 +152,4 @@ Todo tablero debe respetar la siguiente organización temática:
 - [ ] ¿Cada imagen ha sido analizada y cuenta con texto técnico complementario a su lado?
 - [ ] ¿Se ha cumplido la regla de **NO poner flechas**?
 - [ ] ¿El archivo JSON es sintácticamente válido y sin coordenadas `NaN`?
-- [ ] ¿Se ha incrementado el `seedVersion` y actualizado tanto `boards/` como `app_bundle/boards/`?
+- [ ] ¿Se ha incrementado el `seedVersion` y guardado en `app_bundle/boards/`?
