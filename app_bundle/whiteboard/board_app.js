@@ -3142,26 +3142,30 @@ document.addEventListener('DOMContentLoaded', () => {
     return (clipText || '').trim();
   }
 
+  // Cada vía se prueba por separado: en Electron recientes la del preload falla y antes cortaba las demás,
+  // así que lo copiado en el tablero no llegaba al portapapeles y Ctrl+V pegaba lo copiado fuera
   function writeSystemClipboardText(text) {
     if (!text) return;
+    const attempts = [
+      () => window.brainBoard?.clipboard?.writeText && (window.brainBoard.clipboard.writeText(text), true),
+      () => window.miro?.clipboard?.writeText && (window.miro.clipboard.writeText(text), true),
+      () => {
+        const electron = typeof window.require === 'function' ? window.require('electron') : null;
+        return Boolean(electron?.clipboard?.writeText && (electron.clipboard.writeText(text), true));
+      }
+    ];
+    for (const attempt of attempts) {
+      try {
+        if (attempt()) return;
+      } catch (e) {}
+    }
     try {
-      if (window.brainBoard?.clipboard?.writeText) {
-        window.brainBoard.clipboard.writeText(text);
-        return;
-      }
-      if (window.miro?.clipboard?.writeText) {
-        window.miro.clipboard.writeText(text);
-        return;
-      }
-      const electron = typeof window.require === 'function' ? window.require('electron') : null;
-      if (electron?.clipboard?.writeText) {
-        electron.clipboard.writeText(text);
-        return;
-      }
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(text).catch(() => {});
-      }
+      window.require('electron').ipcRenderer.invoke('brainboard-clipboard-write-text', text).catch(() => {});
+      return;
     } catch (e) {}
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
   }
 
   let lastClipTextOnBlur = null;
@@ -3691,19 +3695,27 @@ document.addEventListener('DOMContentLoaded', () => {
   // Lo que el portapapeles tiene además de texto: ruta copiada con Ctrl+C en el Explorador e imagen.
   // Se lee directamente si la ventana tiene `clipboard` (Electron 31 del instalador) y si no, desde el proceso principal.
   async function readClipboardExtras() {
+    let extras = { filePath: null, hasImage: false };
     try {
       const electron = window.require('electron');
       if (electron.clipboard?.readBuffer) {
-        let filePath = null;
         const buf = electron.clipboard.readBuffer('FileNameW');
-        if (buf && buf.length) filePath = buf.toString('ucs2').replace(/\0+$/g, '').split('\0')[0].trim() || null;
+        if (buf && buf.length) extras.filePath = buf.toString('ucs2').replace(/\0+$/g, '').split('\0')[0].trim() || null;
         const img = electron.clipboard.readImage();
-        return { filePath, hasImage: Boolean(img && !img.isEmpty()) };
+        extras.hasImage = Boolean(img && !img.isEmpty());
+      } else {
+        extras = { ...extras, ...(await electron.ipcRenderer.invoke('brainboard-clipboard-info')) };
       }
-      return await electron.ipcRenderer.invoke('brainboard-clipboard-info');
-    } catch (e) {
-      return { filePath: null, hasImage: false };
+    } catch (e) {}
+    // Electron no siempre ve las imágenes copiadas desde el navegador (en la 45 readImage() sale vacía);
+    // la API del navegador sí: basta con mirar los tipos, sin leer la imagen
+    if (!extras.hasImage && navigator.clipboard?.read) {
+      try {
+        const items = await navigator.clipboard.read();
+        extras.hasImage = items.some(item => item.types.some(t => t.startsWith('image/')));
+      } catch (e) {}
     }
+    return extras;
   }
 
   function getLocalPathInfo(localPath) {

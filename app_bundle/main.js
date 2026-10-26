@@ -137458,6 +137458,10 @@ electron_1.ipcMain.handle('brainboard-clipboard-info', () => {
     catch (e) { }
     return { filePath, hasImage };
 });
+electron_1.ipcMain.handle('brainboard-clipboard-write-text', (_event, text) => {
+    electron_1.clipboard.writeText(String(text || ''));
+    return true;
+});
 function getDisplaysInfoInitial() {
     return SystemInformation.graphics()
         .then(graphics => {
