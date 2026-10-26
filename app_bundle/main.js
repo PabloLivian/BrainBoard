@@ -136494,6 +136494,10 @@ function createWindow() {
             webSecurity: false,
         },
     });
+    // Brain Board: barra de menús (Archivo, Editar...) siempre oculta. Con autoHideMenuBar aparecía al pulsar Alt,
+    // que se usa en el lienzo para duplicar arrastrando. El menú sigue cargado para sus atajos de teclado.
+    win.setAutoHideMenuBar(false);
+    win.setMenuBarVisibility(false);
     if (localAppConfig.getIsFullscreenEnabled()) {
         win.setFullScreen(true);
     }
@@ -137433,10 +137437,7 @@ electron_1.ipcMain.on('update-menu-items-enabled', (_event, config) => {
                 publicDeviceMenuItem.enabled = publicDeviceEnabledFromAppConfig;
             }
         }
-        if (localAppConfig.getIsAppMenuHidden() !== false && config.src !== undefined) {
-            // disable switching menu with alt for board tabs
-            win === null || win === void 0 ? void 0 : win.setAutoHideMenuBar(!UrlProvider_1.UrlProvider.isBoardUrl(config.src));
-        }
+        // Brain Board: no volver a activar el menú con Alt (ver la creación de la ventana)
     }
 });
 electron_1.ipcMain.handle('get-cookies', (_event, url) => electron_1.session.defaultSession.cookies.get({ url }));
@@ -137458,6 +137459,8 @@ electron_1.ipcMain.handle('brainboard-clipboard-info', () => {
     catch (e) { }
     return { filePath, hasImage };
 });
+// Brain Board: abrir carpetas y archivos del equipo (shell.openPath desde la ventana no llega a responder)
+electron_1.ipcMain.handle('brainboard-open-path', (_event, targetPath) => electron_1.shell.openPath(String(targetPath || '')));
 electron_1.ipcMain.handle('brainboard-clipboard-write-text', (_event, text) => {
     electron_1.clipboard.writeText(String(text || ''));
     return true;

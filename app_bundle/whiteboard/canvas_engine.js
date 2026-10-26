@@ -83,6 +83,8 @@ class CanvasEngine {
     // Seguimiento de Fecha de Colocación, Hover 2s y Mapa Visual de Frescura
     this.freshnessMapMode = false;
     this.freshnessFilterTier = 'all'; // 'all' | 'recent' | 'current' | 'aging' | 'obsolete'
+    // Hasta cuántos días cuenta cada color (lo que pase de "aging" es antiguo). Se cambia desde el engranaje del mapa
+    this.freshnessThresholds = { ...CanvasEngine.DEFAULT_FRESHNESS_THRESHOLDS };
     this.hoverDateTimer = null;
     this.hoverDateTargetId = null;
     this.onItemHoverDate = null;
@@ -154,6 +156,17 @@ class CanvasEngine {
     return null;
   }
 
+  static DEFAULT_FRESHNESS_THRESHOLDS = { recent: 7, current: 30, aging: 180 };
+
+  // Texto corto para un número de días: 12h, 2d, 3sem, 6m, 1a
+  static formatFreshnessDays(days) {
+    if (days < 1) return `${Math.round(days * 24)}h`;
+    if (days >= 365 && days % 365 === 0) return `${days / 365}a`;
+    if (days >= 60 && days % 30 === 0) return `${days / 30}m`;
+    if (days >= 14 && days % 7 === 0) return `${days / 7}sem`;
+    return `${Math.round(days * 10) / 10}d`;
+  }
+
   // Fecha de la última revisión del contenido (edición o "Marcar como revisado")
   getItemReviewedAtMs(it) {
     if (!it || !it.reviewedAt) return null;
@@ -205,24 +218,26 @@ class CanvasEngine {
     const relativeText = createdMs ? this.formatRelativeAge(validMs, nowMs) : 'Fecha registrada';
     const { formattedDate, formattedDateTime } = this.formatDateParts(validMs);
 
+    // Límites configurables desde el engranaje del Mapa de Frescura (en días)
+    const th = this.freshnessThresholds;
     let tier = 'recent';
     let tierLabel = 'Reciente';
     let color = '#10b981'; // Esmeralda
-    if (ageDays <= 7) {
+    if (ageDays <= th.recent) {
       tier = 'recent';
-      tierLabel = 'Reciente (≤7d)';
+      tierLabel = `Reciente (≤${CanvasEngine.formatFreshnessDays(th.recent)})`;
       color = '#10b981';
-    } else if (ageDays <= 30) {
+    } else if (ageDays <= th.current) {
       tier = 'current';
-      tierLabel = 'Actual (≤30d)';
+      tierLabel = `Actual (≤${CanvasEngine.formatFreshnessDays(th.current)})`;
       color = '#3b82f6';
-    } else if (ageDays <= 180) {
+    } else if (ageDays <= th.aging) {
       tier = 'aging';
-      tierLabel = 'Intermedio (≤6m)';
+      tierLabel = `Intermedio (≤${CanvasEngine.formatFreshnessDays(th.aging)})`;
       color = '#f59e0b';
     } else {
       tier = 'obsolete';
-      tierLabel = 'Antiguo (>6m)';
+      tierLabel = `Antiguo (>${CanvasEngine.formatFreshnessDays(th.aging)})`;
       color = '#ef4444';
     }
 

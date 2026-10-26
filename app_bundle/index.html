@@ -1300,26 +1300,99 @@
         </button>
         <button class="freshness-pill" data-tier="recent" title="Colocados o revisados en los últimos 7 días">
           <span class="freshness-dot dot-recent"></span>
-          <span>Recientes ≤7d</span>
+          <span id="freshness-label-recent">Recientes ≤7d</span>
           <span class="freshness-count" id="freshness-count-recent">0</span>
         </button>
         <button class="freshness-pill" data-tier="current" title="Colocados o revisados en los últimos 30 días">
           <span class="freshness-dot dot-current"></span>
-          <span>Actuales ≤30d</span>
+          <span id="freshness-label-current">Actuales ≤30d</span>
           <span class="freshness-count" id="freshness-count-current">0</span>
         </button>
         <button class="freshness-pill" data-tier="aging" title="Colocados o revisados hace entre 1 y 6 meses">
           <span class="freshness-dot dot-aging"></span>
-          <span>Intermedios ≤6m</span>
+          <span id="freshness-label-aging">Intermedios ≤6m</span>
           <span class="freshness-count" id="freshness-count-aging">0</span>
         </button>
         <button class="freshness-pill" data-tier="obsolete" title="Sin revisar desde hace más de 6 meses (Revisar / Obsoletos)">
           <span class="freshness-dot dot-obsolete"></span>
-          <span>Antiguos &gt;6m</span>
+          <span id="freshness-label-obsolete">Antiguos &gt;6m</span>
           <span class="freshness-count" id="freshness-count-obsolete">0</span>
         </button>
       </div>
+      <button id="btn-freshness-settings" class="btn-freshness-settings" title="Opciones del Mapa de Frescura (intervalos de cada color)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
       <button id="btn-close-freshness-map" class="btn-mini-close" title="Cerrar Mapa de Frescura">✕</button>
+    </div>
+
+    <!-- Opciones del Mapa de Frescura: intervalo de cada color -->
+    <div id="freshness-settings-modal" class="modal-backdrop" style="display: none;">
+      <div class="modal-dialog" style="width: 460px;">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
+            <h3>Opciones del Mapa de Frescura</h3>
+          </div>
+          <button id="btn-close-freshness-settings" class="btn-mini-close" title="Cerrar">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">Hasta qué antigüedad cuenta cada color. Se mide desde que se colocó o se revisó por última vez.</p>
+          <div class="freshness-settings-rows">
+            <div class="freshness-settings-row">
+              <span class="freshness-dot dot-recent"></span>
+              <span class="freshness-settings-name">Recientes</span>
+              <span class="freshness-settings-prefix">hasta</span>
+              <input type="number" id="freshness-th-recent" class="home-modal-input freshness-settings-num" min="0" step="any" />
+              <select id="freshness-unit-recent" class="home-modal-input freshness-settings-unit">
+                <option value="0.0416667">horas</option>
+                <option value="1">días</option>
+                <option value="7">semanas</option>
+                <option value="30">meses</option>
+                <option value="365">años</option>
+              </select>
+            </div>
+            <div class="freshness-settings-row">
+              <span class="freshness-dot dot-current"></span>
+              <span class="freshness-settings-name">Actuales</span>
+              <span class="freshness-settings-prefix">hasta</span>
+              <input type="number" id="freshness-th-current" class="home-modal-input freshness-settings-num" min="0" step="any" />
+              <select id="freshness-unit-current" class="home-modal-input freshness-settings-unit">
+                <option value="0.0416667">horas</option>
+                <option value="1">días</option>
+                <option value="7">semanas</option>
+                <option value="30">meses</option>
+                <option value="365">años</option>
+              </select>
+            </div>
+            <div class="freshness-settings-row">
+              <span class="freshness-dot dot-aging"></span>
+              <span class="freshness-settings-name">Intermedios</span>
+              <span class="freshness-settings-prefix">hasta</span>
+              <input type="number" id="freshness-th-aging" class="home-modal-input freshness-settings-num" min="0" step="any" />
+              <select id="freshness-unit-aging" class="home-modal-input freshness-settings-unit">
+                <option value="0.0416667">horas</option>
+                <option value="1">días</option>
+                <option value="7">semanas</option>
+                <option value="30">meses</option>
+                <option value="365">años</option>
+              </select>
+            </div>
+            <div class="freshness-settings-row">
+              <span class="freshness-dot dot-obsolete"></span>
+              <span class="freshness-settings-name">Antiguos</span>
+              <span class="freshness-settings-prefix" id="freshness-obsolete-summary">más de 6 meses</span>
+            </div>
+          </div>
+          <span id="freshness-settings-error" class="freshness-settings-error" style="display: none;"></span>
+        </div>
+        <div class="modal-footer" style="justify-content: space-between;">
+          <button id="btn-reset-freshness-settings" class="btn">Restablecer (7 días · 30 días · 6 meses)</button>
+          <div style="display: flex; gap: 8px;">
+            <button id="btn-cancel-freshness-settings" class="btn">Cancelar</button>
+            <button id="btn-save-freshness-settings" class="btn btn-primary">Guardar</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- ========================================================= -->

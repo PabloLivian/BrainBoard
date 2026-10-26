@@ -3767,10 +3767,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // Abrir una carpeta (en el Explorador) o un archivo (con su programa) del equipo
+  // Lo abre el proceso principal: shell.openPath llamado desde la ventana no llega a responder
   async function openLocalPath(localPath) {
     if (!localPath) return;
+    // Si no existe, Windows abre su propio aviso modal y la llamada no vuelve hasta cerrarlo: avisar aquí
+    if (!getLocalPathInfo(localPath)) {
+      showDevToast('No se encuentra en este equipo: ' + localPath);
+      return;
+    }
     try {
-      const err = await window.require('electron').shell.openPath(localPath);
+      const err = await window.require('electron').ipcRenderer.invoke('brainboard-open-path', localPath);
       if (err) showDevToast(`No se pudo abrir: ${err}`);
     } catch (e) {
       showDevToast('No se pudo abrir esa ruta');
@@ -8394,6 +8400,146 @@ document.addEventListener('DOMContentLoaded', () => {
   btnCloseFreshnessMap?.addEventListener('click', () => {
     toggleFreshnessMap(false);
   });
+
+  // ---------- Opciones del Mapa de Frescura: hasta cuántos días cuenta cada color ----------
+  const FRESHNESS_THRESHOLDS_KEY = 'brainboard_freshness_thresholds_v1';
+  const FRESHNESS_TIERS = ['recent', 'current', 'aging'];
+  const freshnessSettingsModal = document.getElementById('freshness-settings-modal');
+  const freshnessSettingsError = document.getElementById('freshness-settings-error');
+  const fmtDays = (d) => CanvasEngine.formatFreshnessDays(d);
+
+  function loadFreshnessThresholds() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(FRESHNESS_THRESHOLDS_KEY) || 'null');
+      if (saved && FRESHNESS_TIERS.every(k => Number(saved[k]) > 0) && saved.recent < saved.current && saved.current < saved.aging) {
+        return { recent: Number(saved.recent), current: Number(saved.current), aging: Number(saved.aging) };
+      }
+    } catch (e) {}
+    return { ...CanvasEngine.DEFAULT_FRESHNESS_THRESHOLDS };
+  }
+
+  // Etiquetas y ayudas de las píldoras de la barra según los límites actuales
+  function updateFreshnessPillLabels() {
+    const th = engine.freshnessThresholds;
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    set('freshness-label-recent', `Recientes ≤${fmtDays(th.recent)}`);
+    set('freshness-label-current', `Actuales ≤${fmtDays(th.current)}`);
+    set('freshness-label-aging', `Intermedios ≤${fmtDays(th.aging)}`);
+    set('freshness-label-obsolete', `Antiguos >${fmtDays(th.aging)}`);
+    const pills = freshnessMapBar?.querySelectorAll('.freshness-pill') || [];
+    pills.forEach(p => {
+      const tier = p.getAttribute('data-tier');
+      if (tier === 'recent') p.title = `Colocados o revisados hace ${fmtDays(th.recent)} o menos`;
+      else if (tier === 'current') p.title = `Colocados o revisados hace más de ${fmtDays(th.recent)} y hasta ${fmtDays(th.current)}`;
+      else if (tier === 'aging') p.title = `Colocados o revisados hace más de ${fmtDays(th.current)} y hasta ${fmtDays(th.aging)}`;
+      else if (tier === 'obsolete') p.title = `Sin revisar desde hace más de ${fmtDays(th.aging)} (Revisar / Obsoletos)`;
+    });
+  }
+
+  // Unidad más natural para mostrar un número de días en el formulario
+  // (semanas, meses y años solo desde 2, para no mostrar "1 meses": 30 → "30 días", 180 → "6 meses")
+  function splitDaysForForm(days) {
+    if (days >= 730 && days % 365 === 0) return { value: days / 365, unit: '365' };
+    if (days >= 60 && days % 30 === 0) return { value: days / 30, unit: '30' };
+    if (days >= 14 && days % 7 === 0) return { value: days / 7, unit: '7' };
+    if (days >= 1 && Number.isInteger(days)) return { value: days, unit: '1' };
+    return { value: Math.round(days * 24 * 100) / 100, unit: '0.0416667' };
+  }
+
+  function formatDaysLong(days) {
+    const { value, unit } = splitDaysForForm(days);
+    const names = { '365': ['año', 'años'], '30': ['mes', 'meses'], '7': ['semana', 'semanas'], '1': ['día', 'días'], '0.0416667': ['hora', 'horas'] };
+    return `${value} ${names[unit][value === 1 ? 0 : 1]}`;
+  }
+
+  function readFreshnessForm() {
+    const result = {};
+    for (const k of FRESHNESS_TIERS) {
+      const value = parseFloat(document.getElementById(`freshness-th-${k}`)?.value);
+      const unit = document.getElementById(`freshness-unit-${k}`)?.value;
+      // Las horas se guardan exactas (1/24 de día)
+      result[k] = unit === '0.0416667' ? value / 24 : value * Number(unit);
+    }
+    return result;
+  }
+
+  function fillFreshnessForm(th) {
+    FRESHNESS_TIERS.forEach(k => {
+      const { value, unit } = splitDaysForForm(th[k]);
+      const input = document.getElementById(`freshness-th-${k}`);
+      const select = document.getElementById(`freshness-unit-${k}`);
+      if (input) input.value = value;
+      if (select) select.value = unit;
+    });
+    refreshFreshnessFormSummary();
+  }
+
+  function validateFreshnessThresholds(th) {
+    if (FRESHNESS_TIERS.some(k => !(th[k] > 0))) return 'Pon un número mayor que 0 en cada color.';
+    if (!(th.recent < th.current)) return 'Los Recientes tienen que acabar antes que los Actuales.';
+    if (!(th.current < th.aging)) return 'Los Actuales tienen que acabar antes que los Intermedios.';
+    return '';
+  }
+
+  function refreshFreshnessFormSummary() {
+    const th = readFreshnessForm();
+    const summary = document.getElementById('freshness-obsolete-summary');
+    if (summary) summary.textContent = th.aging > 0 ? `más de ${formatDaysLong(th.aging)}` : 'más del límite de Intermedios';
+    const error = validateFreshnessThresholds(th);
+    if (freshnessSettingsError) {
+      freshnessSettingsError.textContent = error;
+      freshnessSettingsError.style.display = error ? 'block' : 'none';
+    }
+    const saveBtn = document.getElementById('btn-save-freshness-settings');
+    if (saveBtn) saveBtn.disabled = Boolean(error);
+  }
+
+  function openFreshnessSettings() {
+    fillFreshnessForm(engine.freshnessThresholds);
+    if (freshnessSettingsModal) freshnessSettingsModal.style.display = 'flex';
+  }
+
+  function closeFreshnessSettings() {
+    if (freshnessSettingsModal) freshnessSettingsModal.style.display = 'none';
+  }
+
+  function applyFreshnessThresholds(th) {
+    engine.freshnessThresholds = { ...th };
+    try {
+      localStorage.setItem(FRESHNESS_THRESHOLDS_KEY, JSON.stringify(engine.freshnessThresholds));
+    } catch (e) {}
+    updateFreshnessPillLabels();
+    if (engine.freshnessMapMode) updateFreshnessMapCounters();
+    if (engine.selectedItemIds.size > 0) syncPropertiesBarWithSelection();
+    engine.render();
+  }
+
+  document.getElementById('btn-freshness-settings')?.addEventListener('click', openFreshnessSettings);
+  document.getElementById('btn-close-freshness-settings')?.addEventListener('click', closeFreshnessSettings);
+  document.getElementById('btn-cancel-freshness-settings')?.addEventListener('click', closeFreshnessSettings);
+  freshnessSettingsModal?.addEventListener('click', (e) => {
+    if (e.target === freshnessSettingsModal) closeFreshnessSettings();
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && freshnessSettingsModal?.style.display === 'flex') closeFreshnessSettings();
+  });
+  freshnessSettingsModal?.querySelectorAll('input, select').forEach(el => {
+    el.addEventListener('input', refreshFreshnessFormSummary);
+    el.addEventListener('change', refreshFreshnessFormSummary);
+  });
+  document.getElementById('btn-reset-freshness-settings')?.addEventListener('click', () => {
+    fillFreshnessForm(CanvasEngine.DEFAULT_FRESHNESS_THRESHOLDS);
+  });
+  document.getElementById('btn-save-freshness-settings')?.addEventListener('click', () => {
+    const th = readFreshnessForm();
+    if (validateFreshnessThresholds(th)) return;
+    applyFreshnessThresholds(th);
+    closeFreshnessSettings();
+    showDevToast(`Mapa de Frescura: verde hasta ${formatDaysLong(th.recent)}, azul hasta ${formatDaysLong(th.current)}, ámbar hasta ${formatDaysLong(th.aging)}`);
+  });
+
+  engine.freshnessThresholds = loadFreshnessThresholds();
+  updateFreshnessPillLabels();
 
   freshnessMapBar?.querySelectorAll('.freshness-pill').forEach(pill => {
     pill.addEventListener('click', () => {
