@@ -309,8 +309,8 @@ class CanvasEngine {
     });
   }
 
-  saveSnapshot() {
-    const snapshot = JSON.stringify(this.getCleanItems());
+  saveSnapshot(precomputed = null) {
+    const snapshot = precomputed || JSON.stringify(this.getCleanItems());
     // Evitar registrar snapshots duplicados consecutivos
     if (this.undoStack.length > 0 && this.undoStack[this.undoStack.length - 1] === snapshot) {
       return;
@@ -518,45 +518,57 @@ class CanvasEngine {
     });
   }
 
+  // Capa siguiente a la más alta del tablero: lo que se crea o se pega queda delante de todo
+  getTopZIndex() {
+    return this.items.reduce((max, it) => Math.max(max, this.getDefaultZIndex(it)), 0) + 1;
+  }
+
+  // Rectángulo que ocupa un elemento (trazos y flechas por sus puntos)
+  getItemRect(it) {
+    const pts = it.type === 'pen' ? (it.points || []) : (it.type === 'connector' && it.start && it.end ? [it.start, it.end] : null);
+    if (pts && pts.length) {
+      const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+      return { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+    }
+    return { x: it.x || 0, y: it.y || 0, w: it.width || 100, h: it.height || 100 };
+  }
+
+  itemsOverlap(a, b) {
+    const r1 = this.getItemRect(a), r2 = this.getItemRect(b);
+    return r1.x <= r2.x + r2.w && r2.x <= r1.x + r1.w && r1.y <= r2.y + r2.h && r2.y <= r1.y + r1.h;
+  }
+
+  // Traer adelante / enviar atrás: salta el primer elemento que se cruza con él por delante (o por detrás).
+  // Con cientos de elementos, subir un puesto en el orden global no se notaba (p. ej. seguía detrás de su marco).
   bringForward(itemIds = null) {
-    const ids = itemIds ? new Set(itemIds) : this.selectedItemIds;
-    if (ids.size === 0) return;
-    this.normalizeZIndices();
-    const sorted = this.getSortedItemsForRender(false);
-    let changed = false;
-    for (let i = sorted.length - 2; i >= 0; i--) {
-      const current = sorted[i];
-      const next = sorted[i + 1];
-      if (ids.has(current.id) && !ids.has(next.id)) {
-        current.zIndex = next.zIndex + 5;
-        changed = true;
-      }
-    }
-    if (changed) {
-      this.normalizeZIndices();
-      this.saveSnapshot();
-      if (this.onBoardModified) this.onBoardModified();
-      this.render();
-    }
+    this.stepZOrder(itemIds, 1);
   }
 
   sendBackward(itemIds = null) {
+    this.stepZOrder(itemIds, -1);
+  }
+
+  stepZOrder(itemIds, dir) {
     const ids = itemIds ? new Set(itemIds) : this.selectedItemIds;
     if (ids.size === 0) return;
+    const before = JSON.stringify(this.getCleanItems());
     this.normalizeZIndices();
     const sorted = this.getSortedItemsForRender(false);
+    const order = dir > 0 ? sorted.map((_, i) => sorted.length - 1 - i) : sorted.map((_, i) => i);
     let changed = false;
-    for (let i = 1; i < sorted.length; i++) {
+    order.forEach(i => {
       const current = sorted[i];
-      const prev = sorted[i - 1];
-      if (ids.has(current.id) && !ids.has(prev.id)) {
-        current.zIndex = prev.zIndex - 5;
+      if (!ids.has(current.id)) return;
+      const others = dir > 0 ? sorted.slice(i + 1) : sorted.slice(0, i).reverse();
+      const blocker = others.find(o => !ids.has(o.id) && this.itemsOverlap(current, o));
+      if (blocker) {
+        current.zIndex = blocker.zIndex + 5 * dir;
         changed = true;
       }
-    }
+    });
     if (changed) {
       this.normalizeZIndices();
-      this.saveSnapshot();
+      this.saveSnapshot(before);
       if (this.onBoardModified) this.onBoardModified();
       this.render();
     }
@@ -565,6 +577,7 @@ class CanvasEngine {
   bringToFront(itemIds = null) {
     const ids = itemIds ? new Set(itemIds) : this.selectedItemIds;
     if (ids.size === 0) return;
+    const before = JSON.stringify(this.getCleanItems());
     this.normalizeZIndices();
     const sorted = this.getSortedItemsForRender(false);
     let maxZ = sorted.length > 0 ? sorted[sorted.length - 1].zIndex : 10;
@@ -578,7 +591,7 @@ class CanvasEngine {
     });
     if (changed) {
       this.normalizeZIndices();
-      this.saveSnapshot();
+      this.saveSnapshot(before);
       if (this.onBoardModified) this.onBoardModified();
       this.render();
     }
@@ -587,6 +600,7 @@ class CanvasEngine {
   sendToBack(itemIds = null) {
     const ids = itemIds ? new Set(itemIds) : this.selectedItemIds;
     if (ids.size === 0) return;
+    const before = JSON.stringify(this.getCleanItems());
     this.normalizeZIndices();
     const sorted = this.getSortedItemsForRender(false);
     let minZ = sorted.length > 0 ? sorted[0].zIndex : 10;
@@ -599,7 +613,7 @@ class CanvasEngine {
     });
     if (changed) {
       this.normalizeZIndices();
-      this.saveSnapshot();
+      this.saveSnapshot(before);
       if (this.onBoardModified) this.onBoardModified();
       this.render();
     }
@@ -1823,7 +1837,8 @@ class CanvasEngine {
         width: 180,
         height: 180,
         text: 'Nota adhesiva',
-        color: this.activeColor
+        color: this.activeColor,
+        zIndex: this.getTopZIndex()
       };
       this.items.push(newNote);
       this.selectedItemIds.clear();
@@ -1851,7 +1866,8 @@ class CanvasEngine {
         text: '',
         fillColor: '#ffffff',
         strokeColor: '#1a1a1a',
-        strokeWidth: 2
+        strokeWidth: 2,
+        zIndex: this.getTopZIndex()
       };
       this.items.push(newShape);
       this.selectedItemIds.clear();
@@ -1877,7 +1893,8 @@ class CanvasEngine {
         height: 40,
         text: 'Escribe algo...',
         fontSize: 22,
-        color: '#1a1a1a'
+        color: '#1a1a1a',
+        zIndex: this.getTopZIndex()
       };
       this.items.push(newText);
       this.selectedItemIds.clear();
@@ -1899,7 +1916,8 @@ class CanvasEngine {
         updatedAt: nowIso,
         points: [{ x: world.x, y: world.y }],
         color: this.activeColor === '#fff9b0' ? '#1a1a1a' : this.activeColor,
-        strokeWidth: 3
+        strokeWidth: 3,
+        zIndex: this.getTopZIndex()
       };
       this.items.push(this.currentDrawing);
       this.render();
@@ -1961,7 +1979,8 @@ class CanvasEngine {
         text: '',
         author: 'Usuario',
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        resolved: false
+        resolved: false,
+        zIndex: this.getTopZIndex()
       };
       this.items.push(newComment);
       this.selectedItemIds.clear();
@@ -4303,7 +4322,9 @@ class CanvasEngine {
     this.saveSnapshot();
     const newItems = [];
     const nowIso = new Date().toISOString();
-    this.items.forEach(it => {
+    // Las copias van delante de todo, conservando su orden relativo
+    let topZ = this.getTopZIndex();
+    this.getSortedItemsForRender(false).forEach(it => {
       if (this.selectedItemIds.has(it.id)) {
         const copy = JSON.parse(JSON.stringify(it));
         copy.id = it.type + '_' + Date.now() + Math.random().toString(36).substr(2, 4);
@@ -4311,6 +4332,7 @@ class CanvasEngine {
         copy.updatedAt = nowIso;
         copy.x += 30;
         copy.y += 30;
+        copy.zIndex = topZ++;
         newItems.push(copy);
       }
     });

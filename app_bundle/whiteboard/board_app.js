@@ -2824,7 +2824,8 @@ document.addEventListener('DOMContentLoaded', () => {
             x: center.x - 150,
             y: center.y - 100,
             width: 300,
-            height: 200
+            height: 200,
+            zIndex: engine.getTopZIndex()
           };
           engine.items.push(newImgItem);
           engine.selectedItemIds.clear();
@@ -3344,7 +3345,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const dy = targetY - sourceCenterY;
 
     // Calcular zIndex para colocar los elementos pegados al frente de los elementos existentes
-    const currentMaxZ = engine.items.reduce((max, it) => Math.max(max, typeof it.zIndex === 'number' ? it.zIndex : 10), 10);
+    const currentMaxZ = engine.getTopZIndex();
     const minPastedZ = p.items.reduce((min, it) => Math.min(min, typeof it.zIndex === 'number' ? it.zIndex : 10), Infinity);
     const zBaseOffset = Number.isFinite(minPastedZ) ? (currentMaxZ + 5 - minPastedZ) : 10;
 
@@ -3511,7 +3512,8 @@ document.addEventListener('DOMContentLoaded', () => {
         x: target.x - finalW / 2,
         y: target.y - finalH / 2,
         width: finalW,
-        height: finalH
+        height: finalH,
+        zIndex: engine.getTopZIndex()
       };
 
       // La imagen ocupa el hueco (encajada sin deformar) y el hueco desaparece
@@ -3608,7 +3610,8 @@ document.addEventListener('DOMContentLoaded', () => {
       domain: domain,
       url: cleanUrl,
       src: previewSrc,
-      description: ''
+      description: '',
+      zIndex: engine.getTopZIndex()
     };
 
     engine.items.push(newEmbed);
@@ -3800,7 +3803,8 @@ document.addEventListener('DOMContentLoaded', () => {
       width: w,
       height: h,
       text: text,
-      color: '#fff9b1'
+      color: '#fff9b1',
+      zIndex: engine.getTopZIndex()
     };
     engine.items.push(newItem);
     engine.selectedItemIds.clear();
