@@ -137872,6 +137872,29 @@ if (brainAutoUpdater) {
         }
     });
 
+    // Notas de la versión en texto limpio para la ventana de actualización. Llegan de latest.yml (texto) o, si no
+    // las trae, del feed de GitHub en HTML; si la release no tiene descripción, GitHub pone el mensaje del commit
+    // del tag (con "Co-Authored-By" y etiquetas), que no se debe enseñar.
+    function brainReleaseNotesToText(notes) {
+        let raw = Array.isArray(notes) ? notes.map(n => (n && n.note) || '').join('\n') : String(notes || '');
+        if (!raw.trim()) return '';
+        raw = raw
+            .replace(/<br\s*\/?>/gi, '\n')
+            .replace(/<\/(p|li|div|h\d)>/gi, '\n')
+            .replace(/<li[^>]*>/gi, '- ')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&');
+        const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const looksLikeCommit = lines.some(l => /^co-authored-by:/i.test(l)) ||
+            /^(release|feat|fix|chore|docs|refactor|build)(\([^)]*\))?:/i.test(lines[0] || '');
+        if (looksLikeCommit) return '';
+        return lines
+            .filter(l => !/^#+\s/.test(l))
+            .slice(0, 10)
+            .map(l => l.replace(/^[-*•]\s*/, '• '))
+            .join('\n');
+    }
+
     brainAutoUpdater.on('update-available', (info) => {
         console.log('[BrainBoard Updater] Nueva versión disponible:', info.version);
         const targetWin = electron_1.BrowserWindow.getFocusedWindow() || win;
@@ -137883,12 +137906,10 @@ if (brainAutoUpdater) {
             });
         }
 
-        let changelog = '';
-        if (typeof info.releaseNotes === 'string' && info.releaseNotes.trim()) {
-            changelog = `\n\nNovedades de la versión:\n${info.releaseNotes.trim()}`;
-        } else {
-            changelog = '\n\nNovedades de esta versión:\n• Copia de seguridad y exportación completa en formato .RTB\n• Gestión y empaquetado de miniaturas de tableros\n• Día y hora en última apertura con ordenación automática\n• Menú simplificado y optimizaciones de rendimiento';
-        }
+        const notesText = brainReleaseNotesToText(info.releaseNotes);
+        const changelog = notesText
+            ? `\n\nNovedades de la versión:\n${notesText}`
+            : '\n\nIncluye mejoras y correcciones. Al terminar verás todas las novedades.';
 
         electron_1.dialog.showMessageBox(targetWin || win, {
             type: 'info',
