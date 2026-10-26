@@ -11,7 +11,7 @@
   "isBeta": "false",
   "main": "app_bundle/main.js",
   "scripts": {
-    "start": "npx electron .",
+    "start": "npx electron@31.2.0 .",
     "build": "node scripts/pack_asar.js",
     "pack:installer": "npx electron-builder --config electron-builder.yml"
   },
