@@ -928,11 +928,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const alignGroup = propertiesBar?.querySelector('.align-group');
     const textColorGroup = propertiesBar?.querySelector('.color-dropdown-group');
 
-    if (fontFamGroup) fontFamGroup.style.display = isImage ? 'none' : 'flex';
-    if (fontSizeGroup) fontSizeGroup.style.display = isImage ? 'none' : 'flex';
-    if (textStyleGroup) textStyleGroup.style.display = isImage ? 'none' : 'flex';
-    if (alignGroup) alignGroup.style.display = isImage ? 'none' : 'flex';
-    if (textColorGroup) textColorGroup.style.display = isImage ? 'none' : 'flex';
+    // Imágenes y tarjetas de carpeta no tienen texto editable
+    const noTextControls = isImage || first.type === 'folder';
+    if (fontFamGroup) fontFamGroup.style.display = noTextControls ? 'none' : 'flex';
+    if (fontSizeGroup) fontSizeGroup.style.display = noTextControls ? 'none' : 'flex';
+    if (textStyleGroup) textStyleGroup.style.display = noTextControls ? 'none' : 'flex';
+    if (alignGroup) alignGroup.style.display = noTextControls ? 'none' : 'flex';
+    if (textColorGroup) textColorGroup.style.display = noTextControls ? 'none' : 'flex';
+    if (groupFillColor && first.type === 'folder') groupFillColor.style.display = 'none';
 
     // "Marcar como revisado": con el Mapa de Frescura activo o si hay algo antiguo (>6 meses) seleccionado
     const markReviewedBtn = document.getElementById('btn-prop-mark-reviewed');
@@ -1406,22 +1409,27 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const itemUrl = extractUrlFromItem(item);
-    if (!itemUrl) {
+    const isLocalCard = item.type === 'folder' && Boolean(item.path);
+    const itemUrl = isLocalCard ? null : extractUrlFromItem(item);
+    if (!itemUrl && !isLocalCard) {
       floatingItemUrlBadge.style.display = 'none';
       return;
     }
 
     let displayText = 'Ir al enlace';
-    try {
-      const u = new URL(/^https?:\/\//i.test(itemUrl) ? itemUrl : 'https://' + itemUrl);
-      displayText = u.hostname.replace(/^www\./, '') + ' ↗';
-    } catch (e) {
-      displayText = 'Abrir enlace ↗';
+    if (isLocalCard) {
+      displayText = item.isFile ? 'Abrir archivo ↗' : 'Abrir carpeta ↗';
+    } else {
+      try {
+        const u = new URL(/^https?:\/\//i.test(itemUrl) ? itemUrl : 'https://' + itemUrl);
+        displayText = u.hostname.replace(/^www\./, '') + ' ↗';
+      } catch (e) {
+        displayText = 'Abrir enlace ↗';
+      }
     }
 
     if (floatingUrlDisplayText) floatingUrlDisplayText.textContent = displayText;
-    if (btnOpenFloatingUrl) btnOpenFloatingUrl.title = `Abrir ${itemUrl} en el navegador`;
+    if (btnOpenFloatingUrl) btnOpenFloatingUrl.title = isLocalCard ? `Abrir ${item.path}` : `Abrir ${itemUrl} en el navegador`;
 
     floatingItemUrlBadge.style.display = 'flex';
 
@@ -1452,30 +1460,25 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   window.updateFloatingUrlBadge = updateFloatingUrlBadge;
 
-  // Clic en el botón flotante abre el enlace
-  btnOpenFloatingUrl?.addEventListener('click', (e) => {
+  // Clic en el botón flotante: abre el enlace o, en una tarjeta de carpeta, la carpeta o el archivo
+  function openSelectedItemLink(e) {
     e.stopPropagation();
     e.preventDefault();
     if (engine.selectedItemIds.size !== 1) return;
     const selId = Array.from(engine.selectedItemIds)[0];
     const item = engine.items.find(i => i.id === selId);
+    if (item?.type === 'folder') {
+      openLocalPath(item.path);
+      return;
+    }
     const itemUrl = extractUrlFromItem(item);
     if (itemUrl) {
       openExternalUrl(itemUrl);
     }
-  });
+  }
 
-  floatingItemUrlBadge?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (engine.selectedItemIds.size !== 1) return;
-    const selId = Array.from(engine.selectedItemIds)[0];
-    const item = engine.items.find(i => i.id === selId);
-    const itemUrl = extractUrlFromItem(item);
-    if (itemUrl) {
-      openExternalUrl(itemUrl);
-    }
-  });
+  btnOpenFloatingUrl?.addEventListener('click', openSelectedItemLink);
+  floatingItemUrlBadge?.addEventListener('click', openSelectedItemLink);
 
   // Modal para añadir / editar URL
   function openUrlModal(item) {
@@ -3664,6 +3667,104 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // =========================================================
+  // TARJETAS DE CARPETA / ARCHIVO DEL EQUIPO
+  // =========================================================
+
+  // Ruta local a partir de un texto pegado: "C:\...", \\servidor\..., file:///... (con o sin comillas de "Copiar como ruta de acceso")
+  function parseLocalPath(text) {
+    if (!text || typeof window.require !== 'function') return null;
+    let s = String(text).trim();
+    if (!s || s.includes('\n')) return null;
+    s = s.replace(/^["']+|["']+$/g, '').trim();
+    if (/^file:\/\//i.test(s)) {
+      try {
+        s = decodeURIComponent(s.replace(/^file:\/\/\/?/i, '')).replace(/\//g, '\\');
+      } catch (e) {
+        return null;
+      }
+    }
+    if (!/^[a-zA-Z]:[\\/]/.test(s) && !/^\\\\[^\\]+\\[^\\]+/.test(s)) return null;
+    return s.replace(/[\\/]+$/, '') || s;
+  }
+
+  // Lo que el portapapeles tiene además de texto: ruta copiada con Ctrl+C en el Explorador e imagen.
+  // Se lee directamente si la ventana tiene `clipboard` (Electron 31 del instalador) y si no, desde el proceso principal.
+  async function readClipboardExtras() {
+    try {
+      const electron = window.require('electron');
+      if (electron.clipboard?.readBuffer) {
+        let filePath = null;
+        const buf = electron.clipboard.readBuffer('FileNameW');
+        if (buf && buf.length) filePath = buf.toString('ucs2').replace(/\0+$/g, '').split('\0')[0].trim() || null;
+        const img = electron.clipboard.readImage();
+        return { filePath, hasImage: Boolean(img && !img.isEmpty()) };
+      }
+      return await electron.ipcRenderer.invoke('brainboard-clipboard-info');
+    } catch (e) {
+      return { filePath: null, hasImage: false };
+    }
+  }
+
+  function getLocalPathInfo(localPath) {
+    try {
+      const st = window.require('fs').statSync(localPath);
+      return { isDir: st.isDirectory() };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function createLocalPathCard(localPath, isDir, targetWorldPos = null, { select = true } = {}) {
+    const target = targetWorldPos || getPasteTargetPosition();
+    const path = window.require('path');
+    const nowIso = new Date().toISOString();
+    const card = {
+      id: 'folder_' + Date.now() + '_' + Math.random().toString(36).substr(2, 4),
+      type: 'folder',
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      path: localPath,
+      title: path.basename(localPath) || localPath,
+      isFile: !isDir,
+      expanded: false,
+      width: 340,
+      height: 0,
+      // Encima de todo lo que ya hay (al desplegarse no debe quedar tapada)
+      zIndex: engine.items.reduce((max, it) => Math.max(max, engine.getDefaultZIndex(it)), 0) + 1
+    };
+    card.height = engine.computeFolderCardHeight(card);
+    card.x = Math.round(target.x - card.width / 2);
+    card.y = Math.round(target.y - card.height / 2);
+    engine.items.push(card);
+    if (select) {
+      engine.selectedItemIds.clear();
+      engine.selectedItemIds.add(card.id);
+      if (engine.onSelectionChange) engine.onSelectionChange([card.id]);
+    }
+    return card;
+  }
+
+  function pasteLocalPathCard(localPath, isDir, targetWorldPos = null) {
+    engine.saveSnapshot();
+    createLocalPathCard(localPath, isDir, targetWorldPos);
+    engine.render();
+    updateMinimap();
+    autoSaveBoard();
+    showDevToast(isDir ? 'Carpeta añadida al tablero' : 'Archivo añadido al tablero');
+  }
+
+  // Abrir una carpeta (en el Explorador) o un archivo (con su programa) del equipo
+  async function openLocalPath(localPath) {
+    if (!localPath) return;
+    try {
+      const err = await window.require('electron').shell.openPath(localPath);
+      if (err) showDevToast(`No se pudo abrir: ${err}`);
+    } catch (e) {
+      showDevToast('No se pudo abrir esa ruta');
+    }
+  }
+
   function pasteExternalText(text, targetWorldPos = null) {
     const target = targetWorldPos || getPasteTargetPosition();
     engine.saveSnapshot();
@@ -3726,6 +3827,17 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch (err) {}
     }
 
+    // 1.c) Ruta de una carpeta o archivo del equipo (texto pegado o Ctrl+C sobre la carpeta en el Explorador)
+    const clipExtras = await readClipboardExtras();
+    const localPathCandidate = parseLocalPath(trimmedText) || (trimmedText ? null : clipExtras.filePath);
+    if (localPathCandidate) {
+      // Si no existe ahora (disco externo desconectado, otro equipo...) la tarjeta se crea igual y avisa en rojo;
+      // sin extensión se trata como carpeta
+      const info = getLocalPathInfo(localPathCandidate) || { isDir: !/\.[a-z0-9]{1,6}$/i.test(localPathCandidate) };
+      pasteLocalPathCard(localPathCandidate, info.isDir, targetWorldPos);
+      return;
+    }
+
     // 1.b) Si hay datos de Brain Board en memoria o localStorage y lo último copiado fue de la pizarra
     const storedPayload = getStoredClipboardPayload();
     const lastSource = window.__brainboardLastCopySource || localStorage.getItem('brainboard_last_copy_source') || '';
@@ -3746,7 +3858,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const hasFreshPasteEventImage = Boolean(pasteEvent?.clipboardData?.items && Array.from(pasteEvent.clipboardData.items).some(it => it.kind === 'file' && it.type && it.type.startsWith('image/')));
 
-    if (storedPayload && Array.isArray(storedPayload.items) && storedPayload.items.length > 0 && !hasFreshExternalText && !hasFreshPasteEventImage) {
+    // Una imagen copiada fuera (navegador, Photoshop, recortes...) no trae texto: hay que mirarla aparte,
+    // si no se pegaría lo último que se copió dentro del tablero
+    const hasSystemClipboardImage = clipExtras.hasImage;
+
+    if (storedPayload && Array.isArray(storedPayload.items) && storedPayload.items.length > 0 && !hasFreshExternalText && !hasFreshPasteEventImage && !hasSystemClipboardImage) {
       pasteClipboardItems(storedPayload, targetWorldPos ? { targetX: targetWorldPos.x, targetY: targetWorldPos.y } : {});
       return;
     }
@@ -3878,6 +3994,36 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 1. Archivos arrastrados desde el explorador de archivos o escritorio
     if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      // Carpetas (y archivos que no son imágenes): tarjetas con su ruta, una debajo de otra
+      const localDrops = [];
+      for (const file of e.dataTransfer.files) {
+        if (file.type && file.type.startsWith('image/')) continue;
+        let filePath = '';
+        try {
+          const { webUtils } = window.require('electron');
+          filePath = (webUtils && webUtils.getPathForFile) ? webUtils.getPathForFile(file) : '';
+        } catch (err) {}
+        filePath = filePath || file.path || '';
+        const info = filePath ? getLocalPathInfo(filePath) : null;
+        if (info) localDrops.push({ filePath, isDir: info.isDir });
+      }
+      if (localDrops.length > 0) {
+        engine.saveSnapshot();
+        let offsetY = 0;
+        const created = localDrops.map(d => {
+          const card = createLocalPathCard(d.filePath, d.isDir, { x: dropWorld.x, y: dropWorld.y + offsetY }, { select: false });
+          offsetY += card.height + 16;
+          return card;
+        });
+        engine.selectedItemIds.clear();
+        created.forEach(c => engine.selectedItemIds.add(c.id));
+        if (engine.onSelectionChange) engine.onSelectionChange(created.map(c => c.id));
+        engine.render();
+        updateMinimap();
+        autoSaveBoard();
+        showDevToast(created.length === 1 ? (created[0].isFile ? 'Archivo añadido al tablero' : 'Carpeta añadida al tablero') : `${created.length} elementos añadidos al tablero`);
+        return;
+      }
       for (const file of e.dataTransfer.files) {
         if (file.type && file.type.startsWith('image/')) {
           const reader = new FileReader();
@@ -3927,6 +4073,13 @@ document.addEventListener('DOMContentLoaded', () => {
     if (clicked) {
       if ((clicked.type === 'embed' || clicked.type === 'image') && clicked.url) {
         openExternalUrl(clicked.url);
+        return;
+      }
+      // Tarjeta de carpeta: doble clic en un elemento de la lista lo abre; en la cabecera, abre la carpeta
+      if (clicked.type === 'folder') {
+        if (engine.getFolderToggleAt(world.x, world.y)) return;
+        const entry = engine.getFolderEntryAt(clicked, world.x, world.y);
+        openLocalPath(entry ? entry.path : clicked.path);
         return;
       }
       if (clicked.type === 'frame') {
@@ -6430,7 +6583,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function getItemSearchText(it) {
     if (!it) return '';
-    return [it.text, it.title, it.code, it.description, it.url, it.domain, it.author]
+    return [it.text, it.title, it.code, it.description, it.url, it.domain, it.author, it.path]
       .filter(v => typeof v === 'string' && v)
       .join(' ');
   }
@@ -6528,7 +6681,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const GLOBAL_SEARCH_PER_BOARD = 8;
   const GLOBAL_SEARCH_TYPE_ICONS = {
     board: '📋', frame: '🗂️', text: '📝', sticky_note: '🟨', embed: '🔗', preview: '🔗',
-    image: '🖼️', code: '💻', shape: '◻️', comment: '💬'
+    image: '🖼️', code: '💻', shape: '◻️', comment: '💬', folder: '📁'
   };
 
   let globalSearchIndexPromise = null;
@@ -8830,6 +8983,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (it.text) parts.push(String(it.text).replace(/\s+/g, ' ').trim());
     if (it.description) parts.push(String(it.description).replace(/\s+/g, ' ').trim());
     if (it.url) parts.push(`URL: ${it.url}`);
+    if (it.type === 'folder' && it.path) parts.push(`${it.isFile ? 'Archivo' : 'Carpeta'} del equipo: ${it.path}`);
     if (it.parentId && framesById && framesById.has(it.parentId)) {
       parts.push(`[En marco: "${framesById.get(it.parentId).title || it.parentId}"]`);
     }
@@ -10308,7 +10462,7 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
 
   const BRAIN_ITEM_TYPE_LABELS = {
     frame: 'marco', text: 'texto', sticky_note: 'nota adhesiva', embed: 'enlace', preview: 'enlace',
-    image: 'imagen', code: 'código', shape: 'forma', comment: 'comentario'
+    image: 'imagen', code: 'código', shape: 'forma', comment: 'comentario', folder: 'carpeta del equipo'
   };
 
   // Contenido de la selección (los marcos incluyen lo que tienen dentro) en orden de lectura
@@ -10326,6 +10480,7 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
       if (it.code) parts.push(`Código: ${String(it.code).slice(0, 1500)}`);
       if (it.description) parts.push(`Descripción: ${it.description}`);
       if (it.url) parts.push(`URL: ${it.url}`);
+      if (it.type === 'folder' && it.path) parts.push(`Ruta en el equipo: ${it.path}`);
       const frame = it.parentId ? framesById.get(it.parentId) : null;
       return `- [${BRAIN_ITEM_TYPE_LABELS[it.type] || it.type}] (boardId:${currentActiveBoardId}, itemId:${it.id}${frame ? `, en el marco "${frame.title || ''}"` : ''})\n  ${parts.join('\n  ') || '(sin texto)'}`;
     });

@@ -472,7 +472,8 @@ class CanvasEngine {
       case 'shape': return 20;
       case 'code': return 22;
       case 'embed':
-      case 'preview': return 24;
+      case 'preview':
+      case 'folder': return 24;
       case 'image': return 26;
       case 'sticky_note': return 30;
       case 'text': return 40;
@@ -1537,6 +1538,16 @@ class CanvasEngine {
         return;
       }
 
+      // 0. Barra "Ver contenido" de una tarjeta de carpeta: despliega o recoge su contenido
+      const folderToggle = this.getFolderToggleAt(world.x, world.y);
+      if (folderToggle) {
+        this.toggleFolderExpanded(folderToggle);
+        this.selectedItemIds.clear();
+        this.selectedItemIds.add(folderToggle.id);
+        if (this.onSelectionChange) this.onSelectionChange([folderToggle.id]);
+        return;
+      }
+
       // 1. Comprobar primero si se ha pulsado en un controlador circular de conexión (Connector Port)
       const portHit = this.getConnectorPortAt(world.x, world.y);
       if (portHit) {
@@ -2577,6 +2588,7 @@ class CanvasEngine {
             case 'text': this.drawText(it); break;
             case 'pen': this.drawPen(it); break;
             case 'comment': this.drawComment(it); break;
+            case 'folder': this.drawFolder(it); break;
           }
           if (this.freshnessMapMode && matchesFilter && it.type !== 'connector' && it.type !== 'pen') {
             this.drawFreshnessOverlay(it);
@@ -3094,6 +3106,229 @@ class CanvasEngine {
       this.ctx.fillText(full, curX, lineY);
       curX += this.ctx.measureText(full).width;
     }
+  }
+
+  // =========================================================
+  // TARJETAS DE CARPETA / ARCHIVO LOCAL (type: 'folder')
+  // El contenido se lee del disco al dibujar (en segundo plano, con caché); en el tablero solo se guarda la ruta.
+  // =========================================================
+  static FOLDER_HEADER_H = 92;
+  static FOLDER_TOGGLE_H = 30;
+  static FOLDER_ROW_H = 26;
+  static FOLDER_MAX_ROWS = 18;
+
+  getFolderListing(it) {
+    if (!this.folderListingCache) this.folderListingCache = new Map();
+    const key = String(it.path || '');
+    let entry = this.folderListingCache.get(key);
+    const stale = !entry || (!entry.loading && Date.now() - entry.readAt > 10000);
+    if (stale && key && typeof window.require === 'function') {
+      entry = { ...(entry || {}), loading: true };
+      this.folderListingCache.set(key, entry);
+      const fs = window.require('fs');
+      const path = window.require('path');
+      // Lectura asíncrona: una unidad de red lenta no bloquea el lienzo
+      fs.promises.stat(key).then(async (st) => {
+        if (!st.isDirectory()) return { isFile: true, size: st.size, entries: [] };
+        const dirents = await fs.promises.readdir(key, { withFileTypes: true });
+        const entries = dirents
+          .filter(d => !d.name.startsWith('.') && !/^(desktop\.ini|thumbs\.db)$/i.test(d.name))
+          .map(d => ({ name: d.name, isDir: d.isDirectory(), path: path.join(key, d.name) }))
+          .sort((a, b) => (b.isDir - a.isDir) || a.name.localeCompare(b.name, 'es', { numeric: true, sensitivity: 'base' }));
+        return { isFile: false, entries };
+      }).then(result => {
+        this.folderListingCache.set(key, { ...result, loading: false, missing: false, readAt: Date.now() });
+        this.render();
+      }).catch(() => {
+        this.folderListingCache.set(key, { entries: [], loading: false, missing: true, readAt: Date.now() });
+        this.render();
+      });
+    }
+    return entry || { loading: true, entries: [] };
+  }
+
+  refreshFolderListing(it) {
+    if (this.folderListingCache) this.folderListingCache.delete(String(it.path || ''));
+    this.getFolderListing(it);
+  }
+
+  // Alto de la tarjeta según esté recogida o desplegada (hasta FOLDER_MAX_ROWS filas + "y N más")
+  computeFolderCardHeight(it, listing = null) {
+    const C = CanvasEngine;
+    const base = C.FOLDER_HEADER_H + (it.isFile ? 0 : C.FOLDER_TOGGLE_H);
+    if (it.isFile || !it.expanded) return base;
+    const entries = (listing || this.getFolderListing(it)).entries || [];
+    const rows = Math.min(entries.length, C.FOLDER_MAX_ROWS) + (entries.length > C.FOLDER_MAX_ROWS ? 1 : 0);
+    return base + Math.max(1, rows) * C.FOLDER_ROW_H + 10;
+  }
+
+  toggleFolderExpanded(it) {
+    this.saveSnapshot();
+    it.expanded = !it.expanded;
+    if (it.expanded) this.refreshFolderListing(it);
+    it.height = this.computeFolderCardHeight(it);
+    this.render();
+    if (this.onBoardModified) this.onBoardModified();
+  }
+
+  getFolderToggleAt(wx, wy) {
+    const C = CanvasEngine;
+    const cards = this.getSortedItemsForRender(true).filter(it => it.type === 'folder' && !it.isFile);
+    return cards.find(it => wx >= it.x && wx <= it.x + it.width &&
+      wy >= it.y + C.FOLDER_HEADER_H && wy <= it.y + C.FOLDER_HEADER_H + C.FOLDER_TOGGLE_H) || null;
+  }
+
+  // Elemento de la lista desplegada bajo un punto del mundo (para abrirlo con doble clic)
+  getFolderEntryAt(it, wx, wy) {
+    const C = CanvasEngine;
+    if (!it || it.type !== 'folder' || !it.expanded) return null;
+    const listY = it.y + C.FOLDER_HEADER_H + C.FOLDER_TOGGLE_H;
+    if (wx < it.x || wx > it.x + it.width || wy < listY) return null;
+    const idx = Math.floor((wy - listY - 4) / C.FOLDER_ROW_H);
+    const entries = this.getFolderListing(it).entries || [];
+    if (idx < 0 || idx >= Math.min(entries.length, C.FOLDER_MAX_ROWS)) return null;
+    return entries[idx];
+  }
+
+  fitTextToWidth(text, maxWidth, fromStart = false) {
+    if (this.ctx.measureText(text).width <= maxWidth) return text;
+    let t = text;
+    while (t.length > 1 && this.ctx.measureText((fromStart ? '…' : '') + t + (fromStart ? '' : '…')).width > maxWidth) {
+      t = fromStart ? t.slice(1) : t.slice(0, -1);
+    }
+    return fromStart ? '…' + t : t + '…';
+  }
+
+  getFileEmoji(name, isDir) {
+    if (isDir) return '📁';
+    const ext = String(name).split('.').pop().toLowerCase();
+    if (/^(png|jpe?g|gif|webp|bmp|tiff?|exr|hdr|psd|tga|svg)$/.test(ext)) return '🖼️';
+    if (/^(mp4|mov|avi|mkv|webm)$/.test(ext)) return '🎬';
+    if (/^(mp3|wav|flac|ogg|m4a)$/.test(ext)) return '🎧';
+    if (/^(zip|rar|7z|tar|gz)$/.test(ext)) return '📦';
+    if (/^(blend|hip|hiplc|hipnc|ztl|zpr|obj|fbx|abc|usd|usda|usdc|glb|gltf|ma|mb|c4d|stl|3mf)$/.test(ext)) return '🧊';
+    if (/^(pdf|docx?|txt|md|rtf|odt|xlsx?|csv|pptx?)$/.test(ext)) return '📄';
+    if (/^(exe|msi|bat|cmd|ps1|lnk)$/.test(ext)) return '⚙️';
+    return '📄';
+  }
+
+  drawFolder(it) {
+    const C = CanvasEngine;
+    const dark = this.isDarkMode;
+    const r = 10;
+    const listing = this.getFolderListing(it);
+    const isFile = Boolean(it.isFile || listing.isFile);
+    const entries = listing.entries || [];
+
+    this.ctx.save();
+    // Tarjeta con el mismo estilo que las de enlaces
+    this.ctx.save();
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+    this.ctx.shadowBlur = 8 / this.camera.zoom;
+    this.ctx.shadowOffsetY = 3 / this.camera.zoom;
+    this.ctx.fillStyle = dark ? '#1E222B' : '#ffffff';
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
+    this.ctx.fill();
+    this.ctx.restore();
+    this.ctx.strokeStyle = listing.missing ? '#ef4444' : (dark ? '#333842' : '#e2e8f0');
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
+    this.ctx.stroke();
+
+    // Recortar el contenido a la tarjeta (si se encoge a mano no se sale nada)
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
+    this.ctx.clip();
+
+    // Icono grande
+    const name = it.title || String(it.path || '').split(/[\\/]/).filter(Boolean).pop() || it.path || 'Carpeta';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.textAlign = 'center';
+    this.ctx.fillStyle = dark ? '#e2e8f0' : '#0f172a';
+    this.ctx.font = '30px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+    this.ctx.fillText(isFile ? this.getFileEmoji(name, false) : '📁', it.x + 34, it.y + 38);
+
+    // Nombre, ruta y resumen del contenido
+    const textX = it.x + 62;
+    const textW = Math.max(40, it.width - 74);
+    this.ctx.textAlign = 'left';
+    this.ctx.fillStyle = dark ? '#f1f5f9' : '#0f172a';
+    this.ctx.font = '700 15px OpenSans, -apple-system, "Segoe UI", sans-serif';
+    this.ctx.fillText(this.fitTextToWidth(name, textW), textX, it.y + 24);
+    this.ctx.fillStyle = dark ? '#94a3b8' : '#64748b';
+    this.ctx.font = '400 11.5px Consolas, Monaco, monospace';
+    this.ctx.fillText(this.fitTextToWidth(String(it.path || ''), textW, true), textX, it.y + 46);
+
+    let summary = '';
+    if (listing.missing) summary = isFile ? 'Archivo no encontrado' : 'Carpeta no encontrada en este equipo';
+    else if (listing.loading && entries.length === 0 && !listing.readAt) summary = 'Leyendo…';
+    else if (isFile) summary = 'Archivo · doble clic para abrirlo';
+    else {
+      const dirs = entries.filter(e => e.isDir).length;
+      const files = entries.length - dirs;
+      summary = entries.length === 0 ? 'Carpeta vacía' : `${dirs} ${dirs === 1 ? 'carpeta' : 'carpetas'} · ${files} ${files === 1 ? 'archivo' : 'archivos'}`;
+    }
+    this.ctx.fillStyle = listing.missing ? '#ef4444' : (dark ? '#64748b' : '#94a3b8');
+    this.ctx.font = '600 11.5px OpenSans, -apple-system, "Segoe UI", sans-serif';
+    this.ctx.fillText(summary, textX, it.y + 68);
+
+    if (!isFile) {
+      // Barra para desplegar / recoger
+      const barY = it.y + C.FOLDER_HEADER_H;
+      this.ctx.fillStyle = dark ? '#262A34' : '#f8fafc';
+      this.ctx.fillRect(it.x, barY, it.width, C.FOLDER_TOGGLE_H);
+      this.ctx.strokeStyle = dark ? '#2D323B' : '#e2e8f0';
+      this.ctx.beginPath();
+      this.ctx.moveTo(it.x, barY);
+      this.ctx.lineTo(it.x + it.width, barY);
+      this.ctx.stroke();
+      this.ctx.fillStyle = dark ? '#93c5fd' : '#2563eb';
+      this.ctx.font = '600 12px OpenSans, -apple-system, "Segoe UI", sans-serif';
+      const label = `${it.expanded ? '▾ Ocultar contenido' : '▸ Ver contenido'}${entries.length ? ` (${entries.length})` : ''}`;
+      this.ctx.fillText(label, it.x + 14, barY + C.FOLDER_TOGGLE_H / 2);
+
+      // Lista del contenido
+      if (it.expanded) {
+        const listY = barY + C.FOLDER_TOGGLE_H + 4;
+        const shown = entries.slice(0, C.FOLDER_MAX_ROWS);
+        shown.forEach((e, i) => {
+          const rowY = listY + i * C.FOLDER_ROW_H;
+          if (i % 2 === 1) {
+            this.ctx.fillStyle = dark ? 'rgba(255,255,255,0.025)' : 'rgba(15,23,42,0.025)';
+            this.ctx.fillRect(it.x + 6, rowY, it.width - 12, C.FOLDER_ROW_H);
+          }
+          // Color opaco del tema: los emojis monocromos lo usan y así no heredan la transparencia de la fila
+          this.ctx.fillStyle = dark ? '#e2e8f0' : '#0f172a';
+          this.ctx.font = '14px "Segoe UI Emoji", "Apple Color Emoji", sans-serif';
+          this.ctx.fillText(this.getFileEmoji(e.name, e.isDir), it.x + 16, rowY + C.FOLDER_ROW_H / 2);
+          this.ctx.fillStyle = dark ? (e.isDir ? '#e2e8f0' : '#cbd5e1') : (e.isDir ? '#0f172a' : '#334155');
+          this.ctx.font = `${e.isDir ? 600 : 400} 12.5px OpenSans, -apple-system, "Segoe UI", sans-serif`;
+          this.ctx.fillText(this.fitTextToWidth(e.name, it.width - 54), it.x + 40, rowY + C.FOLDER_ROW_H / 2);
+        });
+        if (entries.length > C.FOLDER_MAX_ROWS) {
+          const rowY = listY + shown.length * C.FOLDER_ROW_H;
+          this.ctx.fillStyle = dark ? '#64748b' : '#94a3b8';
+          this.ctx.font = 'italic 400 12px OpenSans, -apple-system, "Segoe UI", sans-serif';
+          this.ctx.fillText(this.fitTextToWidth(`… y ${entries.length - C.FOLDER_MAX_ROWS} más (doble clic arriba para abrir la carpeta)`, it.width - 28), it.x + 14, rowY + C.FOLDER_ROW_H / 2);
+        } else if (entries.length === 0 && !listing.missing) {
+          this.ctx.fillStyle = dark ? '#64748b' : '#94a3b8';
+          this.ctx.font = 'italic 400 12px OpenSans, -apple-system, "Segoe UI", sans-serif';
+          this.ctx.fillText(listing.loading ? 'Leyendo…' : 'Carpeta vacía', it.x + 14, listY + C.FOLDER_ROW_H / 2);
+        }
+
+        // Si el número de elementos cambió en disco, ajustar el alto de la tarjeta
+        if (!listing.loading && !listing.missing) {
+          const wanted = this.computeFolderCardHeight(it, listing);
+          if (Math.abs(wanted - it.height) > 1 && !this.isResizing) {
+            it.height = wanted;
+            if (this.onBoardModified) setTimeout(() => this.onBoardModified(), 0);
+          }
+        }
+      }
+    }
+    this.ctx.restore();
   }
 
   drawEmbed(it) {

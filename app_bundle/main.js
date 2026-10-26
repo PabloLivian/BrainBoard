@@ -137443,6 +137443,21 @@ electron_1.ipcMain.handle('get-cookies', (_event, url) => electron_1.session.def
 electron_1.ipcMain.handle('get-app-version', () => electron_1.app.getVersion());
 // Brain Board: carpeta Documentos real del usuario (puede estar redirigida a OneDrive) para las copias automáticas
 electron_1.ipcMain.handle('get-documents-path', () => electron_1.app.getPath('documents'));
+// Brain Board: estado del portapapeles leído desde el proceso principal (en Electron recientes la ventana no tiene `clipboard`)
+electron_1.ipcMain.handle('brainboard-clipboard-info', () => {
+    let filePath = null;
+    let hasImage = false;
+    try {
+        const buf = electron_1.clipboard.readBuffer('FileNameW');
+        if (buf && buf.length) filePath = buf.toString('ucs2').replace(/\0+$/g, '').split('\0')[0].trim() || null;
+    }
+    catch (e) { }
+    try {
+        hasImage = !electron_1.clipboard.readImage().isEmpty();
+    }
+    catch (e) { }
+    return { filePath, hasImage };
+});
 function getDisplaysInfoInitial() {
     return SystemInformation.graphics()
         .then(graphics => {
