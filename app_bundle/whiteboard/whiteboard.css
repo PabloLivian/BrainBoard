@@ -7108,3 +7108,10 @@ body.dark-theme .freshness-settings-unit option {
   background: #1e222b;
   color: #f1f5f9;
 }
+
+/* Novedades: index.html trae los colores del tema oscuro escritos en cada elemento; en modo claro, texto oscuro */
+body:not(.dark-theme) #whats-new-modal h3 { color: #0f172a !important; }
+body:not(.dark-theme) #whats-new-modal .modal-header { border-bottom-color: #e2e8f0 !important; }
+body:not(.dark-theme) #whats-new-modal .whats-new-feature-list strong { color: #0f172a !important; }
+body:not(.dark-theme) #whats-new-modal .whats-new-feature-list p { color: #475569 !important; }
+body:not(.dark-theme) #whats-new-modal .whats-new-feature-list code { color: #1e293b; }
