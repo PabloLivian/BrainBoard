@@ -4089,6 +4089,8 @@ document.addEventListener('DOMContentLoaded', () => {
       clicked = engine.getItemAt(world.x, world.y, false);
     }
     if (clicked) {
+      // Doble clic sobre las estrellas de puntuación: no abrir el enlace
+      if (engine.getEmbedRatingStarAt(clicked, world.x, world.y)) return;
       if ((clicked.type === 'embed' || clicked.type === 'image') && clicked.url) {
         openExternalUrl(clicked.url);
         return;
@@ -9141,6 +9143,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (it.text) parts.push(String(it.text).replace(/\s+/g, ' ').trim());
     if (it.description) parts.push(String(it.description).replace(/\s+/g, ' ').trim());
     if (it.url) parts.push(`URL: ${it.url}`);
+    if (it.rating) parts.push(`Puntuación del usuario: ${it.rating}/5`);
     if (it.type === 'folder' && it.path) parts.push(`${it.isFile ? 'Archivo' : 'Carpeta'} del equipo: ${it.path}`);
     if (it.parentId && framesById && framesById.has(it.parentId)) {
       parts.push(`[En marco: "${framesById.get(it.parentId).title || it.parentId}"]`);

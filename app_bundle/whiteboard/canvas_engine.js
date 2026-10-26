@@ -1444,6 +1444,7 @@ class CanvasEngine {
 
     this.canvas.addEventListener('pointerleave', () => {
       this.clearHoverDateTooltip();
+      this.setRatingHover(null, 0);
     });
 
     // Soporte para desplazar (pan) manteniendo la barra espaciadora pulsada
@@ -1693,6 +1694,16 @@ class CanvasEngine {
           this.selectedItemIds.clear();
           this.selectedItemIds.add(clickedItem.id);
           this.render();
+          return;
+        }
+
+        // Estrellas de puntuación de una tarjeta de enlace
+        const ratingStar = e.shiftKey ? 0 : this.getEmbedRatingStarAt(clickedItem, world.x, world.y);
+        if (ratingStar) {
+          this.setEmbedRating(clickedItem, ratingStar);
+          this.selectedItemIds.clear();
+          this.selectedItemIds.add(clickedItem.id);
+          if (this.onSelectionChange) this.onSelectionChange([clickedItem.id]);
           return;
         }
 
@@ -2329,10 +2340,14 @@ class CanvasEngine {
       if (handleHit) {
         this.canvas.style.cursor = handleHit.cursor;
         this.clearHoverDateTooltip();
+        this.setRatingHover(null, 0);
       } else {
         const itemUnder = this.getItemAt(world.x, world.y, true);
+        const isLinkCard = itemUnder && (itemUnder.type === 'embed' || itemUnder.type === 'preview');
+        const ratingStar = isLinkCard ? this.getEmbedRatingStarAt(itemUnder, world.x, world.y) : 0;
+        this.setRatingHover(isLinkCard ? itemUnder.id : null, ratingStar);
         if (itemUnder) {
-          this.canvas.style.cursor = 'move';
+          this.canvas.style.cursor = ratingStar ? 'pointer' : 'move';
           this.scheduleHoverDateTooltip(itemUnder, e.clientX, e.clientY);
         } else {
           const frameUnder = this.getItemAt(world.x, world.y, false);
@@ -3486,13 +3501,17 @@ class CanvasEngine {
       this.ctx.fillText('🌐', badgeX + badgeSize / 2, badgeY + badgeSize / 2);
     }
 
-    // Para tarjetas compactas, mostrar el dominio al lado del badge en la cabecera
+    // Para tarjetas compactas, mostrar el dominio al lado del badge en la cabecera (sin pisar las estrellas)
+    const ratingLayout = this.isEmbedRatingVisible(it) ? this.getEmbedRatingLayout(it) : null;
     if (isCompact) {
       this.ctx.fillStyle = this.isDarkMode ? '#94A3B8' : '#64748b';
       this.ctx.font = '600 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       this.ctx.textAlign = 'left';
       this.ctx.textBaseline = 'middle';
-      this.ctx.fillText(it.domain ? it.domain.toLowerCase() : this.extractDomain(it.url).toLowerCase(), badgeX + badgeSize + 8, badgeY + badgeSize / 2);
+      const domainX = badgeX + badgeSize + 8;
+      const domainText = it.domain ? it.domain.toLowerCase() : this.extractDomain(it.url).toLowerCase();
+      const domainMaxW = (ratingLayout ? ratingLayout.x - 8 : it.x + it.width - 40) - domainX;
+      if (domainMaxW > 12) this.ctx.fillText(this.fitTextToWidth(domainText, domainMaxW), domainX, badgeY + badgeSize / 2);
     }
 
     // 4. Botón de enlace exterior ↗ en la esquina superior derecha
@@ -3562,6 +3581,101 @@ class CanvasEngine {
       this.ctx.fillText(displayUrl, it.x + 14, it.y + it.height - 18);
     }
 
+    // 6. Puntuación de 1 a 5 estrellas, superpuesta a la tarjeta
+    if (ratingLayout) this.drawEmbedRating(it, ratingLayout);
+
+    this.ctx.restore();
+  }
+
+  // Estrellas de puntuación de las tarjetas de enlace: siempre visibles si hay nota; si no, al pasar el ratón o seleccionar
+  static RATING_STAR = 13;
+  static RATING_GAP = 3;
+  static RATING_PAD = 7;
+
+  isEmbedRatingVisible(it) {
+    return (it.rating || 0) > 0 || this.hoveredRatingCardId === it.id ||
+      (this.selectedItemIds.size === 1 && this.selectedItemIds.has(it.id));
+  }
+
+  // Cápsula a la izquierda del botón ↗ (null si la tarjeta es demasiado estrecha)
+  getEmbedRatingLayout(it) {
+    const C = CanvasEngine;
+    const w = 5 * C.RATING_STAR + 4 * C.RATING_GAP + 2 * C.RATING_PAD;
+    const h = 22;
+    const x = it.x + it.width - 32 - 6 - w;
+    const y = it.y + 10;
+    if (x < it.x + 44 || (it.height || 0) < 40) return null;
+    return { x, y, w, h };
+  }
+
+  // Estrella (1-5) bajo un punto del mundo, o 0
+  getEmbedRatingStarAt(it, wx, wy) {
+    if (!it || (it.type !== 'embed' && it.type !== 'preview')) return 0;
+    const C = CanvasEngine;
+    const L = this.getEmbedRatingLayout(it);
+    if (!L || wy < L.y || wy > L.y + L.h || wx < L.x || wx > L.x + L.w) return 0;
+    const idx = Math.floor((wx - L.x - C.RATING_PAD + C.RATING_GAP / 2) / (C.RATING_STAR + C.RATING_GAP));
+    return Math.min(5, Math.max(1, idx + 1));
+  }
+
+  // Pulsar la estrella que ya estaba marcada quita la puntuación
+  setEmbedRating(it, value) {
+    this.saveSnapshot();
+    if ((it.rating || 0) === value) delete it.rating;
+    else it.rating = value;
+    it.updatedAt = new Date().toISOString();
+    this.render();
+    if (this.onBoardModified) this.onBoardModified();
+  }
+
+  // Estado de hover de las estrellas; solo repinta si cambia
+  setRatingHover(cardId, star) {
+    if (this.hoveredRatingCardId === cardId && (this.hoveredRatingStar || 0) === star) return;
+    this.hoveredRatingCardId = cardId;
+    this.hoveredRatingStar = star;
+    this.render();
+  }
+
+  drawEmbedRating(it, L) {
+    const C = CanvasEngine;
+    const dark = this.isDarkMode;
+    const hoverStar = this.hoveredRatingCardId === it.id ? (this.hoveredRatingStar || 0) : 0;
+    const shown = hoverStar || it.rating || 0;
+    this.ctx.save();
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+    this.ctx.shadowBlur = 3;
+    this.ctx.fillStyle = dark ? '#262A34' : 'rgba(255, 255, 255, 0.95)';
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, L.x, L.y, L.w, L.h, L.h / 2);
+    this.ctx.fill();
+    this.ctx.shadowColor = 'transparent';
+    this.ctx.strokeStyle = dark ? '#3A404F' : '#e2e8f0';
+    this.ctx.lineWidth = 1;
+    this.ctx.stroke();
+
+    const outerR = C.RATING_STAR / 2;
+    for (let i = 0; i < 5; i++) {
+      const cx = L.x + C.RATING_PAD + i * (C.RATING_STAR + C.RATING_GAP) + outerR;
+      const cy = L.y + L.h / 2;
+      this.ctx.beginPath();
+      for (let p = 0; p < 10; p++) {
+        const r = p % 2 === 0 ? outerR : outerR * 0.45;
+        const a = -Math.PI / 2 + p * Math.PI / 5;
+        if (p === 0) this.ctx.moveTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+        else this.ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+      }
+      this.ctx.closePath();
+      if (i < shown) {
+        // Azul; un poco más claro mientras se elige con el ratón
+        this.ctx.fillStyle = hoverStar ? (dark ? '#93c5fd' : '#60a5fa') : (dark ? '#60a5fa' : '#2563eb');
+        this.ctx.fill();
+      } else {
+        this.ctx.strokeStyle = dark ? '#64748b' : '#cbd5e1';
+        this.ctx.lineWidth = 1.2;
+        this.ctx.lineJoin = 'round';
+        this.ctx.stroke();
+      }
+    }
     this.ctx.restore();
   }
 
