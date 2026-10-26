@@ -107,7 +107,7 @@ note(brain, 'cerebro_note', 830, 124, 750, 475,
 note(brain, 'cerebro_ia', 40, 630, 1540, 150,
   '⚙️ Qué IA usa (engranaje del chat): Ollama funciona en tu PC sin enviar nada. Claude Code o Gemini CLI usan tu cuenta. ' +
   'Con una clave de API (Claude, Gemini u OpenAI), las preguntas van a ese proveedor. Sin configurar nada, usa un servicio gratuito de terceros.\n' +
-  'Gemini gratis: aistudio.google.com → Create API key → pégala en el engranaje.',
+  '🔑 Para usar Gemini gratis con tu cuenta de Google, sigue los 4 pasos del bloque 8.',
   { fontSize: 15, color: C.soft });
 
 // =========================================================
@@ -231,17 +231,112 @@ note(safe, 'copias_note', 710, 124, 870, 400,
   { fontSize: 15 });
 
 // =========================================================
-// 7 · ATAJOS DE TECLADO
+// 7 · ATAJOS DE TECLADO (tabla como la de la web: teclas dibujadas y descripción)
 // =========================================================
-const keys = frame('frame_atajos', '⌨️ 7 · ATAJOS DE TECLADO', -1650, 1910, 3300, 320);
+const keys = frame('frame_atajos', '⌨️ 7 · ATAJOS DE TECLADO', -1650, 1910, 1620, 890);
 header(keys, 'Atajos de teclado');
+
+// Ancho aproximado de un texto (OpenSans / Segoe UI) para colocar las piezas de cada fila una detrás de otra
+function textWidth(text, fontSize, bold = false) {
+  let w = 0;
+  for (const ch of text) {
+    if (ch === ' ') w += 0.28;
+    else if ('ilj.,:;!|()[]\'·'.includes(ch)) w += 0.3;
+    else if ('ftrI'.includes(ch)) w += 0.38;
+    else if ('mwMW'.includes(ch)) w += 0.86;
+    else if (ch === ch.toUpperCase() && /[A-ZÁÉÍÓÚÑ]/.test(ch)) w += 0.66;
+    else if (/[0-9]/.test(ch)) w += 0.57;
+    else w += 0.54;
+  }
+  return Math.ceil(w * fontSize * (bold ? 1.06 : 1));
+}
+
+const KEY_H = 30;
+const T = { x: keys.x + 40, width: 1540, keysCol: 0, descCol: 520, headerH: 52, rowH: 56 };
+const tableTop = keys.y + 124;
+const shape = (id, x, y, width, height, extra) => add({ id, type: 'shape', parentId: keys.id, x, y, width, height, ...extra });
+// Fila: fondo + piezas (teclas como cápsulas y textos sin fondo) colocadas de izquierda a derecha
+function pieces(prefix, list, startX, rowY) {
+  let x = startX;
+  list.forEach((p, i) => {
+    if (p.key) {
+      const w = Math.max(30, textWidth(p.key, 13, true) + 22);
+      shape(`${prefix}_${i}`, x, rowY + (T.rowH - KEY_H) / 2, w, KEY_H, {
+        shape: 'rounded', text: p.key, fontSize: 13, isBold: true, textAlign: 'center',
+        fillColor: '#262d3b', strokeColor: '#3a4458', strokeWidth: 1, textColor: C.text, color: C.text
+      });
+      x += w + 6;
+    } else {
+      // Alineado a la izquierda (el motor deja 14 px dentro de la forma) y con holgura para que nunca se parta;
+      // la pieza siguiente va donde acaba el texto, no la forma
+      const est = textWidth(p.text, 16);
+      shape(`${prefix}_${i}`, x - 14, rowY + (T.rowH - KEY_H) / 2, est + 60, KEY_H, {
+        shape: 'rectangle', text: p.text, fontSize: 16, isBold: false, textAlign: 'left',
+        fillColor: 'transparent', strokeColor: 'transparent', strokeWidth: 1, textColor: p.muted ? C.muted : C.soft, color: C.soft
+      });
+      x += est + 6;
+    }
+  });
+}
+const K = (key) => ({ key });
+const Tx = (text, muted = false) => ({ text, muted });
+const SHORTCUTS = [
+  [[K('V'), K('H')], [Tx('Seleccionar / mano')]],
+  [[K('N'), K('S'), K('T')], [Tx('Nota / forma / texto')]],
+  [[K('L'), K('P'), K('F'), K('C')], [Tx('Conector / lápiz / marco / comentario')]],
+  [[K('Ctrl'), K('C'), K('Ctrl'), K('X'), K('Ctrl'), K('V')], [Tx('Copiar, cortar y pegar')]],
+  [[K('Ctrl'), K('D'), Tx('o', true), K('Alt'), Tx('+ arrastrar', true)], [Tx('Duplicar')]],
+  [[K('Ctrl'), K('A')], [Tx('Seleccionar todo')]],
+  [[K('Ctrl'), K('Z'), K('Ctrl'), K('Y')], [Tx('Deshacer / rehacer')]],
+  [[K(']'), K('[')], [Tx('Traer adelante / enviar atrás (con'), K('Shift'), Tx(': al frente / al fondo)')]],
+  [[K('Ctrl'), K('F')], [Tx('Buscar en el tablero')]],
+  [[K('Ctrl'), K('Shift'), K('F')], [Tx('Buscar en todos los tableros')]],
+  [[K('Ctrl'), K('K')], [Tx('Abrir el Cerebro IA')]],
+  [[K('Espacio'), Tx('+ arrastrar', true)], [Tx('Moverse por el lienzo')]]
+];
+shape('atajos_cabecera', T.x, tableTop, T.width, T.headerH, {
+  shape: 'rectangle', fillColor: '#1b2130', strokeColor: '#2b3447', strokeWidth: 1
+});
+shape('atajos_cabecera_atajo', T.x + 8, tableTop + 11, 200, KEY_H, {
+  shape: 'rectangle', text: 'Atajo', fontSize: 16, isBold: true, textAlign: 'left',
+  fillColor: 'transparent', strokeColor: 'transparent', strokeWidth: 1, textColor: C.text, color: C.text
+});
+shape('atajos_cabecera_que', T.x + T.descCol - 6, tableTop + 11, 300, KEY_H, {
+  shape: 'rectangle', text: 'Qué hace', fontSize: 16, isBold: true, textAlign: 'left',
+  fillColor: 'transparent', strokeColor: 'transparent', strokeWidth: 1, textColor: C.text, color: C.text
+});
+SHORTCUTS.forEach(([keyPieces, descPieces], i) => {
+  const rowY = tableTop + T.headerH + i * T.rowH;
+  shape(`atajos_fila_${i + 1}`, T.x, rowY, T.width, T.rowH, {
+    shape: 'rectangle', fillColor: '#151a24', strokeColor: '#2b3447', strokeWidth: 1
+  });
+  pieces(`atajos_fila_${i + 1}_tecla`, keyPieces, T.x + 22, rowY);
+  pieces(`atajos_fila_${i + 1}_texto`, descPieces, T.x + T.descCol + 8, rowY);
+});
+// Las formas de texto llevan holgura a la derecha: comprobar que caben en la tabla
+items.filter(it => it.id.startsWith('atajos_fila_')).forEach(it => {
+  if (it.x + it.width > T.x + T.width) throw new Error(`${it.id} se sale de la tabla de atajos`);
+});
+
+// =========================================================
+// 8 · IA GRATIS CON GOOGLE GEMINI
+// =========================================================
+const gemini = frame('frame_gemini', '🔑 8 · IA GRATIS CON GOOGLE GEMINI', 30, 1910, 1620, 890);
+header(gemini, 'Conecta el Cerebro con tu clave gratis de Google');
+note(gemini, 'gemini_intro', 40, 124, 1540, 96,
+  'Con una clave de Google AI Studio, el Cerebro usa Gemini 2.5 Flash con tu cuenta de Google: es gratis y no pide tarjeta. ' +
+  'Sin clave, el Cerebro funciona con un servicio gratuito de terceros; con la tuya, las preguntas van directas a Google.',
+  { fontSize: 15, color: C.soft });
 [
-  '🛠️ Herramientas\nV seleccionar · H mano · N nota · S forma\nT texto · L conector · P lápiz · F marco · C comentario',
-  '✂️ Editar\nCtrl+C / Ctrl+X / Ctrl+V · Ctrl+A seleccionar todo\nCtrl+D o Alt + arrastrar duplicar\nCtrl+Z deshacer · Ctrl+Y rehacer',
-  '🔍 Buscar y Cerebro\nCtrl+F buscar en el tablero\nCtrl+Shift+F buscar en todos\nCtrl+K abrir el Cerebro',
-  '🗂️ Capas y vista\n] adelante · [ atrás (con Shift: al frente / al fondo)\nEspacio + arrastrar para moverte\nRueda del ratón para el zoom'
-].forEach((text, i) => {
-  note(keys, `atajos_${i + 1}`, 40 + i * 810, 124, 780, 156, text, { fontSize: 15, color: C.soft });
+  { img: 'step1_google_studio_create.png', text: '1 · Entra en aistudio.google.com/app/apikey con tu cuenta de Google (o pulsa «🔑 Conseguir API Key gratis» en los ajustes del Cerebro).' },
+  { img: 'step2_create_key_project.png', text: '2 · Pulsa «Create API key» y elige «Create API key in new project». Google la crea en unos segundos.' },
+  { img: 'step3_copy_apikey.png', text: '3 · Copia la clave, que empieza por AIzaSy…, con el botón «Copiar».' },
+  { img: 'step4_brainboard_setup_connected.png', text: '4 · En Brain Board: Ctrl+K → engranaje ⚙️ → proveedor «Google Gemini 2.5 Flash» → pega la clave → «Probar clave» → «Guardar configuración». La clave se guarda solo en este ordenador.' }
+].forEach((s, i) => {
+  const cx = 40 + (i % 2) * 785;
+  const cy = 250 + Math.floor(i / 2) * 310;
+  image(gemini, `gemini_paso_${i + 1}_img`, s.img, cx, cy, 400, 233);
+  note(gemini, `gemini_paso_${i + 1}`, cx + 415, cy, 340, 280, s.text, { fontSize: 15 });
 });
 
 // =========================================================
