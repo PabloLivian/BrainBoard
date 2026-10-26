@@ -154,46 +154,56 @@ class CanvasEngine {
     return null;
   }
 
+  // Fecha de la última revisión del contenido (edición o "Marcar como revisado")
+  getItemReviewedAtMs(it) {
+    if (!it || !it.reviewedAt) return null;
+    const parsed = Date.parse(it.reviewedAt);
+    return isNaN(parsed) ? null : parsed;
+  }
+
+  formatRelativeAge(ms, nowMs = Date.now()) {
+    const diffMs = Math.max(0, nowMs - ms);
+    const ageDays = diffMs / 86400000;
+    const ageHours = diffMs / 3600000;
+    const ageMinutes = diffMs / 60000;
+    if (ageMinutes < 2) return 'Justo ahora';
+    if (ageMinutes < 60) return `Hace ${Math.floor(ageMinutes)} min`;
+    if (ageHours < 24) {
+      const h = Math.floor(ageHours);
+      return `Hace ${h} ${h === 1 ? 'hora' : 'horas'}`;
+    }
+    if (ageDays < 2) return 'Ayer';
+    if (ageDays < 30) return `Hace ${Math.floor(ageDays)} días`;
+    if (ageDays < 365) {
+      const months = Math.max(1, Math.floor(ageDays / 30.4));
+      return `Hace ${months} ${months === 1 ? 'mes' : 'meses'}`;
+    }
+    const years = (ageDays / 365.25).toFixed(1).replace(/\.0$/, '');
+    return `Hace ${years} ${years === '1' ? 'año' : 'años'}`;
+  }
+
+  formatDateParts(ms) {
+    const d = new Date(ms);
+    const monthsShort = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const formattedDate = `${d.getDate()} ${monthsShort[d.getMonth()]} ${d.getFullYear()}`;
+    return { formattedDate, formattedDateTime: `${formattedDate}, ${hh}:${mm}` };
+  }
+
   getItemFreshnessInfo(it) {
     const createdMs = this.getItemCreatedAtMs(it);
     const nowMs = Date.now();
     const validMs = createdMs || nowMs;
-    const diffMs = Math.max(0, nowMs - validMs);
-    const ageDays = diffMs / 86400000;
-    const ageHours = diffMs / 3600000;
-    const ageMinutes = diffMs / 60000;
 
-    let relativeText = '';
-    if (!createdMs) {
-      relativeText = 'Fecha registrada';
-    } else if (ageMinutes < 2) {
-      relativeText = 'Justo ahora';
-    } else if (ageMinutes < 60) {
-      relativeText = `Hace ${Math.floor(ageMinutes)} min`;
-    } else if (ageHours < 24) {
-      const h = Math.floor(ageHours);
-      relativeText = `Hace ${h} ${h === 1 ? 'hora' : 'horas'}`;
-    } else if (ageDays < 2) {
-      relativeText = 'Ayer';
-    } else if (ageDays < 30) {
-      relativeText = `Hace ${Math.floor(ageDays)} días`;
-    } else if (ageDays < 365) {
-      const months = Math.max(1, Math.floor(ageDays / 30.4));
-      relativeText = `Hace ${months} ${months === 1 ? 'mes' : 'meses'}`;
-    } else {
-      const years = (ageDays / 365.25).toFixed(1).replace(/\.0$/, '');
-      relativeText = `Hace ${years} ${years === '1' ? 'año' : 'años'}`;
-    }
+    // La frescura cuenta desde la última revisión si es posterior a la colocación
+    const reviewedMs = this.getItemReviewedAtMs(it);
+    const isReviewed = Boolean(reviewedMs && reviewedMs > validMs);
+    const freshnessMs = isReviewed ? reviewedMs : validMs;
+    const ageDays = Math.max(0, nowMs - freshnessMs) / 86400000;
 
-    const d = new Date(validMs);
-    const monthsShort = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
-    const dayNum = d.getDate();
-    const monStr = monthsShort[d.getMonth()];
-    const yearNum = d.getFullYear();
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    const formattedDate = `${dayNum} ${monStr} ${yearNum}`;
-    const formattedDateTime = `${dayNum} ${monStr} ${yearNum}, ${hh}:${mm}`;
+    const relativeText = createdMs ? this.formatRelativeAge(validMs, nowMs) : 'Fecha registrada';
+    const { formattedDate, formattedDateTime } = this.formatDateParts(validMs);
 
     let tier = 'recent';
     let tierLabel = 'Reciente';
@@ -225,7 +235,12 @@ class CanvasEngine {
       color,
       relativeText,
       formattedDate,
-      formattedDateTime
+      formattedDateTime,
+      isReviewed,
+      freshnessMs,
+      reviewedMs: isReviewed ? reviewedMs : null,
+      reviewRelativeText: isReviewed ? this.formatRelativeAge(reviewedMs, nowMs) : '',
+      reviewedFormattedDateTime: isReviewed ? this.formatDateParts(reviewedMs).formattedDateTime : ''
     };
   }
 
@@ -413,6 +428,27 @@ class CanvasEngine {
     this.render();
     if (this.onZoomChange) this.onZoomChange(this.camera.zoom);
     if (this.onCameraChange) this.onCameraChange();
+  }
+
+  // Encuadrar un rectángulo del mundo dejando margen alrededor (sin pasar de maxZoom)
+  zoomToBounds(minX, minY, maxX, maxY, { padding = 80, maxZoom = 1 } = {}) {
+    const w = Math.max(1, maxX - minX);
+    const h = Math.max(1, maxY - minY);
+    const zoomX = (this.width - padding * 2) / w;
+    const zoomY = (this.height - padding * 2) / h;
+    this.camera.zoom = Math.max(0.02, Math.min(maxZoom, zoomX, zoomY));
+    this.camera.x = -(minX + w / 2);
+    this.camera.y = -(minY + h / 2);
+    this.render();
+    if (this.onZoomChange) this.onZoomChange(this.camera.zoom);
+    if (this.onCameraChange) this.onCameraChange();
+  }
+
+  focusOnItem(it, maxZoom = 1) {
+    if (!it) return;
+    const x = it.x || 0;
+    const y = it.y || 0;
+    this.zoomToBounds(x, y, x + (it.width || 100), y + (it.height || 100), { padding: 120, maxZoom });
   }
 
   zoomToItem(it, targetZoom = 1.0) {
@@ -1978,6 +2014,8 @@ class CanvasEngine {
       };
 
       createdItems.push(frame, title, notes);
+    } else {
+      createdItems.push(...this.buildCuratedTemplate(templateType, targetCenterX, targetCenterY, now, currentMaxZ));
     }
 
     // Insertar elementos creados en el motor
@@ -1985,6 +2023,94 @@ class CanvasEngine {
     this.selectedItemIds.clear();
     createdItems.forEach(it => this.selectedItemIds.add(it.id));
     return createdItems.map(it => it.id);
+  }
+
+  // Plantillas con el estilo curado de BoardInstructorAI.md (marco oscuro, cabecera y bloques de texto)
+  buildCuratedTemplate(templateType, centerX, centerY, now, baseZ) {
+    const nowIso = new Date(now).toISOString();
+    const uid = (prefix, n) => `${prefix}_${now + n}_${Math.random().toString(36).substr(2, 5)}`;
+    const items = [];
+    let z = baseZ;
+
+    const sizes = {
+      recurso_apunte: { w: 820, h: 420, title: 'Recurso + apunte', header: 'NOMBRE DEL RECURSO' },
+      galeria: { w: 1050, h: 600, title: 'Referencias', header: 'REFERENCIAS VISUALES' },
+      comparativa: { w: 1110, h: 560, title: 'Comparativa', header: 'COMPARATIVA' }
+    };
+    const spec = sizes[templateType] || sizes.recurso_apunte;
+    const fx = Math.round(centerX - spec.w / 2);
+    const fy = Math.round(centerY - spec.h / 2);
+    const frameId = uid('frame', 0);
+
+    items.push({
+      id: frameId, type: 'frame', createdAt: nowIso, updatedAt: nowIso,
+      x: fx, y: fy, width: spec.w, height: spec.h,
+      title: spec.title, fillColor: '#0f141d', zIndex: ++z
+    });
+    items.push({
+      id: uid('text', 1), type: 'text', parentId: frameId, createdAt: nowIso, updatedAt: nowIso,
+      x: fx + 30, y: fy + 24, width: spec.w - 60, height: 54,
+      text: spec.header, fontSize: 22, isBold: true,
+      color: '#f1f5f9', textColor: '#f1f5f9', fillColor: '#161b26', zIndex: ++z
+    });
+
+    if (templateType === 'galeria') {
+      // 3 × 2 huecos: al pegar o arrastrar una imagen sobre un hueco, la imagen ocupa su lugar
+      const cols = 3;
+      const slotW = 310;
+      const slotH = 210;
+      const gapX = (spec.w - 60 - cols * slotW) / (cols - 1);
+      for (let i = 0; i < 6; i++) {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        items.push({
+          id: uid('shape', 2 + i), type: 'shape', shape: 'rectangle', parentId: frameId,
+          createdAt: nowIso, updatedAt: nowIso,
+          x: Math.round(fx + 30 + col * (slotW + gapX)), y: fy + 104 + row * (slotH + 24),
+          width: slotW, height: slotH,
+          text: 'Pega o arrastra una imagen aquí', fontSize: 14, isBold: false,
+          fillColor: '#161b26', strokeColor: '#334155', strokeWidth: 1.5,
+          color: '#94a3b8', textColor: '#94a3b8',
+          isImagePlaceholder: true, zIndex: ++z
+        });
+      }
+    } else if (templateType === 'comparativa') {
+      const cols = 3;
+      const colW = Math.round((spec.w - 60 - (cols - 1) * 24) / cols);
+      ['OPCIÓN A', 'OPCIÓN B', 'OPCIÓN C'].forEach((label, i) => {
+        const cx = fx + 30 + i * (colW + 24);
+        items.push({
+          id: uid('text', 2 + i * 2), type: 'text', parentId: frameId, createdAt: nowIso, updatedAt: nowIso,
+          x: cx, y: fy + 104, width: colW, height: 46,
+          text: label, fontSize: 18, isBold: true, textAlign: 'center',
+          color: '#f1f5f9', textColor: '#f1f5f9', fillColor: '#1e2533', zIndex: ++z
+        });
+        items.push({
+          id: uid('text', 3 + i * 2), type: 'text', parentId: frameId, createdAt: nowIso, updatedAt: nowIso,
+          x: cx, y: fy + 164, width: colW, height: spec.h - 194,
+          text: '• Ventajas:\n\n• Inconvenientes:\n\n• Precio / licencia:\n\n• Ideal para:',
+          fontSize: 16, textAlign: 'left',
+          color: '#e2e8f0', textColor: '#e2e8f0', fillColor: '#161b26', zIndex: ++z
+        });
+      });
+    } else {
+      // Recurso + apunte: tarjeta de enlace a la izquierda y nota técnica a la derecha
+      items.push({
+        id: uid('embed', 2), type: 'embed', parentId: frameId, createdAt: nowIso, updatedAt: nowIso,
+        x: fx + 30, y: fy + 104, width: 330, height: 260,
+        url: '', domain: 'ENLACE', title: 'Pega aquí el enlace', src: '',
+        description: 'Selecciona la tarjeta y pulsa el botón de enlace (🔗) de la barra para añadir la URL',
+        zIndex: ++z
+      });
+      items.push({
+        id: uid('text', 3), type: 'text', parentId: frameId, createdAt: nowIso, updatedAt: nowIso,
+        x: fx + 390, y: fy + 104, width: 395, height: 260,
+        text: '• Qué es:\n\n• Workflow:\n\n• Integración en el pipeline:',
+        fontSize: 16, textAlign: 'left',
+        color: '#e2e8f0', textColor: '#e2e8f0', fillColor: '#161b26', zIndex: ++z
+      });
+    }
+    return items;
   }
 
   onPointerMove(e) {
@@ -3657,6 +3783,41 @@ class CanvasEngine {
     ctx.quadraticCurveTo(x, y, x + radius, y);
   }
 
+  // Altura que necesita un texto o nota para mostrar todo su contenido (mismo ajuste de líneas que drawText)
+  measureTextItemHeight(it) {
+    if (!it) return 0;
+    const ctx = this.ctx;
+    ctx.save();
+    const hasFill = Boolean(it.fillColor && it.fillColor !== 'transparent') || it.type === 'sticky_note';
+    const fontSize = it.fontSize || 15;
+    const fontFamily = it.fontFamily || 'OpenSans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const isBold = it.isBold !== undefined ? it.isBold : (hasFill || fontSize >= 24);
+    ctx.font = `${it.isItalic ? 'italic ' : ''}${isBold ? '700 ' : '400 '}${fontSize}px ${fontFamily}`;
+    const padX = hasFill ? 14 : 0;
+    const padY = hasFill ? 10 : 0;
+    const maxWidth = Math.max(20, (it.width || 400) - padX * 2);
+    let lineCount = 0;
+    String(it.text || '').split('\n').forEach(para => {
+      if (!para.trim()) {
+        lineCount++;
+        return;
+      }
+      const words = para.split(' ');
+      let current = words[0] || '';
+      for (let i = 1; i < words.length; i++) {
+        if (ctx.measureText(current + ' ' + words[i]).width < maxWidth) {
+          current += ' ' + words[i];
+        } else {
+          lineCount++;
+          current = words[i];
+        }
+      }
+      lineCount++;
+    });
+    ctx.restore();
+    return Math.ceil(lineCount * Math.round(fontSize * 1.35) + padY * 2 + 8);
+  }
+
   wrapText(ctx, text, x, y, maxWidth, lineHeight, align = 'center', maxLines = 0) {
     if (!text) return 0;
     const paragraphs = String(text).split('\n');
@@ -3717,6 +3878,8 @@ class CanvasEngine {
     const lineWidth = Math.max(2, 2.5 / Math.max(0.25, Math.min(2, this.camera.zoom)));
     this.ctx.strokeStyle = info.color;
     this.ctx.lineWidth = lineWidth;
+    // Trazo nuevo: sin beginPath se volvían a pintar los puntos de la cuadrícula y los contornos anteriores
+    this.ctx.beginPath();
     this.roundRect(this.ctx, x - 2, y - 2, w + 4, h + 4, 8);
     this.ctx.stroke();
 
@@ -3725,7 +3888,9 @@ class CanvasEngine {
       const badgeScale = Math.max(0.65, Math.min(1.4, 1 / Math.sqrt(this.camera.zoom)));
       const fontSize = Math.round(11 * badgeScale);
       this.ctx.font = `600 ${fontSize}px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-      const labelText = `${info.relativeText} · ${info.formattedDate}`;
+      const labelText = info.isReviewed
+        ? `Revisado ${info.reviewRelativeText.toLowerCase()} · ${info.formattedDate}`
+        : `${info.relativeText} · ${info.formattedDate}`;
       const textWidth = this.ctx.measureText(labelText).width;
       const padX = 8 * badgeScale;
       const dotR = 3.5 * badgeScale;
@@ -3737,6 +3902,7 @@ class CanvasEngine {
       this.ctx.fillStyle = this.isDarkMode ? 'rgba(15, 23, 42, 0.94)' : 'rgba(255, 255, 255, 0.96)';
       this.ctx.strokeStyle = info.color;
       this.ctx.lineWidth = Math.max(1, 1.2 * badgeScale);
+      this.ctx.beginPath();
       this.roundRect(this.ctx, bx, by, badgeW, badgeH, 6 * badgeScale);
       this.ctx.fill();
       this.ctx.stroke();

@@ -845,6 +845,10 @@ document.addEventListener('DOMContentLoaded', () => {
     propertiesBar.style.bottom = 'auto';
     propertiesBar.style.transform = 'none';
     propertiesBar.classList.add('visible');
+
+    // El menú de alinear se abre hacia arriba si la barra queda abajo del todo
+    const alignPopover = document.getElementById('align-objects-popover');
+    if (alignPopover) alignPopover.classList.toggle('open-up', top + barH + 190 > window.innerHeight);
   }
 
   // Sincronizar controles de la barra de propiedades con el elemento actual
@@ -907,7 +911,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Control de opción Añadir / Editar URL
     const isImage = (first.type === 'image');
-    const canHaveUrl = (first.type === 'text' || first.type === 'sticky_note' || first.type === 'image' || first.type === 'shape');
+    const canHaveUrl = (first.type === 'text' || first.type === 'sticky_note' || first.type === 'image' || first.type === 'shape' || first.type === 'embed');
 
     if (btnPropUrl) {
       btnPropUrl.style.display = canHaveUrl ? 'inline-flex' : 'none';
@@ -930,8 +934,179 @@ document.addEventListener('DOMContentLoaded', () => {
     if (alignGroup) alignGroup.style.display = isImage ? 'none' : 'flex';
     if (textColorGroup) textColorGroup.style.display = isImage ? 'none' : 'flex';
 
+    // "Marcar como revisado": con el Mapa de Frescura activo o si hay algo antiguo (>6 meses) seleccionado
+    const markReviewedBtn = document.getElementById('btn-prop-mark-reviewed');
+    if (markReviewedBtn) {
+      const reviewable = getReviewTargetsFromSelection();
+      const hasStale = reviewable.some(it => engine.getItemFreshnessInfo(it).tier === 'obsolete');
+      markReviewedBtn.style.display = reviewable.length > 0 && (engine.freshnessMapMode || hasStale) ? 'inline-flex' : 'none';
+    }
+
+    // Alinear y distribuir solo tiene sentido con varios elementos
+    const alignObjectsGroup = document.getElementById('group-align-objects');
+    if (alignObjectsGroup) {
+      const canAlign = getAlignTargetsFromSelection().length >= 2;
+      alignObjectsGroup.style.display = canAlign ? 'flex' : 'none';
+      if (!canAlign) document.getElementById('align-objects-popover')?.classList.remove('visible');
+    }
+
     updatePropertiesBarPosition();
   }
+
+  // =========================================================
+  // MARCAR COMO REVISADO (renueva la frescura sin tocar el contenido)
+  // =========================================================
+  const btnMarkReviewed = document.getElementById('btn-prop-mark-reviewed');
+
+  function isReviewableItem(it) {
+    return Boolean(it) && it.type !== 'connector' && it.type !== 'pen' && it.type !== 'comment';
+  }
+
+  // Los marcos seleccionados cuentan con todo su contenido: revisar una sección la revisa entera
+  function getReviewTargetsFromSelection() {
+    const targets = new Map();
+    engine.items.forEach(it => {
+      if (!engine.selectedItemIds.has(it.id)) return;
+      if (isReviewableItem(it)) targets.set(it.id, it);
+      if (it.type === 'frame') {
+        engine.items.forEach(child => {
+          if (child.id !== it.id && isReviewableItem(child) && (child.parentId === it.id || engine.isItemInsideFrame(child, it))) {
+            targets.set(child.id, child);
+          }
+        });
+      }
+    });
+    return Array.from(targets.values());
+  }
+
+  function markSelectedAsReviewed() {
+    const targets = getReviewTargetsFromSelection();
+    if (targets.length === 0) return;
+    engine.saveSnapshot();
+    const nowIso = new Date().toISOString();
+    targets.forEach(it => {
+      it.reviewedAt = nowIso;
+      it.updatedAt = nowIso;
+    });
+    engine.render();
+    if (engine.freshnessMapMode) updateFreshnessMapCounters();
+    syncPropertiesBarWithSelection();
+    autoSaveBoardImmediately();
+    showDevToast(targets.length === 1 ? '✓ Marcado como revisado' : `✓ ${targets.length} elementos marcados como revisados`);
+  }
+
+  btnMarkReviewed?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    markSelectedAsReviewed();
+  });
+
+  // =========================================================
+  // ALINEAR Y DISTRIBUIR VARIOS ELEMENTOS
+  // =========================================================
+  const groupAlignObjects = document.getElementById('group-align-objects');
+  const btnPropAlignObjects = document.getElementById('btn-prop-align-objects');
+  const alignObjectsPopover = document.getElementById('align-objects-popover');
+
+  // Elementos que se mueven como una unidad: si un marco está seleccionado, sus hijos viajan con él
+  function getAlignTargetsFromSelection() {
+    const selected = engine.items.filter(it => engine.selectedItemIds.has(it.id) && it.type !== 'connector');
+    const selectedFrames = selected.filter(it => it.type === 'frame');
+    return selected.filter(it => !selectedFrames.some(f => f.id !== it.id && (it.parentId === f.id || engine.isItemInsideFrame(it, f))));
+  }
+
+  function moveItemWithChildren(it, dx, dy, movedIds) {
+    if (dx === 0 && dy === 0) return;
+    const toMove = [it];
+    if (it.type === 'frame') {
+      engine.items.forEach(child => {
+        if (child.id !== it.id && (child.parentId === it.id || engine.isItemInsideFrame(child, it))) toMove.push(child);
+      });
+    }
+    toMove.forEach(m => {
+      if (movedIds.has(m.id)) return;
+      movedIds.add(m.id);
+      if (m.type === 'pen' && Array.isArray(m.points)) {
+        m.points.forEach(p => { p.x += dx; p.y += dy; });
+      } else if (m.type === 'connector') {
+        if (m.start) { m.start.x += dx; m.start.y += dy; }
+        if (m.end) { m.end.x += dx; m.end.y += dy; }
+      } else {
+        m.x += dx;
+        m.y += dy;
+      }
+    });
+  }
+
+  function alignSelectedItems(mode) {
+    const targets = getAlignTargetsFromSelection();
+    const isDistribute = mode === 'horizontal' || mode === 'vertical';
+    if (targets.length < (isDistribute ? 3 : 2)) {
+      showDevToast(isDistribute ? 'Selecciona 3 o más elementos para distribuir' : 'Selecciona 2 o más elementos para alinear');
+      return;
+    }
+    const all = computeItemsBounds(targets);
+    if (!all) return;
+
+    // Se calculan todos los desplazamientos antes de mover nada (los marcos arrastran a sus hijos)
+    const moves = [];
+    if (isDistribute) {
+      const horizontal = mode === 'horizontal';
+      const sorted = targets
+        .map(it => ({ it, b: computeItemBounds(it) }))
+        .sort((a, b) => horizontal ? a.b.minX - b.b.minX : a.b.minY - b.b.minY);
+      const totalSize = sorted.reduce((sum, s) => sum + (horizontal ? s.b.width : s.b.height), 0);
+      const span = horizontal ? all.width : all.height;
+      const gap = (span - totalSize) / (sorted.length - 1);
+      let cursor = horizontal ? all.minX : all.minY;
+      sorted.forEach(s => {
+        const delta = Math.round(cursor - (horizontal ? s.b.minX : s.b.minY));
+        moves.push({ it: s.it, dx: horizontal ? delta : 0, dy: horizontal ? 0 : delta });
+        cursor += (horizontal ? s.b.width : s.b.height) + gap;
+      });
+    } else {
+      targets.forEach(it => {
+        const b = computeItemBounds(it);
+        let dx = 0, dy = 0;
+        if (mode === 'left') dx = all.minX - b.minX;
+        else if (mode === 'center-h') dx = all.centerX - b.centerX;
+        else if (mode === 'right') dx = all.maxX - b.maxX;
+        else if (mode === 'top') dy = all.minY - b.minY;
+        else if (mode === 'middle-v') dy = all.centerY - b.centerY;
+        else if (mode === 'bottom') dy = all.maxY - b.maxY;
+        moves.push({ it, dx: Math.round(dx), dy: Math.round(dy) });
+      });
+    }
+
+    if (!moves.some(m => m.dx !== 0 || m.dy !== 0)) return;
+    engine.saveSnapshot();
+    const movedIds = new Set();
+    moves.forEach(m => moveItemWithChildren(m.it, m.dx, m.dy, movedIds));
+    engine.items.forEach(it => {
+      if (movedIds.has(it.id) && it.type !== 'connector' && it.type !== 'pen') engine.updateConnectedLinesForItem(it);
+    });
+    engine.render();
+    updatePropertiesBarPosition();
+    updateMinimap();
+    autoSaveBoard();
+  }
+
+  btnPropAlignObjects?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    textColorPopover?.classList.remove('visible');
+    fillColorPopover?.classList.remove('visible');
+    alignObjectsPopover?.classList.toggle('visible');
+  });
+
+  alignObjectsPopover?.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      alignSelectedItems(btn.dataset.align || btn.dataset.distribute);
+    });
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#group-align-objects')) alignObjectsPopover?.classList.remove('visible');
+  });
 
   // Herramientas de la barra lateral
   const toolButtons = document.querySelectorAll('.tool-btn');
@@ -1075,7 +1250,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (engine.onBoardModified) engine.onBoardModified();
     engine.render();
     autoSaveBoardImmediately();
-    showDevToast('Plantilla de apuntes insertada');
+    const templateNames = { apuntes: 'Apuntes', recurso_apunte: 'Recurso + apunte', galeria: 'Galería de referencias', comparativa: 'Comparativa' };
+    showDevToast(`Plantilla «${templateNames[templateType] || 'Apuntes'}» insertada`);
   }
   window.insertTemplate = insertTemplate;
 
@@ -1344,12 +1520,23 @@ document.addEventListener('DOMContentLoaded', () => {
       urlVal = 'https://' + urlVal;
     }
     engine.saveSnapshot();
+    const prevUrl = itemPendingUrlEdit.url || '';
     if (urlVal) {
       itemPendingUrlEdit.url = urlVal;
     } else {
       itemPendingUrlEdit.url = '';
     }
     const targetItem = itemPendingUrlEdit;
+    if (urlVal !== prevUrl) {
+      const nowIso = new Date().toISOString();
+      targetItem.updatedAt = nowIso;
+      targetItem.reviewedAt = nowIso;
+      if (urlVal) {
+        // Una tarjeta de enlace se rellena sola con el título, la descripción y la miniatura de la página
+        if (targetItem.type === 'embed') enrichEmbedFromUrl(targetItem, urlVal, { resizeOnImage: false });
+        warnIfUrlAlreadySaved(urlVal, targetItem.id);
+      }
+    }
     closeUrlModal();
     if (targetItem && !engine.selectedItemIds.has(targetItem.id)) {
       engine.selectedItemIds.clear();
@@ -1369,6 +1556,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!itemPendingUrlEdit) return;
     engine.saveSnapshot();
     itemPendingUrlEdit.url = '';
+    itemPendingUrlEdit.updatedAt = new Date().toISOString();
     const targetItem = itemPendingUrlEdit;
     closeUrlModal();
     if (targetItem && !engine.selectedItemIds.has(targetItem.id)) {
@@ -1439,7 +1627,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const statItemCreatedDate = document.getElementById('stat-item-created-date');
     if (statItemCreatedDate && typeof engine.getItemFreshnessInfo === 'function') {
       const fInfo = engine.getItemFreshnessInfo(item);
-      statItemCreatedDate.textContent = `${fInfo.formattedDateTime} (${fInfo.relativeText})`;
+      statItemCreatedDate.textContent = `${fInfo.formattedDateTime} (${fInfo.relativeText})` +
+        (fInfo.isReviewed ? ` · revisado ${fInfo.reviewRelativeText.toLowerCase()}` : '');
       statItemCreatedDate.style.color = fInfo.color;
     }
 
@@ -1533,6 +1722,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const targetItem = itemPendingProperties;
     const origId = targetItem.id;
     const hadImgElement = targetItem.imgElement;
+    const prevUpdatedAt = targetItem.updatedAt;
 
     // Eliminar propiedades viejas que no estén en el nuevo objeto excepto id e imgElement
     for (const key of Object.keys(targetItem)) {
@@ -1542,6 +1732,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     Object.assign(targetItem, parsed);
     targetItem.id = origId; // Preservar id para no desvincular selección o conectores
+    // Salvo que se haya escrito a mano otra fecha, guardar el momento de esta modificación
+    if (parsed.updatedAt === undefined || parsed.updatedAt === prevUpdatedAt) {
+      targetItem.updatedAt = new Date().toISOString();
+    }
     if (hadImgElement && targetItem.type === 'image') {
       targetItem.imgElement = hadImgElement;
     }
@@ -2107,6 +2301,12 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
+    // Una copia completa (automática o manual) se restaura en lugar de importarse como un tablero
+    if (jsonData && jsonData.type === 'brainboard_full_backup') {
+      confirmRestoreBackupPayload(jsonData, fileName);
+      return;
+    }
+
     if (jsonData && (jsonData.items || jsonData.widgets)) {
       const boardName = jsonData.name || jsonData.title || fallbackName;
       let boardId = jsonData.id || ('board_' + Date.now());
@@ -2657,6 +2857,113 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 2400);
   }
 
+  // Aviso con botones (p. ej. "Ya lo tenías guardado · Ver"). actions: [{ label, onClick }]
+  let actionToastTimer = null;
+  function showActionToast(message, actions = [], duration = 8000) {
+    let toast = document.getElementById('action-toast-notification');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'action-toast-notification';
+      toast.className = 'action-toast-notification';
+      document.body.appendChild(toast);
+    }
+    toast.innerHTML = '';
+    const text = document.createElement('span');
+    text.className = 'action-toast-text';
+    text.textContent = message;
+    toast.appendChild(text);
+    const hide = () => {
+      toast.classList.remove('visible');
+      clearTimeout(actionToastTimer);
+    };
+    actions.forEach(action => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'action-toast-btn';
+      btn.textContent = action.label;
+      btn.addEventListener('click', () => {
+        hide();
+        action.onClick?.();
+      });
+      toast.appendChild(btn);
+    });
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'action-toast-close';
+    closeBtn.title = 'Cerrar';
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', hide);
+    toast.appendChild(closeBtn);
+    toast.classList.add('visible');
+    clearTimeout(actionToastTimer);
+    actionToastTimer = setTimeout(hide, duration);
+  }
+
+  // =========================================================
+  // ENLACES REPETIDOS: avisar si una URL ya estaba guardada en algún tablero
+  // =========================================================
+  const TRACKING_URL_PARAMS = /^(utm_\w+|fbclid|gclid|igshid|si|feature|ref|ref_src|s)$/i;
+
+  // Forma comparable de una URL: sin protocolo, www, barra final, ancla ni parámetros de seguimiento
+  function normalizeUrlForCompare(rawUrl) {
+    if (!rawUrl || typeof rawUrl !== 'string') return '';
+    let str = rawUrl.trim();
+    if (!str) return '';
+    if (!/^https?:\/\//i.test(str)) str = 'https://' + str;
+    try {
+      const u = new URL(str);
+      let host = u.hostname.toLowerCase().replace(/^www\./, '').replace(/^m\./, '');
+      if (host === 'twitter.com') host = 'x.com';
+      const ytId = extractYouTubeVideoId(str);
+      if (ytId) return `youtube.com/watch?v=${ytId}`;
+      const params = Array.from(u.searchParams.entries())
+        .filter(([key]) => !TRACKING_URL_PARAMS.test(key))
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, val]) => `${key}=${val}`)
+        .join('&');
+      const path = u.pathname.replace(/\/+$/, '');
+      return `${host}${path}${params ? '?' + params : ''}`;
+    } catch (e) {
+      return str.toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/[\/#?]+$/, '');
+    }
+  }
+
+  async function findSavedUrlOccurrences(rawUrl, excludeItemIds = []) {
+    const target = normalizeUrlForCompare(rawUrl);
+    if (!target) return [];
+    const exclude = new Set(excludeItemIds.map(String));
+    const allBoards = await loadAllBoardsForBrainIndex();
+    const found = [];
+    allBoards.forEach(b => {
+      b.items.forEach(it => {
+        if (!it || exclude.has(String(it.id)) || typeof it.url !== 'string' || !it.url) return;
+        if (normalizeUrlForCompare(it.url) === target) {
+          found.push({ boardId: b.id, boardTitle: b.title, itemId: it.id, createdMs: engine.getItemCreatedAtMs(it) || 0 });
+        }
+      });
+    });
+    return found.sort((a, b) => a.createdMs - b.createdMs);
+  }
+
+  function describeUrlOccurrence(occ) {
+    const when = occ.createdMs ? ` el ${engine.formatDateParts(occ.createdMs).formattedDate}` : '';
+    return `«${occ.boardTitle}»${when}`;
+  }
+
+  async function warnIfUrlAlreadySaved(rawUrl, newItemId = null) {
+    try {
+      const found = await findSavedUrlOccurrences(rawUrl, newItemId ? [newItemId] : []);
+      if (found.length === 0) return;
+      const first = found[0];
+      const extra = found.length > 1 ? ` (y ${found.length - 1} ${found.length - 1 === 1 ? 'vez más' : 'veces más'})` : '';
+      showActionToast(`Este enlace ya lo tenías en ${describeUrlOccurrence(first)}${extra}`, [
+        { label: 'Ver', onClick: () => jumpToBoardAndItemFromAi(first.boardId, first.itemId) }
+      ]);
+    } catch (e) {
+      console.warn('No se pudo comprobar si el enlace estaba repetido:', e);
+    }
+  }
+
   // Listener para actualizaciones automáticas de Brain Board
   const updateApplyingOverlay = document.getElementById('update-applying-overlay');
   const updateApplyingText = document.getElementById('update-applying-text');
@@ -3160,8 +3467,22 @@ document.addEventListener('DOMContentLoaded', () => {
     return '';
   }
 
+  // Hueco de imagen de la plantilla "Galería de referencias": el seleccionado o el que está bajo el punto de pegado
+  function findImagePlaceholderTarget(worldPos) {
+    if (engine.selectedItemIds.size === 1) {
+      const sel = engine.items.find(it => engine.selectedItemIds.has(it.id));
+      if (sel?.isImagePlaceholder) return sel;
+    }
+    if (!worldPos) return null;
+    const candidates = engine.items.filter(it => it.isImagePlaceholder &&
+      worldPos.x >= it.x && worldPos.x <= it.x + it.width &&
+      worldPos.y >= it.y && worldPos.y <= it.y + it.height);
+    return candidates[candidates.length - 1] || null;
+  }
+
   function pasteExternalImage(dataUrl, imgWidth = null, imgHeight = null, targetWorldPos = null) {
     const target = targetWorldPos || getPasteTargetPosition();
+    const placeholder = findImagePlaceholderTarget(target);
     const handleAddImage = (w, h) => {
       let finalW = w || 400;
       let finalH = h || 300;
@@ -3185,6 +3506,19 @@ document.addEventListener('DOMContentLoaded', () => {
         width: finalW,
         height: finalH
       };
+
+      // La imagen ocupa el hueco (encajada sin deformar) y el hueco desaparece
+      if (placeholder && engine.items.includes(placeholder)) {
+        const fit = Math.min(placeholder.width / (w || 400), placeholder.height / (h || 300));
+        imgItem.width = Math.round((w || 400) * fit);
+        imgItem.height = Math.round((h || 300) * fit);
+        imgItem.x = Math.round(placeholder.x + (placeholder.width - imgItem.width) / 2);
+        imgItem.y = Math.round(placeholder.y + (placeholder.height - imgItem.height) / 2);
+        if (placeholder.parentId) imgItem.parentId = placeholder.parentId;
+        if (typeof placeholder.zIndex === 'number') imgItem.zIndex = placeholder.zIndex;
+        engine.items = engine.items.filter(it => it.id !== placeholder.id);
+      }
+
       engine.items.push(imgItem);
       engine.selectedItemIds.clear();
       engine.selectedItemIds.add(imgItem.id);
@@ -3278,38 +3612,56 @@ document.addEventListener('DOMContentLoaded', () => {
     autoSaveBoard();
     showDevToast('Enlace web pegado');
 
-    // Carga asíncrona de metadatos web (Open Graph: og:image, título real, descripción)
-    const fetchApi = window.brainBoard?.fetchUrlMetadata || window.miro?.fetchUrlMetadata;
-    if (fetchApi) {
-      fetchApi(cleanUrl).then(meta => {
-        if (!meta) return;
-        let modified = false;
+    enrichEmbedFromUrl(newEmbed, cleanUrl, { resizeOnImage: true });
+    warnIfUrlAlreadySaved(cleanUrl, newEmbed.id);
+  }
 
-        if (meta.title && meta.title.length > 2 && meta.title !== domain) {
-          newEmbed.title = meta.title;
-          modified = true;
-        }
-
-        if (meta.description && !newEmbed.description) {
-          newEmbed.description = meta.description;
-          modified = true;
-        }
-
-        if (meta.image) {
-          newEmbed.src = meta.image;
-          newEmbed.width = 320;
-          newEmbed.height = 260;
-          modified = true;
-        }
-
-        if (modified) {
-          engine.render();
-          autoSaveBoard();
-        }
-      }).catch(err => {
-        console.warn('No se pudieron obtener metadatos de la URL:', err);
-      });
+  // Carga asíncrona de metadatos web (Open Graph: og:image, título real, descripción) en una tarjeta de enlace
+  function enrichEmbedFromUrl(embed, url, { resizeOnImage = true } = {}) {
+    if (!embed || !url) return;
+    const domain = engine.extractDomain(url);
+    embed.domain = domain;
+    if (!embed.title || /^pega aquí/i.test(embed.title)) {
+      embed.title = engine.extractTitle(url) || domain;
     }
+    const ytId = extractYouTubeVideoId(url);
+    if (ytId && !embed.src) {
+      embed.src = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
+    }
+    engine.render();
+
+    const fetchApi = window.brainBoard?.fetchUrlMetadata || window.miro?.fetchUrlMetadata;
+    if (!fetchApi) return;
+    fetchApi(url).then(meta => {
+      if (!meta) return;
+      let modified = false;
+
+      if (meta.title && meta.title.length > 2 && meta.title !== domain) {
+        embed.title = meta.title;
+        modified = true;
+      }
+
+      if (meta.description && (!embed.description || /^pega aquí|^selecciona la tarjeta/i.test(embed.description))) {
+        embed.description = meta.description;
+        modified = true;
+      }
+
+      if (meta.image) {
+        embed.src = meta.image;
+        if (resizeOnImage) {
+          embed.width = 320;
+          embed.height = 260;
+        }
+        modified = true;
+      }
+
+      if (modified) {
+        engine.render();
+        autoSaveBoard();
+      }
+    }).catch(err => {
+      console.warn('No se pudieron obtener metadatos de la URL:', err);
+    });
   }
 
   function pasteExternalText(text, targetWorldPos = null) {
@@ -3596,8 +3948,23 @@ document.addEventListener('DOMContentLoaded', () => {
     if (activeEditingItem) closeInlineEditor();
   };
 
+  // Estado previo a la edición: el paso de deshacer se guarda ANTES de escribir
+  let inlineEditSession = null;
+
   function openInlineEditor(item) {
     if (!item) return;
+    if (activeEditingItem && activeEditingItem !== item) closeInlineEditor();
+
+    const undoTopBefore = engine.undoStack[engine.undoStack.length - 1];
+    const redoBackup = engine.redoStack.slice();
+    engine.saveSnapshot();
+    const undoTopAfter = engine.undoStack[engine.undoStack.length - 1];
+    inlineEditSession = {
+      originalValue: item.text || item.title || '',
+      pushedSnapshot: undoTopAfter !== undoTopBefore ? undoTopAfter : null,
+      redoBackup
+    };
+
     activeEditingItem = item;
     engine.editingItemId = item.id;
 
@@ -3733,11 +4100,24 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       activeEditingItem.text = val;
     }
+
+    const session = inlineEditSession;
+    inlineEditSession = null;
+    if (session && val !== session.originalValue) {
+      // Editar el contenido cuenta como revisión: deja de salir como obsoleto
+      const nowIso = new Date().toISOString();
+      activeEditingItem.updatedAt = nowIso;
+      activeEditingItem.reviewedAt = nowIso;
+    } else if (session?.pushedSnapshot && engine.undoStack[engine.undoStack.length - 1] === session.pushedSnapshot) {
+      // Sin cambios: retirar el paso de deshacer vacío y recuperar lo que se podía rehacer
+      engine.undoStack.pop();
+      engine.redoStack = session.redoBackup;
+    }
+
     inlineEditor.style.display = 'none';
     inlineEditor.style.backgroundColor = 'transparent';
     activeEditingItem = null;
     engine.editingItemId = null;
-    engine.saveSnapshot();
     engine.render();
     autoSaveBoardImmediately();
   }
@@ -3823,6 +4203,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Atajos de teclado globales
   window.addEventListener('keydown', (e) => {
+    // Ctrl+Shift+F: buscar en todos los tableros (también desde la pantalla de inicio)
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'f' || e.key === 'F' || e.code === 'KeyF')) {
+      e.preventDefault();
+      openGlobalSearch(boardSearchBar?.style.display === 'flex' ? (boardSearchInput?.value || '') : '');
+      return;
+    }
+
     // Si se pulsa Ctrl+F o Cmd+F abrir siempre el buscador
     if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
       e.preventDefault();
@@ -4862,6 +5249,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Cancelar cualquier temporizador pendiente de autoguardado antes de cambiar
     clearTimeout(saveTimeout);
+    closeFramesIndex();
 
     // 1. Guardar de forma inmediata el tablero anterior antes de salir de él
     if (activeEditingItem) closeInlineEditor();
@@ -4994,7 +5382,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 3. Crear identificador único para el tablero
     const newBoardId = 'board_' + Date.now();
-    const targetCat = (typeof currentCategoryFilter !== 'undefined' && currentCategoryFilter !== 'all') ? currentCategoryFilter : 'Random';
+    const targetCat = (typeof currentCategoryFilter !== 'undefined' && currentCategoryFilter !== 'all' && currentCategoryFilter !== TRASH_VIEW) ? currentCategoryFilter : 'Random';
     const now = Date.now();
     const newBoard = { id: newBoardId, title: name, icon: '📋', category: targetCat, lastOpenedAt: now, lastOpened: formatLastOpened(now), active: true };
 
@@ -5055,40 +5443,47 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   window.createNewBoard = createNewBoard;
 
-  // Control del modal de seguridad para confirmación de eliminación de tablero
-  let boardPendingDeletion = null;
+  // Modal de confirmación (mover a la papelera, borrar definitivamente, restaurar copia...)
+  let pendingConfirmAction = null;
   const deleteBoardModal = document.getElementById('delete-board-modal');
   const deleteBoardModalMsg = document.getElementById('delete-board-modal-msg');
+  const deleteBoardModalTitle = document.getElementById('delete-board-modal-title');
   const btnCloseDeleteModal = document.getElementById('btn-close-delete-modal');
   const btnCancelDeleteBoard = document.getElementById('btn-cancel-delete-board');
   const btnConfirmDeleteBoard = document.getElementById('btn-confirm-delete-board');
+
+  function openConfirmModal({ title, messageHtml, confirmLabel, onConfirm }) {
+    pendingConfirmAction = onConfirm;
+    if (deleteBoardModalTitle) deleteBoardModalTitle.textContent = title;
+    if (deleteBoardModalMsg) deleteBoardModalMsg.innerHTML = messageHtml;
+    if (btnConfirmDeleteBoard) btnConfirmDeleteBoard.textContent = confirmLabel;
+    if (deleteBoardModal) deleteBoardModal.style.display = 'flex';
+  }
 
   function openDeleteBoardModal(boardId) {
     if (boardId === 'dev_ai') return;
     const b = workspaceBoards.find(it => it.id === boardId);
     if (!b) return;
-
-    boardPendingDeletion = boardId;
-    if (deleteBoardModalMsg) {
-      deleteBoardModalMsg.innerHTML = `¿Estás seguro de que deseas eliminar el tablero <strong>"${b.title}"</strong>?<br><br>Esta acción no se puede deshacer y se perderán todos los datos guardados en él.`;
-    }
-    if (deleteBoardModal) {
-      deleteBoardModal.style.display = 'flex';
-    }
+    openConfirmModal({
+      title: '¿Mover a la papelera?',
+      messageHtml: `El tablero <strong>"${escapeHtmlText(b.title)}"</strong> se moverá a la papelera.<br><br>Podrás restaurarlo durante ${TRASH_RETENTION_DAYS} días desde <strong>Inicio → Papelera</strong>; después se borrará definitivamente.`,
+      confirmLabel: 'Mover a la papelera',
+      onConfirm: () => deleteBoard(boardId)
+    });
   }
 
   function closeDeleteBoardModal() {
-    boardPendingDeletion = null;
+    pendingConfirmAction = null;
     if (deleteBoardModal) {
       deleteBoardModal.style.display = 'none';
     }
   }
 
   async function executeDeleteBoard() {
-    if (!boardPendingDeletion) return;
-    const boardId = boardPendingDeletion;
+    const action = pendingConfirmAction;
+    if (!action) return;
     closeDeleteBoardModal();
-    await deleteBoard(boardId);
+    await action();
   }
 
   btnCloseDeleteModal?.addEventListener('click', closeDeleteBoardModal);
@@ -5108,13 +5503,40 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Eliminar = mover a la papelera: el contenido sigue en IndexedDB durante TRASH_RETENTION_DAYS días
   async function deleteBoard(boardId) {
     if (boardId === 'dev_ai') return;
     const idx = workspaceBoards.findIndex(b => b.id === boardId);
     if (idx === -1) return;
 
-    workspaceBoards.splice(idx, 1);
+    const wasActive = currentActiveBoardId === boardId;
+    if (wasActive) {
+      if (activeEditingItem) closeInlineEditor();
+      clearTimeout(saveTimeout);
+      if (engine.items.length > 0) await autoSaveBoardImmediately(boardId);
+    }
+
+    // Asegurar que el contenido queda en IndexedDB antes de quitar la copia de localStorage
+    let stored = await idbLoadBoard(boardId);
+    if (!stored) {
+      try {
+        const ls = localStorage.getItem(`brainboard_board_${boardId}`) || localStorage.getItem(`miro_board_${boardId}`);
+        if (ls) {
+          stored = JSON.parse(ls);
+          await idbSaveBoard(boardId, stored);
+        }
+      } catch (e) {}
+    }
+
+    const [meta] = workspaceBoards.splice(idx, 1);
     saveWorkspaceBoards();
+    boardsTrash = boardsTrash.filter(t => t.id !== boardId);
+    boardsTrash.unshift({ ...meta, active: false, deletedAt: Date.now() });
+    saveTrash();
+    try {
+      localStorage.removeItem(`brainboard_board_${boardId}`);
+      localStorage.removeItem(`miro_board_${boardId}`);
+    } catch (e) {}
 
     if (openTabs.includes(boardId)) {
       const oIdx = openTabs.indexOf(boardId);
@@ -5122,29 +5544,394 @@ document.addEventListener('DOMContentLoaded', () => {
       if (openTabs.length === 0 && workspaceBoards.length > 0) openTabs = [workspaceBoards[0].id];
       saveOpenTabs();
     }
-    renderTabs();
 
+    if (wasActive) {
+      // Sin tablero activo para que nada vuelva a guardar el tablero eliminado
+      currentActiveBoardId = null;
+      engine.items = [];
+      engine.selectedItemIds.clear();
+      engine.clearHistory();
+      const fallbackId = openTabs[0] || (workspaceBoards[0] ? workspaceBoards[0].id : null);
+      const homeVisible = document.getElementById('home-screen')?.style.display !== 'none';
+      if (fallbackId) {
+        try { localStorage.setItem('brainboard_active_board_id', fallbackId); } catch (e) {}
+        if (!homeVisible) await switchBoard(fallbackId);
+      }
+    }
+
+    renderTabs();
+    renderDrawerBoards(inputDrawerSearch ? inputDrawerSearch.value : '');
+    if (typeof renderHomeScreen === 'function') renderHomeScreen();
+
+    showActionToast(`«${meta.title}» se ha movido a la papelera`, [
+      { label: 'Deshacer', onClick: () => restoreBoardFromTrash(boardId) }
+    ]);
+  }
+
+  // =========================================================
+  // PAPELERA DE TABLEROS
+  // =========================================================
+  const TRASH_KEY = 'brainboard_trash_v1';
+  const TRASH_RETENTION_DAYS = 30;
+  const TRASH_VIEW = '__trash__';
+
+  function loadTrash() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(TRASH_KEY) || '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function saveTrash() {
+    try {
+      localStorage.setItem(TRASH_KEY, JSON.stringify(boardsTrash));
+    } catch (e) {}
+    updateTrashCountBadge();
+  }
+
+  let boardsTrash = loadTrash();
+
+  function updateTrashCountBadge() {
+    const badge = document.getElementById('home-trash-count');
+    if (!badge) return;
+    badge.textContent = String(boardsTrash.length);
+    badge.style.display = boardsTrash.length > 0 ? 'inline-flex' : 'none';
+  }
+
+  function getTrashDaysLeft(entry) {
+    const expiresAt = (entry.deletedAt || 0) + TRASH_RETENTION_DAYS * 86400000;
+    return Math.max(0, Math.ceil((expiresAt - Date.now()) / 86400000));
+  }
+
+  async function restoreBoardFromTrash(boardId) {
+    const entry = boardsTrash.find(t => t.id === boardId);
+    if (!entry) return;
+    boardsTrash = boardsTrash.filter(t => t.id !== boardId);
+    saveTrash();
+    if (!workspaceBoards.some(b => b.id === boardId)) {
+      const { deletedAt, ...meta } = entry;
+      const now = Date.now();
+      workspaceBoards.push({ ...meta, active: false, lastOpenedAt: now, lastOpened: formatLastOpened(now) });
+      saveWorkspaceBoards();
+    }
+    if (entry.category && !workspaceCategories.includes(entry.category)) {
+      workspaceCategories.push(entry.category);
+      saveCategories();
+    }
+    renderDrawerBoards(inputDrawerSearch ? inputDrawerSearch.value : '');
+    if (typeof renderHomeScreen === 'function') renderHomeScreen();
+    showDevToast(`✓ «${entry.title}» restaurado`);
+  }
+
+  async function deleteBoardDataForever(boardId) {
+    // Nunca borrar datos de un tablero que vuelve a estar en uso (p. ej. Ejemplo se recrea al arrancar)
+    if (workspaceBoards.some(b => b.id === boardId)) return;
     try {
       localStorage.removeItem(`brainboard_board_${boardId}`);
       localStorage.removeItem(`miro_board_${boardId}`);
       await idbDeleteBoard(boardId);
     } catch (e) {}
+  }
 
-    renderDrawerBoards(inputDrawerSearch ? inputDrawerSearch.value : '');
-    if (typeof renderHomeScreen === 'function') renderHomeScreen();
-
-    if (currentActiveBoardId === boardId) {
-      const fallbackId = openTabs[0] || (workspaceBoards[0] ? workspaceBoards[0].id : null);
-      if (fallbackId) {
-        await switchBoard(fallbackId);
+  function confirmDeleteBoardForever(boardId) {
+    const entry = boardsTrash.find(t => t.id === boardId);
+    if (!entry) return;
+    openConfirmModal({
+      title: '¿Borrar definitivamente?',
+      messageHtml: `El tablero <strong>"${escapeHtmlText(entry.title)}"</strong> y todo su contenido se borrarán para siempre.<br><br>Esta acción no se puede deshacer.`,
+      confirmLabel: 'Borrar definitivamente',
+      onConfirm: async () => {
+        boardsTrash = boardsTrash.filter(t => t.id !== boardId);
+        saveTrash();
+        await deleteBoardDataForever(boardId);
+        if (typeof renderHomeScreen === 'function') renderHomeScreen();
+        showDevToast(`«${entry.title}» borrado definitivamente`);
       }
+    });
+  }
+
+  async function purgeExpiredTrash() {
+    // Un tablero que ha vuelto al espacio de trabajo sale de la papelera sin perder sus datos
+    const resurrected = boardsTrash.filter(t => workspaceBoards.some(b => b.id === t.id));
+    const expired = boardsTrash.filter(t => !resurrected.includes(t) && getTrashDaysLeft(t) <= 0);
+    if (resurrected.length === 0 && expired.length === 0) return;
+    boardsTrash = boardsTrash.filter(t => !resurrected.includes(t) && !expired.includes(t));
+    saveTrash();
+    for (const t of expired) {
+      await deleteBoardDataForever(t.id);
     }
   }
+
+  // =========================================================
+  // COPIAS DE SEGURIDAD AUTOMÁTICAS (Documentos\BrainBoard\Copias automáticas)
+  // =========================================================
+  const AUTO_BACKUP_LAST_KEY = 'brainboard_last_auto_backup_at';
+  const AUTO_BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+  const AUTO_BACKUP_KEEP = 10;
+  const AUTO_BACKUP_PREFIX = 'BrainBoard_copia_';
+  let autoBackupDirCache = null;
+  let isAutoBackupRunning = false;
+
+  async function getAutoBackupDir() {
+    if (autoBackupDirCache) return autoBackupDirCache;
+    const path = window.require('path');
+    let documentsDir = null;
+    try {
+      documentsDir = await window.require('electron').ipcRenderer.invoke('get-documents-path');
+    } catch (e) {}
+    if (!documentsDir) documentsDir = path.join(window.require('os').homedir(), 'Documents');
+    autoBackupDirCache = path.join(documentsDir, 'BrainBoard', 'Copias automáticas');
+    return autoBackupDirCache;
+  }
+
+  // Todos los tableros (también los de la papelera) con sus metadatos; el abierto se toma del lienzo
+  async function collectFullBackupPayload() {
+    const ids = Array.from(new Set([...workspaceBoards.map(b => b.id), ...boardsTrash.map(t => t.id)]));
+    const boards = [];
+    for (const id of ids) {
+      let data = await idbLoadBoard(id);
+      if (!data) {
+        try {
+          const ls = localStorage.getItem(`brainboard_board_${id}`);
+          if (ls) data = JSON.parse(ls);
+        } catch (e) {}
+      }
+      if (id === currentActiveBoardId && engine.items.length > 0) {
+        data = { ...(data || { id }), items: engine.getCleanItems() };
+      }
+      if (data) boards.push({ id, data });
+    }
+    return {
+      type: 'brainboard_full_backup',
+      formatVersion: 1,
+      createdAt: new Date().toISOString(),
+      appVersion: activeAppVersion,
+      workspaceBoards: workspaceBoards.map(({ active, ...b }) => b),
+      categories: workspaceCategories.slice(),
+      trash: boardsTrash.slice(),
+      boards
+    };
+  }
+
+  async function listAutoBackups() {
+    const fs = window.require('fs');
+    const path = window.require('path');
+    const dir = await getAutoBackupDir();
+    let names = [];
+    try {
+      names = await fs.promises.readdir(dir);
+    } catch (e) {
+      return [];
+    }
+    const files = [];
+    for (const name of names) {
+      if (!name.startsWith(AUTO_BACKUP_PREFIX) || !name.endsWith('.json')) continue;
+      try {
+        const st = await fs.promises.stat(path.join(dir, name));
+        files.push({ name, path: path.join(dir, name), mtimeMs: st.mtimeMs, size: st.size });
+      } catch (e) {}
+    }
+    return files.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  }
+
+  async function runAutoBackup({ force = false, reason = '' } = {}) {
+    if (isAutoBackupRunning || typeof window.require !== 'function') return null;
+    const last = Number(localStorage.getItem(AUTO_BACKUP_LAST_KEY) || 0);
+    if (!force && Date.now() - last < AUTO_BACKUP_INTERVAL_MS) return null;
+    isAutoBackupRunning = true;
+    try {
+      const fs = window.require('fs');
+      const path = window.require('path');
+      const dir = await getAutoBackupDir();
+      await fs.promises.mkdir(dir, { recursive: true });
+      const payload = await collectFullBackupPayload();
+      if (payload.boards.length === 0) return null;
+      const d = new Date();
+      const pad = (n) => String(n).padStart(2, '0');
+      const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}_${pad(d.getHours())}-${pad(d.getMinutes())}-${pad(d.getSeconds())}`;
+      const filePath = path.join(dir, `${AUTO_BACKUP_PREFIX}${stamp}${reason ? '_' + reason : ''}.json`);
+      await fs.promises.writeFile(filePath, JSON.stringify(payload), 'utf8');
+      localStorage.setItem(AUTO_BACKUP_LAST_KEY, String(Date.now()));
+
+      const all = await listAutoBackups();
+      for (const old of all.slice(AUTO_BACKUP_KEEP)) {
+        try { await fs.promises.unlink(old.path); } catch (e) {}
+      }
+      updateAutoBackupStatusUi();
+      return filePath;
+    } catch (e) {
+      console.warn('No se pudo crear la copia automática:', e);
+      return null;
+    } finally {
+      isAutoBackupRunning = false;
+    }
+  }
+
+  async function updateAutoBackupStatusUi() {
+    const last = Number(localStorage.getItem(AUTO_BACKUP_LAST_KEY) || 0);
+    const lastText = last ? formatLastOpened(last) : 'Todavía ninguna';
+    const sub = document.getElementById('home-auto-backup-sub');
+    if (sub) sub.textContent = last ? formatLastOpened(last) : '';
+    const lastEl = document.getElementById('auto-backup-last');
+    if (lastEl) lastEl.textContent = lastText;
+    if (typeof window.require !== 'function') return;
+    const countEl = document.getElementById('auto-backup-count');
+    const pathEl = document.getElementById('auto-backup-path');
+    try {
+      const dir = await getAutoBackupDir();
+      if (pathEl) {
+        pathEl.textContent = dir;
+        pathEl.title = dir;
+      }
+      if (countEl) countEl.textContent = `${(await listAutoBackups()).length} de ${AUTO_BACKUP_KEEP}`;
+    } catch (e) {}
+  }
+
+  function openAutoBackupModal() {
+    const modal = document.getElementById('auto-backup-modal');
+    if (!modal) return;
+    modal.style.display = 'flex';
+    updateAutoBackupStatusUi();
+  }
+
+  function closeAutoBackupModal() {
+    const modal = document.getElementById('auto-backup-modal');
+    if (modal) modal.style.display = 'none';
+  }
+
+  // Restaurar una copia completa: reemplaza los tableros que contiene (antes se guarda el estado actual)
+  function confirmRestoreBackupPayload(payload, label = '') {
+    if (!payload || payload.type !== 'brainboard_full_backup' || !Array.isArray(payload.boards)) {
+      showDevToast('Ese archivo no es una copia de Brain Board');
+      return;
+    }
+    const when = payload.createdAt ? formatLastOpened(Date.parse(payload.createdAt)) : (label || 'fecha desconocida');
+    const titles = payload.boards.map(b => {
+      const meta = (payload.workspaceBoards || []).find(m => m.id === b.id) || (payload.trash || []).find(t => t.id === b.id);
+      return meta?.title || b.data?.name || b.id;
+    });
+    openConfirmModal({
+      title: '¿Restaurar esta copia?',
+      messageHtml: `Copia del <strong>${escapeHtmlText(when)}</strong> con <strong>${payload.boards.length}</strong> tableros (${escapeHtmlText(titles.slice(0, 6).join(', '))}${titles.length > 6 ? '…' : ''}).<br><br>Esos tableros volverán a como estaban en la copia. Antes se guarda una copia del estado actual, por si quieres volver atrás. Los tableros que no estén en la copia no se tocan.`,
+      confirmLabel: 'Restaurar copia',
+      onConfirm: () => applyBackupPayload(payload)
+    });
+  }
+
+  async function applyBackupPayload(payload) {
+    await runAutoBackup({ force: true, reason: 'antes-de-restaurar' });
+
+    for (const { id, data } of payload.boards) {
+      if (!id || !data) continue;
+      const record = { ...data, id, userModified: true };
+      await idbSaveBoard(id, record);
+      try {
+        localStorage.setItem(`brainboard_board_${id}`, JSON.stringify(record));
+      } catch (e) {}
+    }
+
+    const restoredIds = new Set(payload.boards.map(b => b.id));
+    (payload.workspaceBoards || []).forEach(m => {
+      if (!m || !m.id || !restoredIds.has(m.id)) return;
+      const { active, ...clean } = m;
+      const existing = workspaceBoards.find(b => b.id === m.id);
+      if (existing) {
+        Object.assign(existing, { title: clean.title, category: clean.category, icon: clean.icon, thumbnail: clean.thumbnail });
+      } else {
+        workspaceBoards.push({ ...clean, active: false });
+      }
+    });
+    (payload.categories || []).forEach(cat => {
+      if (cat && !workspaceCategories.includes(cat)) workspaceCategories.push(cat);
+    });
+    saveCategories();
+    saveWorkspaceBoards();
+    // Lo que en la copia estaba en la papelera vuelve a la papelera; lo que vuelve al inicio sale de ella
+    boardsTrash = boardsTrash.filter(t => !workspaceBoards.some(b => b.id === t.id));
+    (payload.trash || []).forEach(t => {
+      if (t && restoredIds.has(t.id) && !workspaceBoards.some(b => b.id === t.id) && !boardsTrash.some(x => x.id === t.id)) {
+        boardsTrash.push(t);
+      }
+    });
+    saveTrash();
+
+    // El tablero abierto en el lienzo pasa a mostrar lo restaurado (si no, el autoguardado lo pisaría)
+    if (currentActiveBoardId && restoredIds.has(currentActiveBoardId)) {
+      const restored = payload.boards.find(b => b.id === currentActiveBoardId).data;
+      engine.items = Array.isArray(restored.items) ? restored.items : [];
+      engine.selectedItemIds.clear();
+      engine.clearHistory();
+      engine.currentSeedVersion = Math.max(restored.seedVersion || 0, 3);
+      if (boardTitleInput) {
+        boardTitleInput.value = workspaceBoards.find(b => b.id === currentActiveBoardId)?.title || restored.name || '';
+        fitBoardTitleWidth();
+      }
+      engine.render();
+      updateMinimap();
+    }
+
+    renderTabs();
+    renderDrawerBoards(inputDrawerSearch ? inputDrawerSearch.value : '');
+    if (typeof renderHomeScreen === 'function') renderHomeScreen();
+    closeAutoBackupModal();
+    showDevToast(`✓ Copia restaurada: ${payload.boards.length} tableros`);
+  }
+
+  async function pickAndRestoreBackupFile() {
+    try {
+      const electron = window.require('electron');
+      const dir = await getAutoBackupDir();
+      const res = await electron.ipcRenderer.invoke('show-open-dialog', {
+        title: 'Elegir una copia de Brain Board para restaurar',
+        defaultPath: dir,
+        properties: ['openFile'],
+        filters: [{ name: 'Copias de Brain Board', extensions: ['json'] }]
+      });
+      if (res.canceled || !res.filePaths || res.filePaths.length === 0) return;
+      const raw = await window.require('fs').promises.readFile(res.filePaths[0], 'utf8');
+      confirmRestoreBackupPayload(JSON.parse(raw), window.require('path').basename(res.filePaths[0]));
+    } catch (e) {
+      console.warn('No se pudo leer la copia:', e);
+      showDevToast('No se pudo leer esa copia');
+    }
+  }
+
+  document.getElementById('btn-home-auto-backups')?.addEventListener('click', openAutoBackupModal);
+  document.getElementById('btn-close-auto-backup-modal')?.addEventListener('click', closeAutoBackupModal);
+  document.getElementById('auto-backup-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'auto-backup-modal') closeAutoBackupModal();
+  });
+  document.getElementById('btn-auto-backup-now')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const filePath = await runAutoBackup({ force: true });
+    btn.disabled = false;
+    showDevToast(filePath ? '✓ Copia guardada' : 'No se pudo guardar la copia');
+  });
+  document.getElementById('btn-auto-backup-open-folder')?.addEventListener('click', async () => {
+    try {
+      const dir = await getAutoBackupDir();
+      await window.require('fs').promises.mkdir(dir, { recursive: true });
+      await window.require('electron').shell.openPath(dir);
+    } catch (e) {
+      showDevToast('No se pudo abrir la carpeta de copias');
+    }
+  });
+  document.getElementById('btn-auto-backup-restore')?.addEventListener('click', pickAndRestoreBackupFile);
+  document.getElementById('btn-home-trash')?.addEventListener('click', () => {
+    currentCategoryFilter = TRASH_VIEW;
+    renderHomeScreen();
+  });
+
+  updateTrashCountBadge();
 
   function renderDrawerBoards(filter = '') {
     if (!drawerBoardsList) return;
     drawerBoardsList.innerHTML = '';
-    let filtered = workspaceBoards.filter(b => b.title.toLowerCase().includes(filter.toLowerCase()));
+    const filterTokens = getSearchTokens(filter);
+    let filtered = workspaceBoards.filter(b => filterTokens.length === 0 || matchesSearchTokens(normalizeSearchText(b.title), filterTokens));
     if (currentDrawerCategoryFilter) {
       filtered = filtered.filter(b => (b.category || 'Random') === currentDrawerCategoryFilter);
     }
@@ -5611,6 +6398,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function openSearchBar() {
     if (!boardSearchBar) return;
+    closeFramesIndex();
     boardSearchBar.style.display = 'flex';
     btnBoardSearchTrigger?.classList.add('active');
     if (boardSearchInput) {
@@ -5631,26 +6419,39 @@ document.addEventListener('DOMContentLoaded', () => {
     if (boardSearchCount) boardSearchCount.textContent = '0/0';
   }
 
+  // Texto normalizado para buscar sin distinguir mayúsculas ni tildes ("animacion" encuentra "Animación")
+  function normalizeSearchText(str) {
+    return String(str || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  }
+
+  function getSearchTokens(query) {
+    return normalizeSearchText(query).split(/\s+/).filter(Boolean);
+  }
+
+  function getItemSearchText(it) {
+    if (!it) return '';
+    return [it.text, it.title, it.code, it.description, it.url, it.domain, it.author]
+      .filter(v => typeof v === 'string' && v)
+      .join(' ');
+  }
+
+  // Todas las palabras de la búsqueda deben aparecer, en cualquier orden
+  function matchesSearchTokens(normalizedText, tokens) {
+    return tokens.length > 0 && tokens.every(t => normalizedText.includes(t));
+  }
+
   function doSearch(query) {
-    const q = (query || '').trim().toLowerCase();
+    const tokens = getSearchTokens(query);
     searchResults = [];
     currentSearchIndex = -1;
 
-    if (!q) {
+    if (tokens.length === 0) {
       if (boardSearchCount) boardSearchCount.textContent = '0/0';
       return;
     }
 
     engine.items.forEach(it => {
-      let textToSearch = '';
-      if (it.text) textToSearch += ' ' + it.text;
-      if (it.title) textToSearch += ' ' + it.title;
-      if (it.code) textToSearch += ' ' + it.code;
-      if (it.url) textToSearch += ' ' + it.url;
-      if (it.domain) textToSearch += ' ' + it.domain;
-      if (it.author) textToSearch += ' ' + it.author;
-
-      if (textToSearch.toLowerCase().includes(q)) {
+      if (matchesSearchTokens(normalizeSearchText(getItemSearchText(it)), tokens)) {
         searchResults.push(it);
       }
     });
@@ -5709,6 +6510,401 @@ document.addEventListener('DOMContentLoaded', () => {
   btnSearchPrev?.addEventListener('click', () => gotoSearchResult(currentSearchIndex - 1));
   btnSearchNext?.addEventListener('click', () => gotoSearchResult(currentSearchIndex + 1));
   btnSearchClose?.addEventListener('click', closeSearchBar);
+  document.getElementById('btn-search-all-boards')?.addEventListener('click', () => {
+    const q = boardSearchInput?.value || '';
+    closeSearchBar();
+    openGlobalSearch(q);
+  });
+
+  // =========================================================
+  // BÚSQUEDA EN TODOS LOS TABLEROS (Ctrl + Shift + F)
+  // =========================================================
+  const globalSearchModal = document.getElementById('global-search-modal');
+  const globalSearchInput = document.getElementById('global-search-input');
+  const globalSearchResults = document.getElementById('global-search-results');
+  const globalSearchCount = document.getElementById('global-search-count');
+  const btnGlobalSearchClose = document.getElementById('btn-global-search-close');
+
+  const GLOBAL_SEARCH_PER_BOARD = 8;
+  const GLOBAL_SEARCH_TYPE_ICONS = {
+    board: '📋', frame: '🗂️', text: '📝', sticky_note: '🟨', embed: '🔗', preview: '🔗',
+    image: '🖼️', code: '💻', shape: '◻️', comment: '💬'
+  };
+
+  let globalSearchIndexPromise = null;
+  let globalSearchMatches = [];
+  let globalSearchActiveIdx = -1;
+  let globalSearchExpandedBoards = new Set();
+  let globalSearchDebounce = null;
+
+  function escapeHtmlText(str) {
+    return String(str || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  // Índice de todos los tableros (el abierto se lee del lienzo para incluir lo último sin guardar)
+  async function buildGlobalSearchIndex() {
+    const allBoards = await loadAllBoardsForBrainIndex();
+    const entries = [];
+    allBoards.forEach(b => {
+      const meta = workspaceBoards.find(m => m.id === b.id) || {};
+      entries.push({
+        kind: 'board', boardId: b.id, boardTitle: b.title, boardIcon: meta.icon || '📋',
+        itemId: null, type: 'board', heading: b.title, body: b.category || '', url: '', frameTitle: '',
+        createdMs: 0, norm: normalizeSearchText(`${b.title} ${b.category || ''}`), headingNorm: normalizeSearchText(b.title)
+      });
+      const framesById = new Map();
+      b.items.forEach(it => { if (it && it.type === 'frame') framesById.set(it.id, it); });
+      b.items.forEach(it => {
+        if (!it || it.type === 'connector' || it.type === 'pen') return;
+        const raw = getItemSearchText(it);
+        if (!raw.trim()) return;
+        const heading = String(it.title || '').trim();
+        const body = [it.text, it.code, it.description].filter(v => typeof v === 'string' && v).join(' · ').replace(/\s+/g, ' ').trim();
+        entries.push({
+          kind: 'item', boardId: b.id, boardTitle: b.title, boardIcon: meta.icon || '📋',
+          itemId: it.id, type: it.type, heading, body, url: it.url || '',
+          frameTitle: (it.parentId && framesById.get(it.parentId)?.title) || '',
+          createdMs: engine.getItemCreatedAtMs(it) || 0,
+          norm: normalizeSearchText(raw), headingNorm: normalizeSearchText(heading)
+        });
+      });
+    });
+    return entries;
+  }
+
+  // Resalta las palabras buscadas (las posiciones coinciden porque quitar tildes no cambia la longitud)
+  function highlightSearchSnippet(text, tokens, maxLen = 150) {
+    const source = String(text || '');
+    if (!source) return '';
+    const norm = normalizeSearchText(source);
+    const sameLength = norm.length === source.length;
+    let start = 0;
+    if (sameLength) {
+      const firstHit = tokens.map(t => norm.indexOf(t)).filter(i => i >= 0).sort((a, b) => a - b)[0];
+      if (firstHit > 60) start = firstHit - 40;
+    }
+    const end = Math.min(source.length, start + maxLen);
+    const slice = source.slice(start, end);
+    const normSlice = norm.slice(start, end);
+    const marks = new Array(slice.length).fill(false);
+    if (sameLength) {
+      tokens.forEach(t => {
+        let idx = normSlice.indexOf(t);
+        while (idx !== -1 && t.length > 0) {
+          for (let i = idx; i < idx + t.length; i++) marks[i] = true;
+          idx = normSlice.indexOf(t, idx + t.length);
+        }
+      });
+    }
+    let html = start > 0 ? '…' : '';
+    let open = false;
+    for (let i = 0; i < slice.length; i++) {
+      if (marks[i] && !open) { html += '<mark>'; open = true; }
+      if (!marks[i] && open) { html += '</mark>'; open = false; }
+      html += escapeHtmlText(slice[i]);
+    }
+    if (open) html += '</mark>';
+    if (end < source.length) html += '…';
+    return html;
+  }
+
+  function renderGlobalSearchResults(query) {
+    if (!globalSearchResults) return;
+    const tokens = getSearchTokens(query);
+    globalSearchMatches = [];
+    globalSearchActiveIdx = -1;
+
+    if (tokens.length === 0) {
+      globalSearchResults.innerHTML = `<div class="global-search-empty">Escribe para buscar en el contenido de tus ${workspaceBoards.length} tableros.</div>`;
+      if (globalSearchCount) globalSearchCount.textContent = '';
+      return;
+    }
+
+    globalSearchIndexPromise.then(entries => {
+      // Evitar pintar resultados de una búsqueda anterior si el usuario ya ha seguido escribiendo
+      if ((globalSearchInput?.value || '') !== query) return;
+
+      const groups = new Map();
+      let total = 0;
+      entries.forEach(entry => {
+        if (!matchesSearchTokens(entry.norm, tokens)) return;
+        total++;
+        const score = (entry.kind === 'board' ? 4 : 0) + (entry.type === 'frame' ? 2 : 0) + (matchesSearchTokens(entry.headingNorm, tokens) ? 2 : 0);
+        if (!groups.has(entry.boardId)) groups.set(entry.boardId, { boardTitle: entry.boardTitle, boardIcon: entry.boardIcon, items: [] });
+        groups.get(entry.boardId).items.push({ entry, score });
+      });
+
+      if (globalSearchCount) globalSearchCount.textContent = total === 0 ? '' : `${total} ${total === 1 ? 'resultado' : 'resultados'}`;
+      if (total === 0) {
+        globalSearchResults.innerHTML = `<div class="global-search-empty">No hay nada que contenga «${escapeHtmlText(query.trim())}» en tus tableros.</div>`;
+        return;
+      }
+
+      const sortedGroups = Array.from(groups.entries()).sort((a, b) => b[1].items.length - a[1].items.length);
+      let html = '';
+      sortedGroups.forEach(([boardId, group]) => {
+        group.items.sort((a, b) => (b.score - a.score) || (b.entry.createdMs - a.entry.createdMs));
+        const expanded = globalSearchExpandedBoards.has(boardId);
+        const visible = expanded ? group.items : group.items.slice(0, GLOBAL_SEARCH_PER_BOARD);
+        html += `<div class="global-search-group">
+          <div class="global-search-group-header">
+            <span class="global-search-group-icon">${escapeHtmlText(group.boardIcon)}</span>
+            <span class="global-search-group-title">${escapeHtmlText(group.boardTitle)}</span>
+            <span class="global-search-group-count">${group.items.length}</span>
+          </div>`;
+        visible.forEach(({ entry }) => {
+          const idx = globalSearchMatches.length;
+          globalSearchMatches.push(entry);
+          const icon = GLOBAL_SEARCH_TYPE_ICONS[entry.type] || '•';
+          const titleText = entry.kind === 'board'
+            ? `Abrir el tablero «${entry.boardTitle}»`
+            : (entry.heading || entry.body || entry.url || 'Elemento');
+          const snippetText = entry.kind === 'board' ? entry.body : (entry.heading ? (entry.body || entry.url) : (entry.body ? entry.url : ''));
+          const metaParts = [];
+          if (entry.frameTitle) metaParts.push(`🗂️ ${escapeHtmlText(entry.frameTitle)}`);
+          if (entry.createdMs) metaParts.push(engine.formatDateParts(entry.createdMs).formattedDate);
+          html += `<button type="button" class="global-search-result" data-gs-idx="${idx}">
+            <span class="global-search-result-icon">${icon}</span>
+            <span class="global-search-result-main">
+              <span class="global-search-result-title">${highlightSearchSnippet(titleText, tokens, 110)}</span>
+              ${snippetText ? `<span class="global-search-result-snippet">${highlightSearchSnippet(snippetText, tokens, 170)}</span>` : ''}
+            </span>
+            ${metaParts.length ? `<span class="global-search-result-meta">${metaParts.join(' · ')}</span>` : ''}
+          </button>`;
+        });
+        if (group.items.length > visible.length) {
+          html += `<button type="button" class="global-search-more" data-gs-expand="${escapeHtmlText(boardId)}">Ver ${group.items.length - visible.length} más en «${escapeHtmlText(group.boardTitle)}»</button>`;
+        }
+        html += `</div>`;
+      });
+      globalSearchResults.innerHTML = html;
+      setGlobalSearchActive(0);
+    });
+  }
+
+  function setGlobalSearchActive(idx) {
+    if (!globalSearchResults || globalSearchMatches.length === 0) return;
+    const clamped = Math.max(0, Math.min(globalSearchMatches.length - 1, idx));
+    globalSearchActiveIdx = clamped;
+    globalSearchResults.querySelectorAll('.global-search-result').forEach(el => {
+      el.classList.toggle('active', Number(el.dataset.gsIdx) === clamped);
+    });
+    globalSearchResults.querySelector(`.global-search-result[data-gs-idx="${clamped}"]`)?.scrollIntoView({ block: 'nearest' });
+  }
+
+  async function openGlobalSearchResult(idx) {
+    const entry = globalSearchMatches[idx];
+    if (!entry) return;
+    closeGlobalSearch();
+    await jumpToBoardAndItemFromAi(entry.boardId, entry.itemId);
+  }
+
+  function openGlobalSearch(initialQuery = '') {
+    if (!globalSearchModal) return;
+    globalSearchExpandedBoards = new Set();
+    // Asegurar que lo último editado en el lienzo entra en el índice
+    globalSearchIndexPromise = buildGlobalSearchIndex().catch(err => {
+      console.warn('No se pudo indexar los tableros para la búsqueda:', err);
+      return [];
+    });
+    globalSearchModal.style.display = 'flex';
+    if (globalSearchInput) {
+      globalSearchInput.value = initialQuery;
+      setTimeout(() => {
+        globalSearchInput.focus();
+        globalSearchInput.select();
+      }, 30);
+    }
+    if (initialQuery.trim()) {
+      if (globalSearchResults) globalSearchResults.innerHTML = '<div class="global-search-empty">Buscando en tus tableros…</div>';
+    }
+    renderGlobalSearchResults(initialQuery);
+  }
+  window.openGlobalSearch = openGlobalSearch;
+
+  function closeGlobalSearch() {
+    if (globalSearchModal) globalSearchModal.style.display = 'none';
+    clearTimeout(globalSearchDebounce);
+  }
+
+  globalSearchInput?.addEventListener('input', () => {
+    clearTimeout(globalSearchDebounce);
+    globalSearchExpandedBoards = new Set();
+    globalSearchDebounce = setTimeout(() => renderGlobalSearchResults(globalSearchInput.value), 120);
+  });
+
+  globalSearchInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setGlobalSearchActive(globalSearchActiveIdx + 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setGlobalSearchActive(globalSearchActiveIdx - 1);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (globalSearchActiveIdx >= 0) openGlobalSearchResult(globalSearchActiveIdx);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      closeGlobalSearch();
+    }
+  });
+
+  globalSearchResults?.addEventListener('click', (e) => {
+    const more = e.target.closest('[data-gs-expand]');
+    if (more) {
+      globalSearchExpandedBoards.add(more.dataset.gsExpand);
+      renderGlobalSearchResults(globalSearchInput?.value || '');
+      globalSearchInput?.focus();
+      return;
+    }
+    const row = e.target.closest('.global-search-result');
+    if (row) openGlobalSearchResult(Number(row.dataset.gsIdx));
+  });
+
+  globalSearchResults?.addEventListener('mousemove', (e) => {
+    const row = e.target.closest('.global-search-result');
+    if (row && Number(row.dataset.gsIdx) !== globalSearchActiveIdx) setGlobalSearchActive(Number(row.dataset.gsIdx));
+  });
+
+  btnGlobalSearchClose?.addEventListener('click', closeGlobalSearch);
+  globalSearchModal?.addEventListener('click', (e) => {
+    if (e.target === globalSearchModal) closeGlobalSearch();
+  });
+
+  // =========================================================
+  // ÍNDICE DE SECCIONES (MARCOS) DEL TABLERO
+  // =========================================================
+  const btnFramesIndexTrigger = document.getElementById('btn-frames-index-trigger');
+  const framesIndexPanel = document.getElementById('frames-index-panel');
+  const framesIndexFilter = document.getElementById('frames-index-filter');
+  const framesIndexList = document.getElementById('frames-index-list');
+  const framesIndexCount = document.getElementById('frames-index-count');
+  const btnFramesIndexClose = document.getElementById('btn-frames-index-close');
+
+  // Cabeceras de sección sueltas (bandas de texto con fondo, como las de los tableros importados de Miro)
+  function isSectionHeaderItem(it, frames) {
+    if (!it || it.type !== 'text') return false;
+    const text = String(it.text || '').trim();
+    const hasFill = Boolean(it.fillColor && it.fillColor !== 'transparent');
+    if (!hasFill || text.length < 2 || text.length > 60 || text.includes('\n')) return false;
+    if ((it.fontSize || 15) < 22 && it.isBold !== true) return false;
+    // Las cabeceras dentro de un marco ya están representadas por el propio marco
+    return !frames.some(f => it.parentId === f.id || engine.isItemInsideFrame(it, f));
+  }
+
+  // Secciones del tablero (marcos y cabeceras) en orden de lectura: por franjas de arriba abajo y de izquierda a derecha
+  function getBoardSectionsInReadingOrder() {
+    const positioned = engine.items.filter(it => it && typeof it.x === 'number' && typeof it.y === 'number');
+    const frames = positioned.filter(it => it.type === 'frame');
+    const headers = positioned.filter(it => isSectionHeaderItem(it, frames));
+    return [...frames, ...headers].sort((a, b) => (Math.round(a.y / 300) - Math.round(b.y / 300)) || (a.x - b.x));
+  }
+
+  // Nombre visible de una sección. Un marco sin título usa la cabecera de texto más alta que tiene dentro
+  function getSectionLabel(it) {
+    if (it.type !== 'frame') return String(it.text || '').replace(/\s+/g, ' ').trim();
+    const title = String(it.title || '').trim();
+    if (title) return title;
+    const texts = engine.items.filter(c => c.type === 'text' && String(c.text || '').trim() &&
+      (c.parentId === it.id || engine.isItemInsideFrame(c, it)));
+    if (texts.length === 0) return '';
+    const headerLike = texts.filter(c => (c.fillColor && c.fillColor !== 'transparent') || c.isBold || (c.fontSize || 15) >= 22);
+    const top = (headerLike.length ? headerLike : texts).sort((a, b) => a.y - b.y)[0];
+    return String(top.text).replace(/\s+/g, ' ').trim().slice(0, 60);
+  }
+
+  function renderFramesIndex() {
+    if (!framesIndexList) return;
+    const sections = getBoardSectionsInReadingOrder();
+    const sectionLabel = getSectionLabel;
+    const tokens = getSearchTokens(framesIndexFilter?.value || '');
+    const visible = tokens.length ? sections.filter(s => matchesSearchTokens(normalizeSearchText(sectionLabel(s)), tokens)) : sections;
+    if (framesIndexCount) framesIndexCount.textContent = String(sections.length);
+
+    if (sections.length === 0) {
+      framesIndexList.innerHTML = '<div class="frames-index-empty">Este tablero no tiene secciones todavía. Crea un marco con la herramienta Marco (F).</div>';
+      return;
+    }
+    if (visible.length === 0) {
+      framesIndexList.innerHTML = '<div class="frames-index-empty">Ninguna sección coincide con el filtro.</div>';
+      return;
+    }
+
+    framesIndexList.innerHTML = visible.map(s => {
+      const isFrame = s.type === 'frame';
+      const childCount = isFrame
+        ? engine.items.filter(c => c.id !== s.id && c.type !== 'connector' && (c.parentId === s.id || engine.isItemInsideFrame(c, s))).length
+        : null;
+      const isSelected = engine.selectedItemIds.has(s.id);
+      return `<button type="button" class="frames-index-item${isSelected ? ' active' : ''}" data-frame-id="${escapeHtmlText(s.id)}" title="Ir a la sección">
+        <span class="frames-index-item-title">${escapeHtmlText(sectionLabel(s) || 'Marco sin título')}</span>
+        ${childCount !== null ? `<span class="frames-index-item-count">${childCount}</span>` : ''}
+      </button>`;
+    }).join('');
+  }
+
+  function openFramesIndex() {
+    if (!framesIndexPanel) return;
+    closeSearchBar();
+    framesIndexPanel.style.display = 'flex';
+    btnFramesIndexTrigger?.classList.add('active');
+    if (framesIndexFilter) framesIndexFilter.value = '';
+    renderFramesIndex();
+    setTimeout(() => framesIndexFilter?.focus(), 30);
+  }
+
+  function closeFramesIndex() {
+    if (!framesIndexPanel) return;
+    framesIndexPanel.style.display = 'none';
+    btnFramesIndexTrigger?.classList.remove('active');
+  }
+
+  btnFramesIndexTrigger?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (framesIndexPanel?.style.display === 'flex') closeFramesIndex();
+    else openFramesIndex();
+  });
+  btnFramesIndexClose?.addEventListener('click', closeFramesIndex);
+  framesIndexFilter?.addEventListener('input', renderFramesIndex);
+  framesIndexFilter?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeFramesIndex();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      framesIndexList?.querySelector('.frames-index-item')?.click();
+    }
+  });
+
+  framesIndexList?.addEventListener('click', (e) => {
+    const row = e.target.closest('.frames-index-item');
+    if (!row) return;
+    const section = engine.items.find(it => it.id === row.dataset.frameId);
+    if (!section) return;
+    engine.selectedItemIds.clear();
+    engine.selectedItemIds.add(section.id);
+    if (section.type === 'frame') {
+      engine.zoomToBounds(section.x, section.y, section.x + (section.width || 400), section.y + (section.height || 300), { padding: 90, maxZoom: 1.2 });
+    } else {
+      // Una cabecera suelta: dejarla arriba con espacio debajo para ver el contenido de la sección
+      const spanW = Math.max(section.width || 400, 900);
+      engine.zoomToBounds(section.x, section.y, section.x + spanW, section.y + spanW * 0.55, { padding: 90, maxZoom: 1.2 });
+    }
+    if (engine.onSelectionChange) engine.onSelectionChange([section.id]);
+    renderFramesIndex();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (framesIndexPanel?.style.display !== 'flex') return;
+    // composedPath: la lista se redibuja al hacer clic y el botón pulsado ya no está en el documento
+    const path = e.composedPath();
+    const inside = path.includes(framesIndexPanel) || path.includes(btnFramesIndexTrigger) || path.includes(canvasElement);
+    if (!inside) closeFramesIndex();
+  });
 
   // =========================================================
   // 3. COMENTARIOS Y PINES FLOTANTES (Pin interactivo)
@@ -6123,6 +7319,11 @@ document.addEventListener('DOMContentLoaded', () => {
     devOptionsMenu?.classList.remove('visible');
     boardControllerDrawer?.classList.remove('open');
     assetsDrawer?.classList.remove('visible');
+    closeFramesIndex();
+    closeSearchBar();
+    engine.clearHoverDateTooltip();
+    // Al volver al inicio se ve la lista de tableros, no la papelera
+    if (currentCategoryFilter === TRASH_VIEW) currentCategoryFilter = 'all';
     if (homeScreen) homeScreen.style.display = 'flex';
 
     // Ocultar barras de herramientas exclusivas del lienzo/tableros
@@ -6163,7 +7364,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (tabsBar) tabsBar.style.display = 'flex';
 
     setTimeout(() => {
-      engine.resize();
+      engine.initCanvasSize();
       engine.render();
     }, 50);
   }
@@ -6192,20 +7393,37 @@ document.addEventListener('DOMContentLoaded', () => {
     renderHomeCategories();
     renderDrawerCategories();
 
+    const isTrashView = currentCategoryFilter === TRASH_VIEW;
+    const thOpened = document.querySelector('.home-boards-table thead th.th-opened');
+    if (thOpened) thOpened.textContent = isTrashView ? 'Eliminado' : 'Abierto por última vez';
+    document.getElementById('btn-home-trash')?.classList.toggle('active', isTrashView);
+    updateTrashCountBadge();
+    if (isTrashView) {
+      const btnHomeSearchContentTrash = document.getElementById('btn-home-search-content');
+      if (btnHomeSearchContentTrash) btnHomeSearchContentTrash.style.display = 'none';
+      renderHomeTrashView();
+      return;
+    }
+
     let filtered = workspaceBoards.filter(b => {
       if (currentCategoryFilter !== 'all' && (b.category || 'Random') !== currentCategoryFilter) {
         return false;
       }
 
       if (homeSearchQuery) {
-        const query = homeSearchQuery.toLowerCase();
-        const matchesTitle = (b.title || '').toLowerCase().includes(query);
-        const matchesCat = (b.category || '').toLowerCase().includes(query);
-        if (!matchesTitle && !matchesCat) return false;
+        const tokens = getSearchTokens(homeSearchQuery);
+        if (!matchesSearchTokens(normalizeSearchText(`${b.title || ''} ${b.category || ''}`), tokens)) return false;
       }
 
       return true;
     });
+
+    const btnHomeSearchContent = document.getElementById('btn-home-search-content');
+    if (btnHomeSearchContent) {
+      btnHomeSearchContent.style.display = homeSearchQuery ? 'flex' : 'none';
+      const label = document.getElementById('home-search-content-label');
+      if (label) label.textContent = `Buscar «${homeSearchQuery}» dentro de todos los tableros`;
+    }
 
     // Ordenar de más reciente a menos reciente por fecha de última apertura
     filtered.sort((a, b) => {
@@ -6285,6 +7503,72 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
+      homeBoardsTbody.appendChild(tr);
+    });
+  }
+
+  function renderHomeTrashView() {
+    const tokens = getSearchTokens(homeSearchQuery);
+    const list = boardsTrash
+      .filter(t => tokens.length === 0 || matchesSearchTokens(normalizeSearchText(`${t.title || ''} ${t.category || ''}`), tokens))
+      .sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0));
+
+    if (homeViewTitle) homeViewTitle.textContent = 'Papelera';
+    if (homeViewSubtitle) {
+      homeViewSubtitle.textContent = `${list.length} ${list.length === 1 ? 'tablero' : 'tableros'} · se borran definitivamente a los ${TRASH_RETENTION_DAYS} días`;
+    }
+
+    if (list.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.className = 'home-trash-empty-row';
+      emptyRow.innerHTML = `
+        <td colspan="4" style="text-align: center; padding: 48px 16px; color: #94a3b8; font-size: 14px;">
+          ${boardsTrash.length === 0 ? 'La papelera está vacía.' : 'Ningún tablero de la papelera coincide con la búsqueda.'}
+        </td>
+      `;
+      homeBoardsTbody.appendChild(emptyRow);
+      return;
+    }
+
+    list.forEach(entry => {
+      const tr = document.createElement('tr');
+      tr.className = 'home-trash-row';
+      const daysLeft = getTrashDaysLeft(entry);
+      const thumbHtml = entry.thumbnail
+        ? `<div class="board-table-thumb"><img src="${resolveImageSrc(entry.thumbnail)}" class="board-table-thumb-img" alt="" /></div>`
+        : `<div class="board-table-thumb thumb-emoji">${escapeHtmlText(entry.icon || '📋')}</div>`;
+      tr.innerHTML = `
+        <td class="td-name">
+          <div class="board-cell-name">
+            ${thumbHtml}
+            <div class="board-table-info">
+              <span class="board-table-title">${escapeHtmlText(entry.title || entry.id)}</span>
+            </div>
+          </div>
+        </td>
+        <td class="td-space">
+          <span class="board-table-space">${escapeHtmlText(entry.category || 'Random')}</span>
+        </td>
+        <td class="td-opened">
+          <span class="board-table-opened">${formatLastOpened(entry.deletedAt)} · ${daysLeft === 1 ? 'queda 1 día' : `quedan ${daysLeft} días`}</span>
+        </td>
+        <td class="td-actions">
+          <div class="trash-row-actions">
+            <button type="button" class="btn-trash-restore" title="Devolver el tablero al inicio">Restaurar</button>
+            <button type="button" class="btn-trash-delete" title="Borrar definitivamente">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
+        </td>
+      `;
+      tr.querySelector('.btn-trash-restore')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        restoreBoardFromTrash(entry.id);
+      });
+      tr.querySelector('.btn-trash-delete')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        confirmDeleteBoardForever(entry.id);
+      });
       homeBoardsTbody.appendChild(tr);
     });
   }
@@ -6726,10 +8010,22 @@ document.addEventListener('DOMContentLoaded', () => {
     renderHomeScreen();
   });
 
+  // Enter en el buscador de inicio busca el texto dentro del contenido de todos los tableros
+  inputHomeSearch?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && inputHomeSearch.value.trim()) {
+      e.preventDefault();
+      openGlobalSearch(inputHomeSearch.value.trim());
+    }
+  });
+
+  document.getElementById('btn-home-search-content')?.addEventListener('click', () => {
+    openGlobalSearch(homeSearchQuery || '');
+  });
+
   btnHomeNewBoard?.addEventListener('click', async () => {
     const newBoard = await createNewBoard();
     if (newBoard) {
-      if (currentCategoryFilter !== 'all') {
+      if (currentCategoryFilter !== 'all' && currentCategoryFilter !== TRASH_VIEW) {
         newBoard.category = currentCategoryFilter;
       } else {
         newBoard.category = 'Random';
@@ -6742,7 +8038,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnHomeCreateBoardTop?.addEventListener('click', async () => {
     const newBoard = await createNewBoard();
     if (newBoard) {
-      if (currentCategoryFilter !== 'all') {
+      if (currentCategoryFilter !== 'all' && currentCategoryFilter !== TRASH_VIEW) {
         newBoard.category = currentCategoryFilter;
       } else {
         newBoard.category = 'Random';
@@ -6856,7 +8152,11 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
     if (hoverDateDot) hoverDateDot.style.background = info.color || '#10b981';
-    if (hoverDateRelative) hoverDateRelative.textContent = info.relativeText || 'Reciente';
+    if (hoverDateRelative) {
+      hoverDateRelative.textContent = info.isReviewed
+        ? `Revisado ${info.reviewRelativeText.toLowerCase()}`
+        : (info.relativeText || 'Reciente');
+    }
     if (hoverDateTier) {
       hoverDateTier.textContent = info.tierLabel || 'Actual';
       hoverDateTier.style.borderColor = info.color || '#10b981';
@@ -6864,6 +8164,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (hoverDateExact) {
       hoverDateExact.textContent = `Colocado el ${info.formattedDateTime}`;
     }
+    const hoverReviewedRow = document.getElementById('hover-date-reviewed-row');
+    const hoverReviewed = document.getElementById('hover-date-reviewed');
+    if (hoverReviewedRow) hoverReviewedRow.style.display = info.isReviewed ? 'flex' : 'none';
+    if (hoverReviewed && info.isReviewed) hoverReviewed.textContent = `Revisado el ${info.reviewedFormattedDateTime}`;
 
     hoverDateTooltip.style.display = 'flex';
     const pad = 16;
@@ -6915,6 +8219,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (nextState) {
       updateFreshnessMapCounters();
     }
+    if (engine.selectedItemIds.size > 0) syncPropertiesBarWithSelection();
   }
 
   btnToggleFreshnessMap?.addEventListener('click', () => {
@@ -7265,39 +8570,80 @@ document.addEventListener('DOMContentLoaded', () => {
   async function loadAllBoardsForBrainIndex() {
     const allBoardsData = [];
     const boardsList = Array.isArray(workspaceBoards) ? workspaceBoards : [];
-
     for (const meta of boardsList) {
-      const bId = meta.id;
-      let items = [];
-      if (bId === currentActiveBoardId && engine && Array.isArray(engine.items) && engine.items.length > 0) {
-        items = engine.getCleanItems ? engine.getCleanItems() : engine.items;
-      } else {
-        let saved = await idbLoadBoard(bId);
-        if (!saved) {
-          try {
-            const ls = localStorage.getItem(`brainboard_board_${bId}`);
-            if (ls) saved = JSON.parse(ls);
-          } catch (e) {}
-        }
-        if (saved && Array.isArray(saved.items) && saved.items.length > 0) {
-          items = saved.items;
-        } else {
-          const seed = await fetchBoardSeedData(bId);
-          if (seed && Array.isArray(seed.items)) {
-            items = seed.items;
-          }
-        }
-      }
-      hydrateBoardItemsDates(items);
-      allBoardsData.push({
-        id: bId,
-        title: meta.title || bId,
-        category: meta.category || 'General',
-        updatedAt: meta.updatedAt || null,
-        items
-      });
+      allBoardsData.push(await loadSingleBoardForBrain(meta.id));
     }
     return allBoardsData;
+  }
+
+  // Un tablero con sus elementos: el abierto se lee del lienzo; el resto de IndexedDB, localStorage o su semilla
+  async function loadSingleBoardForBrain(bId) {
+    const meta = workspaceBoards.find(b => b.id === bId) || { id: bId };
+    let items = [];
+    if (bId === currentActiveBoardId && engine && Array.isArray(engine.items) && engine.items.length > 0) {
+      items = engine.getCleanItems ? engine.getCleanItems() : engine.items;
+    } else {
+      let saved = await idbLoadBoard(bId);
+      if (!saved) {
+        try {
+          const ls = localStorage.getItem(`brainboard_board_${bId}`);
+          if (ls) saved = JSON.parse(ls);
+        } catch (e) {}
+      }
+      if (saved && Array.isArray(saved.items) && saved.items.length > 0) {
+        items = saved.items;
+      } else {
+        const seed = await fetchBoardSeedData(bId);
+        if (seed && Array.isArray(seed.items)) {
+          items = seed.items;
+        }
+      }
+    }
+    hydrateBoardItemsDates(items);
+    return {
+      id: bId,
+      title: meta.title || bId,
+      category: meta.category || 'General',
+      updatedAt: meta.updatedAt || null,
+      items
+    };
+  }
+
+  // Guardar los elementos de un tablero que NO está abierto en el lienzo, conservando sus metadatos.
+  // La seedVersion nunca baja: si bajara, Ejemplo/Espacio se reiniciarían a la plantilla al abrirlos.
+  async function saveStoredBoardItems(boardId, items) {
+    const meta = workspaceBoards.find(b => b.id === boardId) || {};
+    let saved = await idbLoadBoard(boardId);
+    if (!saved) {
+      try {
+        const ls = localStorage.getItem(`brainboard_board_${boardId}`);
+        if (ls) saved = JSON.parse(ls);
+      } catch (e) {}
+    }
+    const seed = await fetchBoardSeedData(boardId);
+    const seedVersion = Math.max(
+      typeof saved?.seedVersion === 'number' ? saved.seedVersion : 0,
+      typeof seed?.seedVersion === 'number' ? seed.seedVersion : 0,
+      4
+    );
+    const payload = {
+      ...(saved || {}),
+      id: boardId,
+      name: meta.title || saved?.name || boardId,
+      category: meta.category || saved?.category || 'General',
+      icon: meta.icon || saved?.icon || '📋',
+      thumbnail: meta.thumbnail || saved?.thumbnail || null,
+      updatedAt: new Date().toISOString(),
+      seedVersion,
+      userModified: true,
+      items
+    };
+    await idbSaveBoard(boardId, payload);
+    try {
+      localStorage.setItem(`brainboard_board_${boardId}`, JSON.stringify(payload));
+    } catch (e) {}
+    saveBoardToDisk(boardId, payload);
+    return payload;
   }
 
   let currentBrainNoteSummaryMode = 'medio';
@@ -7657,6 +9003,8 @@ document.addEventListener('DOMContentLoaded', () => {
           relativeText: fInfo.relativeText,
           tier: fInfo.tier,
           tierLabel: fInfo.tierLabel,
+          freshnessMs: fInfo.freshnessMs,
+          reviewedText: fInfo.isReviewed ? `revisado ${fInfo.reviewRelativeText.toLowerCase()}` : '',
           summary
         });
       });
@@ -7705,10 +9053,16 @@ document.addEventListener('DOMContentLoaded', () => {
       `• [${it.formattedDate} | ${it.relativeText}] Tablero "${it.boardTitle}" (boardId:${it.boardId}, itemId:${it.id}, marco:"${it.frameTitle}", pos:${it.x},${it.y}): ${it.summary.slice(0, 300)}`
     );
 
-    // 4. Elementos más antiguos / potencialmente obsoletos (> 6 meses)
-    const sortedByOldest = [...allIndexedItems].sort((a, b) => a.createdMs - b.createdMs);
+    // Texto completo de los apuntes más relevantes, para que la IA pueda proponer una versión actualizada entera
+    const fullTextLines = scoredMatches
+      .filter(({ it }) => (it.type === 'text' || it.type === 'sticky_note') && String(it.text || '').length > 40)
+      .slice(0, 5)
+      .map(({ it }) => `• Tablero "${it.boardTitle}" (boardId:${it.boardId}, itemId:${it.id}, marco:"${it.frameTitle}"):\n${String(it.text).slice(0, 2500)}`);
+
+    // 4. Elementos sin revisar desde hace más tiempo (los que el usuario ya revisó o editó no cuentan como obsoletos)
+    const sortedByOldest = [...allIndexedItems].sort((a, b) => a.freshnessMs - b.freshnessMs);
     const oldestLines = sortedByOldest.slice(0, 25).map(it =>
-      `• [${it.formattedDate} | ${it.relativeText} - ${it.tierLabel}] Tablero "${it.boardTitle}" (boardId:${it.boardId}, itemId:${it.id}): ${it.summary.slice(0, 240)}`
+      `• [${it.formattedDate} | ${it.relativeText}${it.reviewedText ? `, ${it.reviewedText}` : ''} - ${it.tierLabel}] Tablero "${it.boardTitle}" (boardId:${it.boardId}, itemId:${it.id}): ${it.summary.slice(0, 240)}`
     );
 
     // 5. Detectar ventana temporal solicitada para Briefing (Últimas 24 horas, Últimos 3 días, Últimos 7 días)
@@ -7750,6 +9104,7 @@ document.addEventListener('DOMContentLoaded', () => {
       latestItemsLines,
       latestReposLines,
       matchedLines,
+      fullTextLines,
       oldestLines,
       requestedWindowLabel,
       timeWindowFilteredLines,
@@ -7768,6 +9123,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const liveUrlSection = ctx.liveUrlsInfo.length > 0
       ? `\n=== METADATOS EN VIVO DE LA URL / REPOSITORIO PEGADO POR EL USUARIO ===\n${JSON.stringify(ctx.liveUrlsInfo, null, 2)}\n`
+      : '';
+
+    const attachedSection = ctx.attachedSelection
+      ? `\n=== ELEMENTOS QUE EL USUARIO HA SELECCIONADO EN EL TABLERO «${ctx.attachedSelection.boardTitle}» (son el tema principal de su mensaje) ===\n${ctx.attachedSelection.contextText}\n`
+      : '';
+
+    const fullTextSection = ctx.fullTextLines && ctx.fullTextLines.length > 0
+      ? `\n=== TEXTO COMPLETO DE LOS APUNTES MÁS RELEVANTES (por si hay que actualizarlos) ===\n${ctx.fullTextLines.join('\n\n')}\n`
       : '';
 
     const timeWindowSection = ctx.requestedWindowLabel
@@ -7797,6 +9160,13 @@ Tu misión es actuar como su Segundo Cerebro técnico y visual:
    - **NO crees un bloque de apunte extenso ni un marco grande.** En su lugar, utiliza \`"action": "insert_resource"\` en \`<brainboard_action>\` para que Brain Board coloque el recurso con su formato visual limpio de dos piezas:
      1. **Tarjeta compacta del recurso (\`type: "embed"\`)**: Muestra el dominio (\`github.com\`, \`x.com\`, \`youtube.com\`, web), el título limpio (\`"embedTitle"\`, ej. \`"scenario-labs/blender-plugin"\`) y dentro de la tarjeta una descripción concisa de 1 a 2 líneas (\`"embedDescription"\`, máx. 160 caracteres, ej. \`"Plugin de Blender 5.0+ para generar imágenes, vídeo, 3D y materiales PBR con Scenario, con servidor MCP local para agentes."\` ).
      2. **Mini descripción inferior (\`"resourceCaption"\`, colocada justo debajo de la tarjeta)**: Una frase muy corta y directa de **3 a 8 palabras** (sin punto final ni adornos) que identifique qué es ese recurso de un vistazo (ejemplos: \`"Repositorio IA integrada en Blender"\`, \`"Tweet sobre workflow de retopología"\`, \`"Web de materiales PBR gratuitos"\`, \`"Vídeo tutorial de iluminación 3D"\`).
+5. **ACTUALIZAR UN APUNTE QUE YA EXISTE (\`"action": "update_item"\`)**:
+   - Úsalo cuando el usuario pida actualizar, corregir, completar o rehacer un apunte, nota o texto que YA está en sus tableros (por ejemplo tras "Revisar apuntes obsoletos" o sobre elementos que ha seleccionado). No crees un apunte nuevo en ese caso.
+   - \`"itemId"\` y \`"boardId"\` tienen que ser los de un elemento que aparezca en el contexto (elementos seleccionados, coincidencias o texto completo). Nunca te los inventes.
+   - \`"newText"\` es el texto COMPLETO nuevo del apunte (no solo los cambios), con el mismo estilo de viñetas del original. Para tarjetas de enlace usa \`"newTitle"\` y \`"newDescription"\`; para marcos, \`"newTitle"\`.
+   - \`"reason"\` explica en una frase qué has cambiado y por qué. En el chat resume también los cambios.
+   - El usuario verá antes y después y decidirá si lo aplica. Solo una acción por respuesta.
+6. Todas las acciones se muestran primero como propuesta: el usuario elige el tablero y pulsa Insertar o Aplicar. No digas que ya está colocado; di que lo has preparado.
 
 FORMATO EXACTO DEL BLOQUE DE ACCIÓN PARA "AÑADIR RECURSO" (\`"action": "insert_resource"\`):
 <brainboard_action>
@@ -7828,6 +9198,17 @@ FORMATO EXACTO DEL BLOQUE DE ACCIÓN PARA "APUNTE" (\`"action": "insert_knowledg
 }
 </brainboard_action>
 
+FORMATO EXACTO DEL BLOQUE DE ACCIÓN PARA "ACTUALIZAR APUNTE" (\`"action": "update_item"\`):
+<brainboard_action>
+{
+  "action": "update_item",
+  "boardId": "ID_DEL_TABLERO_DEL_ELEMENTO",
+  "itemId": "ID_EXACTO_DEL_ELEMENTO",
+  "newText": "• Texto completo actualizado del apunte...",
+  "reason": "Qué se ha cambiado y por qué, en una frase"
+}
+</brainboard_action>
+
 === ESTADO ACTUAL DEL ESPACIO DE TRABAJO ===
 Fecha y hora actual: ${new Date().toISOString()}
 Modo de resumen activo por defecto para apuntes: ${currentBrainNoteSummaryMode}
@@ -7835,7 +9216,7 @@ ${targetBoardHint}
 
 === CATÁLOGO DE TABLEROS Y COORDENADAS RECOMENDADAS ===
 ${ctx.boardsCatalogLines.join('\n')}
-${liveUrlSection}${timeWindowSection}
+${attachedSection}${liveUrlSection}${timeWindowSection}${fullTextSection}
 === ÚLTIMOS ELEMENTOS COLOCADOS EN EL CEREBRO (ORDENADOS POR FECHA MÁS RECIENTE) ===
 ${ctx.latestItemsLines.join('\n') || '(Sin elementos)'}
 
@@ -7856,45 +9237,55 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
   }
 
   // Ejecutar acción de inserción espacial devuelta por la IA en el tablero destino (Apunte o Añadir Recurso)
+  // Tablero destino de una acción del Cerebro (sin crear nada): por id, por título exacto o por parte del título
+  function resolveBrainActionTargetBoard(actionObj) {
+    const requested = actionObj.boardId || (brainAiTargetBoardSelect?.value !== 'auto' ? brainAiTargetBoardSelect?.value : currentActiveBoardId) || 'dev_ai';
+    const needle = String(requested).toLowerCase();
+    const boardMeta = workspaceBoards.find(b => b.id.toLowerCase() === needle) ||
+                      workspaceBoards.find(b => (b.title || '').toLowerCase() === needle) ||
+                      (needle ? workspaceBoards.find(b => (b.title || '').toLowerCase().includes(needle)) : null);
+    if (boardMeta) return { boardMeta, willCreate: false };
+    if (actionObj.createNewBoardIfMissing && actionObj.newBoardTitle) {
+      return { boardMeta: null, willCreate: true, newTitle: actionObj.newBoardTitle };
+    }
+    return { boardMeta: workspaceBoards.find(b => b.id === (currentActiveBoardId || 'dev_ai')) || workspaceBoards[0], willCreate: false };
+  }
+
+  function isBrainResourceAction(actionObj, userPromptText = '') {
+    return String(actionObj.action || '').toLowerCase() === 'insert_resource' ||
+      String(actionObj.summaryMode || '').toLowerCase() === 'recurso' ||
+      Boolean(actionObj.resourceCaption && !actionObj.noteText) ||
+      /añade este recurso|añadir recurso|guardar recurso/i.test(String(userPromptText || ''));
+  }
+
   async function executeBrainAiAction(actionObj, userPromptText = '') {
     if (!actionObj || typeof actionObj !== 'object') return null;
-    let targetBoardId = actionObj.boardId || (brainAiTargetBoardSelect?.value !== 'auto' ? brainAiTargetBoardSelect?.value : currentActiveBoardId) || 'dev_ai';
 
-    // Buscar tablero por ID o por coincidencia de título
-    let boardMeta = workspaceBoards.find(b => b.id.toLowerCase() === String(targetBoardId).toLowerCase()) ||
-                    workspaceBoards.find(b => (b.title || '').toLowerCase() === String(targetBoardId).toLowerCase()) ||
-                    workspaceBoards.find(b => (b.title || '').toLowerCase().includes(String(targetBoardId).toLowerCase()));
-
-    if (!boardMeta && actionObj.createNewBoardIfMissing && actionObj.newBoardTitle) {
-      boardMeta = await createNewBoard(actionObj.newBoardTitle);
+    const resolved = resolveBrainActionTargetBoard(actionObj);
+    let boardMeta = resolved.boardMeta;
+    if (resolved.willCreate) {
+      boardMeta = await createNewBoard(resolved.newTitle);
     }
-    if (!boardMeta) {
-      boardMeta = workspaceBoards.find(b => b.id === (currentActiveBoardId || 'dev_ai')) || workspaceBoards[0];
-    }
-    targetBoardId = boardMeta.id;
+    if (!boardMeta) return null;
+    const targetBoardId = boardMeta.id;
 
     // Cargar datos actuales del tablero destino
-    const allBoards = await loadAllBoardsForBrainIndex();
-    const targetBoardData = allBoards.find(b => b.id === targetBoardId) || {
-      id: targetBoardId,
-      title: boardMeta.title || targetBoardId,
-      category: boardMeta.category || 'General',
-      items: []
-    };
+    const targetBoardData = await loadSingleBoardForBrain(targetBoardId);
+    // En el tablero abierto, el paso de deshacer se guarda antes de tocar nada (también la altura del marco)
+    const isActiveTarget = targetBoardId === currentActiveBoardId;
+    if (isActiveTarget) engine.saveSnapshot();
 
     const now = Date.now();
     const nowIso = new Date(now).toISOString();
     const currentMaxZ = targetBoardData.items.reduce((max, it) => Math.max(max, typeof it.zIndex === 'number' ? it.zIndex : 10), 10);
 
-    const isResourceAction =
-      String(actionObj.action || '').toLowerCase() === 'insert_resource' ||
-      String(actionObj.summaryMode || '').toLowerCase() === 'recurso' ||
-      Boolean(actionObj.resourceCaption && !actionObj.noteText) ||
-      /añade este recurso|añadir recurso|guardar recurso/i.test(String(userPromptText || ''));
+    const isResourceAction = isBrainResourceAction(actionObj, userPromptText);
 
     const createdItems = [];
     let primaryItemId = null;
     let placement = null;
+    // Altura original del marco ampliado, para poder deshacer la inserción
+    let expandedFrame = null;
 
     if (isResourceAction) {
       placement = computeNextResourcePlacement(targetBoardData, actionObj.frameTitle, actionObj.coords);
@@ -7902,6 +9293,7 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
       if (placement.mode === 'inside_existing_frame' && placement.frameId) {
         const frameInBoard = targetBoardData.items.find(it => it.id === placement.frameId);
         if (frameInBoard && placement.expandFrameHeightTo > (frameInBoard.height || 0)) {
+          expandedFrame = { id: frameInBoard.id, prevHeight: frameInBoard.height };
           frameInBoard.height = placement.expandFrameHeightTo;
           frameInBoard.updatedAt = nowIso;
         }
@@ -8011,6 +9403,7 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
       if (placement.mode === 'inside_existing_frame') {
         const frameInBoard = targetBoardData.items.find(it => it.id === placement.frameId);
         if (frameInBoard && placement.expandFrameHeightTo > (frameInBoard.height || 0)) {
+          expandedFrame = { id: frameInBoard.id, prevHeight: frameInBoard.height };
           frameInBoard.height = placement.expandFrameHeightTo;
           frameInBoard.updatedAt = nowIso;
         }
@@ -8150,8 +9543,7 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
     if (createdItems.length === 0) return null;
 
     // Si el tablero destino es el que está abierto actualmente en el lienzo
-    if (targetBoardId === currentActiveBoardId) {
-      engine.saveSnapshot();
+    if (isActiveTarget) {
       engine.items.push(...createdItems);
       engine.selectedItemIds.clear();
       createdItems.forEach(it => engine.selectedItemIds.add(it.id));
@@ -8161,29 +9553,388 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
     } else {
       // Guardar directamente en el tablero destino (IndexedDB + LocalStorage + Disco JSON)
       targetBoardData.items.push(...createdItems);
-      const savePayload = {
-        id: targetBoardId,
-        name: boardMeta.title || targetBoardData.title || targetBoardId,
-        category: boardMeta.category || 'General',
-        updatedAt: nowIso,
-        userModified: true,
-        seedVersion: 4,
-        items: targetBoardData.items
-      };
-      await idbSaveBoard(targetBoardId, savePayload);
-      try {
-        localStorage.setItem(`brainboard_board_${targetBoardId}`, JSON.stringify(savePayload));
-      } catch (e) {}
-      saveBoardToDisk(targetBoardId, savePayload);
+      await saveStoredBoardItems(targetBoardId, targetBoardData.items);
     }
 
     return {
+      kind: isResourceAction ? 'resource' : 'knowledge',
       boardId: targetBoardId,
       boardTitle: boardMeta.title || targetBoardId,
       primaryItemId,
+      createdIds: createdItems.map(it => it.id),
+      expandedFrame,
       createdCount: createdItems.length,
       coords: placement.embedRect || placement.newFrameRect
     };
+  }
+
+  // Aplicar cambios a los elementos de un tablero, esté abierto en el lienzo o guardado.
+  // mutate(items) devuelve un resultado (o null si no hay nada que cambiar).
+  async function mutateBoardItemsForBrain(boardId, mutate) {
+    if (boardId === currentActiveBoardId) {
+      engine.saveSnapshot();
+      const result = mutate(engine.items);
+      engine.render();
+      updateMinimap();
+      if (engine.selectedItemIds.size > 0) syncPropertiesBarWithSelection();
+      await autoSaveBoardImmediately(boardId);
+      return result;
+    }
+    const data = await loadSingleBoardForBrain(boardId);
+    const result = mutate(data.items);
+    if (result !== null) await saveStoredBoardItems(boardId, data.items);
+    return result;
+  }
+
+  // Deshacer una inserción del Cerebro: quita lo creado y devuelve el marco a su altura
+  async function undoBrainInsertion(result) {
+    const ids = new Set(result.createdIds || []);
+    return mutateBoardItemsForBrain(result.boardId, (items) => {
+      const before = items.length;
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (ids.has(items[i].id)) items.splice(i, 1);
+      }
+      if (result.expandedFrame) {
+        const frame = items.find(it => it.id === result.expandedFrame.id);
+        if (frame) frame.height = result.expandedFrame.prevHeight;
+      }
+      if (result.boardId === currentActiveBoardId) {
+        engine.selectedItemIds.clear();
+        if (engine.onSelectionChange) engine.onSelectionChange([]);
+      }
+      return before - items.length;
+    });
+  }
+
+  // ---------- Actualizar un apunte existente (acción "update_item") ----------
+
+  // Buscar el elemento a actualizar: primero en el tablero indicado y, si no, en todos
+  async function findBoardItemForBrain(boardId, itemId) {
+    if (!itemId) return null;
+    const lookIn = async (bId) => {
+      const data = await loadSingleBoardForBrain(bId);
+      const item = data.items.find(it => String(it.id) === String(itemId));
+      return item ? { boardId: bId, boardTitle: data.title, item } : null;
+    };
+    const hinted = boardId ? resolveBrainActionTargetBoard({ boardId }).boardMeta : null;
+    if (hinted && workspaceBoards.some(b => b.id === hinted.id)) {
+      const found = await lookIn(hinted.id);
+      if (found) return found;
+    }
+    for (const b of workspaceBoards) {
+      if (hinted && b.id === hinted.id) continue;
+      const found = await lookIn(b.id);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  // Campos que cambia la propuesta, según el tipo de elemento
+  function getBrainUpdateChanges(actionObj, item) {
+    const changes = {};
+    const newText = actionObj.newText ?? actionObj.text ?? actionObj.noteText;
+    if (item.type === 'frame') {
+      const t = actionObj.newTitle ?? newText;
+      if (typeof t === 'string') changes.title = t.trim();
+    } else if (item.type === 'embed' || item.type === 'preview') {
+      if (typeof actionObj.newTitle === 'string') changes.title = actionObj.newTitle.trim();
+      const d = actionObj.newDescription ?? newText;
+      if (typeof d === 'string') changes.description = d.trim();
+    } else if (typeof newText === 'string') {
+      changes.text = newText.trim();
+    }
+    return changes;
+  }
+
+  function describeItemContent(item, changes = null) {
+    const fields = changes ? Object.keys(changes) : ['title', 'text', 'description'];
+    return fields.map(f => (changes ? changes[f] : item[f])).filter(v => typeof v === 'string' && v.trim()).join('\n\n');
+  }
+
+  async function applyBrainItemUpdate(target, changes) {
+    return mutateBoardItemsForBrain(target.boardId, (items) => {
+      const it = items.find(i => String(i.id) === String(target.itemId));
+      if (!it) return null;
+      const prev = {};
+      ['text', 'title', 'description', 'height', 'updatedAt', 'reviewedAt'].forEach(k => { prev[k] = it[k]; });
+      Object.assign(it, changes);
+      const nowIso = new Date().toISOString();
+      it.updatedAt = nowIso;
+      it.reviewedAt = nowIso;
+
+      // Que el texto nuevo quepa: crece la nota y, si hace falta, su marco
+      let frameChange = null;
+      if (changes.text !== undefined && (it.type === 'text' || it.type === 'sticky_note')) {
+        const needed = engine.measureTextItemHeight(it);
+        if (needed > (it.height || 0)) it.height = needed;
+        const frame = it.parentId ? items.find(f => f.id === it.parentId && f.type === 'frame') : null;
+        if (frame && it.y + it.height + 30 > frame.y + frame.height) {
+          frameChange = { id: frame.id, prevHeight: frame.height };
+          frame.height = Math.round(it.y + it.height + 30 - frame.y);
+        }
+      }
+      return { prev, frameChange };
+    });
+  }
+
+  async function undoBrainItemUpdate(target, applied) {
+    return mutateBoardItemsForBrain(target.boardId, (items) => {
+      const it = items.find(i => String(i.id) === String(target.itemId));
+      if (!it) return null;
+      Object.entries(applied.prev).forEach(([k, v]) => {
+        if (v === undefined) delete it[k];
+        else it[k] = v;
+      });
+      if (applied.frameChange) {
+        const frame = items.find(f => f.id === applied.frameChange.id);
+        if (frame) frame.height = applied.frameChange.prevHeight;
+      }
+      return true;
+    });
+  }
+
+  // ---------- Propuestas del Cerebro: vista previa antes de tocar el tablero ----------
+  const brainAiPendingActions = new Map();
+  let brainAiPendingSeq = 0;
+
+  function registerBrainActionProposal(actionObj, userText) {
+    const id = `proposal_${Date.now()}_${++brainAiPendingSeq}`;
+    const isUpdate = String(actionObj.action || '').toLowerCase() === 'update_item';
+    brainAiPendingActions.set(id, {
+      actionObj,
+      userText,
+      kind: isUpdate ? 'update' : (isBrainResourceAction(actionObj, userText) ? 'resource' : 'knowledge'),
+      status: 'pending'
+    });
+    return id;
+  }
+
+  function renderBrainProposalMessage(card, html) {
+    card.innerHTML = `<div class="brain-ai-proposal-done">${html}</div>`;
+  }
+
+  // Las tarjetas se completan después de añadir el mensaje: bajar el chat para que se vean enteras
+  function scrollBrainChatToEnd(card) {
+    const isLastMessage = brainAiMessages && card && brainAiMessages.lastElementChild?.contains(card);
+    if (isLastMessage) brainAiMessages.scrollTop = brainAiMessages.scrollHeight;
+  }
+
+  async function renderBrainActionProposal(card, proposalId) {
+    const pending = brainAiPendingActions.get(proposalId);
+    if (!pending) return;
+    if (pending.kind === 'update') {
+      await renderBrainUpdateProposal(card, proposalId);
+      return;
+    }
+    const { actionObj, kind } = pending;
+    const resolved = resolveBrainActionTargetBoard(actionObj);
+    const summaryMode = String(actionObj.summaryMode || currentBrainNoteSummaryMode || 'medio').toLowerCase();
+    const modeLabel = summaryMode.includes('desarrollado') ? 'desarrollado' : (summaryMode.includes('breve') ? 'breve' : 'medio');
+
+    let optionsHtml = workspaceBoards.map(b =>
+      `<option value="${escapeHtmlText(b.id)}"${!resolved.willCreate && resolved.boardMeta?.id === b.id ? ' selected' : ''}>${escapeHtmlText(b.title || b.id)}</option>`
+    ).join('');
+    if (resolved.willCreate) {
+      optionsHtml = `<option value="__new__" selected>Nuevo tablero: ${escapeHtmlText(resolved.newTitle)}</option>` + optionsHtml;
+    }
+
+    const title = kind === 'resource'
+      ? (actionObj.embedTitle || actionObj.url || 'Recurso')
+      : (actionObj.noteTitle || actionObj.frameTitle || actionObj.embedTitle || 'Apunte');
+    const kindLabel = kind === 'resource' ? '🔗 Recurso' : `✍️ Apunte · ${modeLabel}`;
+
+    card.innerHTML = `
+      <div class="brain-ai-proposal-head">
+        <span class="brain-ai-proposal-kind">${kindLabel}</span>
+        <span class="brain-ai-proposal-title">${escapeHtmlText(title)}</span>
+      </div>
+      <label class="brain-ai-proposal-row">
+        <span>Tablero</span>
+        <select class="brain-ai-proposal-board">${optionsHtml}</select>
+      </label>
+      <div class="brain-ai-proposal-where">Calculando dónde colocarlo…</div>
+      <div class="brain-ai-proposal-dup" style="display: none;"></div>
+      <div class="brain-ai-proposal-actions">
+        <button type="button" class="brain-ai-proposal-btn primary" data-proposal-insert>Insertar</button>
+        <button type="button" class="brain-ai-proposal-btn" data-proposal-discard>Descartar</button>
+      </div>
+    `;
+
+    scrollBrainChatToEnd(card);
+    const select = card.querySelector('.brain-ai-proposal-board');
+    const where = card.querySelector('.brain-ai-proposal-where');
+    const refreshWhere = async () => {
+      const boardChoice = select.value;
+      if (boardChoice === '__new__') {
+        where.textContent = `Se creará el tablero «${resolved.newTitle}» con un marco nuevo`;
+        return;
+      }
+      const data = await loadSingleBoardForBrain(boardChoice);
+      if (select.value !== boardChoice) return;
+      if (kind === 'resource') {
+        const placement = computeNextResourcePlacement(data, actionObj.frameTitle, actionObj.coords);
+        const frame = placement.frameId ? data.items.find(it => it.id === placement.frameId) : null;
+        where.textContent = frame ? `Dentro del marco «${frame.title || 'sin título'}»` : 'Tarjeta compacta junto al contenido del tablero';
+      } else {
+        const placement = computeNextSmartPlacement(data, actionObj.frameTitle, summaryMode);
+        where.textContent = placement.mode === 'inside_existing_frame'
+          ? `Dentro del marco «${placement.frameTitle}»`
+          : `En un marco nuevo «${actionObj.frameTitle || actionObj.embedTitle || 'Apunte Cerebro IA'}»`;
+      }
+    };
+    select.addEventListener('change', refreshWhere);
+    refreshWhere();
+
+    if (actionObj.url) {
+      findSavedUrlOccurrences(actionObj.url).then(found => {
+        if (found.length === 0 || !card.isConnected) return;
+        const dup = card.querySelector('.brain-ai-proposal-dup');
+        if (!dup) return;
+        dup.innerHTML = `⚠️ Ya tienes este enlace en ${escapeHtmlText(describeUrlOccurrence(found[0]))}${found.length > 1 ? ` y ${found.length - 1} sitio(s) más` : ''} `;
+        const viewBtn = document.createElement('button');
+        viewBtn.type = 'button';
+        viewBtn.className = 'brain-ai-proposal-link';
+        viewBtn.textContent = 'Ver';
+        viewBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          jumpToBoardAndItemFromAi(found[0].boardId, found[0].itemId);
+        });
+        dup.appendChild(viewBtn);
+        dup.style.display = 'block';
+        scrollBrainChatToEnd(card);
+      }).catch(() => {});
+    }
+
+    card.querySelector('[data-proposal-insert]')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (pending.status !== 'pending') return;
+      pending.status = 'applying';
+      card.querySelectorAll('button, select').forEach(el => { el.disabled = true; });
+      const actionToRun = { ...actionObj };
+      if (select.value !== '__new__') {
+        actionToRun.boardId = select.value;
+        actionToRun.createNewBoardIfMissing = false;
+      }
+      try {
+        const result = await executeBrainAiAction(actionToRun, pending.userText);
+        if (!result) throw new Error('No se pudo colocar');
+        pending.status = 'applied';
+        pending.result = result;
+        renderBrainActionResult(card, proposalId);
+      } catch (err) {
+        pending.status = 'pending';
+        card.querySelectorAll('button, select').forEach(el => { el.disabled = false; });
+        showDevToast(`No se pudo insertar: ${err.message || err}`);
+      }
+    });
+
+    card.querySelector('[data-proposal-discard]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pending.status = 'discarded';
+      renderBrainProposalMessage(card, 'Propuesta descartada. No se ha tocado ningún tablero.');
+    });
+  }
+
+  function renderBrainActionResult(card, proposalId) {
+    const pending = brainAiPendingActions.get(proposalId);
+    const r = pending?.result;
+    if (!r) return;
+    const isUpdate = pending.kind === 'update';
+    const coordsText = r.coords ? `X:${Math.round(r.coords.x || 0)}, Y:${Math.round(r.coords.y || 0)}` : '';
+    card.innerHTML = `
+      <div class="brain-ai-action-card-header">
+        <span>✓ ${isUpdate ? 'Apunte actualizado' : 'Colocado'} en "${escapeHtmlText(r.boardTitle)}"</span>
+        <span>${coordsText}</span>
+      </div>
+      <div class="brain-ai-proposal-actions">
+        <button type="button" class="brain-ai-jump-btn" data-board="${escapeHtmlText(r.boardId)}" data-item="${escapeHtmlText(r.primaryItemId || '')}">Abrir y hacer zoom →</button>
+        <button type="button" class="brain-ai-proposal-btn" data-proposal-undo>Deshacer</button>
+      </div>
+    `;
+    card.querySelector('[data-proposal-undo]')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (pending.status !== 'applied') return;
+      pending.status = 'undoing';
+      card.querySelectorAll('button').forEach(el => { el.disabled = true; });
+      try {
+        if (isUpdate) await undoBrainItemUpdate(pending.target, pending.applied);
+        else await undoBrainInsertion(r);
+        pending.status = 'undone';
+        renderBrainProposalMessage(card, isUpdate
+          ? `↩ Deshecho: el apunte de «${escapeHtmlText(r.boardTitle)}» vuelve a estar como antes.`
+          : `↩ Deshecho: se ha quitado de «${escapeHtmlText(r.boardTitle)}».`);
+      } catch (err) {
+        pending.status = 'applied';
+        card.querySelectorAll('button').forEach(el => { el.disabled = false; });
+        showDevToast(`No se pudo deshacer: ${err.message || err}`);
+      }
+    });
+  }
+
+  async function renderBrainUpdateProposal(card, proposalId) {
+    const pending = brainAiPendingActions.get(proposalId);
+    const { actionObj } = pending;
+    card.innerHTML = '<div class="brain-ai-proposal-where">Buscando el apunte…</div>';
+    const found = await findBoardItemForBrain(actionObj.boardId, actionObj.itemId);
+    if (!found) {
+      pending.status = 'discarded';
+      renderBrainProposalMessage(card, '⚠️ No encuentro el apunte que quiere actualizar (puede que se haya borrado o que el id no sea correcto).');
+      return;
+    }
+    const changes = getBrainUpdateChanges(actionObj, found.item);
+    if (Object.keys(changes).length === 0) {
+      pending.status = 'discarded';
+      renderBrainProposalMessage(card, '⚠️ La propuesta no trae texto nuevo para el apunte.');
+      return;
+    }
+    pending.target = { boardId: found.boardId, itemId: found.item.id };
+    const before = describeItemContent(found.item, Object.fromEntries(Object.keys(changes).map(k => [k, found.item[k]])));
+    const after = describeItemContent(found.item, changes);
+
+    card.innerHTML = `
+      <div class="brain-ai-proposal-head">
+        <span class="brain-ai-proposal-kind">✏️ Actualizar apunte</span>
+        <span class="brain-ai-proposal-title">en «${escapeHtmlText(found.boardTitle)}»</span>
+      </div>
+      ${actionObj.reason ? `<div class="brain-ai-proposal-reason">${escapeHtmlText(actionObj.reason)}</div>` : ''}
+      <div class="brain-ai-proposal-diff">
+        <div class="brain-ai-diff-label">Ahora</div>
+        <div class="brain-ai-diff-before">${escapeHtmlText(before || '(vacío)')}</div>
+        <div class="brain-ai-diff-label">Propuesta</div>
+        <div class="brain-ai-diff-after">${escapeHtmlText(after)}</div>
+      </div>
+      <div class="brain-ai-proposal-actions">
+        <button type="button" class="brain-ai-proposal-btn primary" data-proposal-apply>Aplicar cambio</button>
+        <button type="button" class="brain-ai-proposal-btn" data-board="${escapeHtmlText(found.boardId)}" data-item="${escapeHtmlText(found.item.id)}">Ver apunte</button>
+        <button type="button" class="brain-ai-proposal-btn" data-proposal-discard>Descartar</button>
+      </div>
+    `;
+    scrollBrainChatToEnd(card);
+
+    card.querySelector('[data-proposal-apply]')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (pending.status !== 'pending') return;
+      pending.status = 'applying';
+      card.querySelectorAll('button').forEach(el => { el.disabled = true; });
+      try {
+        const applied = await applyBrainItemUpdate(pending.target, changes);
+        if (!applied) throw new Error('el apunte ya no existe');
+        pending.status = 'applied';
+        pending.applied = applied;
+        pending.result = { boardId: found.boardId, boardTitle: found.boardTitle, primaryItemId: found.item.id, coords: { x: found.item.x, y: found.item.y } };
+        renderBrainActionResult(card, proposalId);
+      } catch (err) {
+        pending.status = 'pending';
+        card.querySelectorAll('button').forEach(el => { el.disabled = false; });
+        showDevToast(`No se pudo actualizar: ${err.message || err}`);
+      }
+    });
+
+    card.querySelector('[data-proposal-discard]')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      pending.status = 'discarded';
+      renderBrainProposalMessage(card, 'Propuesta descartada. El apunte no se ha tocado.');
+    });
   }
 
   // Fallback gratuito instantáneo sin configuración (0 MB adicionales en el instalador)
@@ -8399,7 +10150,10 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
   // Navegar y hacer zoom a un tablero y elemento específico al pulsar una cita interactiva en el chat
   async function jumpToBoardAndItemFromAi(boardId, itemId = null) {
     if (!boardId) return;
-    if (currentActiveBoardId !== boardId || document.getElementById('home-screen')?.style.display !== 'none') {
+    const homeVisible = document.getElementById('home-screen')?.style.display !== 'none';
+    if (currentActiveBoardId !== boardId || homeVisible) {
+      // Si el tablero ya es el activo, openBoardTab no sale de la pantalla de inicio por sí solo
+      if (homeVisible && currentActiveBoardId === boardId) hideHomeScreen();
       await openBoardTab(boardId);
     }
     if (itemId && engine && Array.isArray(engine.items)) {
@@ -8407,8 +10161,11 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
       if (target) {
         engine.selectedItemIds.clear();
         engine.selectedItemIds.add(target.id);
-        engine.zoomToItem(target, 0.85);
-        if (engine.onSelectionChange) engine.onSelectionChange([target.id]);
+        // hideHomeScreen redimensiona el lienzo tras 50 ms: encuadrar después para usar el tamaño real
+        setTimeout(() => {
+          engine.focusOnItem(target, 1);
+          if (engine.onSelectionChange) engine.onSelectionChange([target.id]);
+        }, homeVisible ? 80 : 0);
       }
     }
   }
@@ -8492,13 +10249,15 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
             <li><strong>🔗 Añadir recurso:</strong> coloca cualquier página web, tweet, repositorio o vídeo como tarjeta compacta con una mini descripción justo debajo.</li>
             <li><strong>📋 Briefing (7 días / 3 días / 24 horas):</strong> despliega el periodo que quieras consultar para resumir tus últimos repositorios, enlaces y workflows por fecha.</li>
             <li><strong>🕒 Detectar obsoletos:</strong> revisar apuntes antiguos para actualizar o archivar.</li>
+            <li><strong>✨ Preguntar sobre lo seleccionado:</strong> selecciona algo en el tablero y pulsa el botón ✨ de la barra para resumirlo, explicarlo o actualizar ese apunte.</li>
           </ul>
+          <p>Antes de tocar un tablero te enseño una propuesta: eliges dónde va y pulsas <strong>Insertar</strong> (y luego puedes <strong>Deshacer</strong>).</p>
         </div>
       </div>
     `;
   }
 
-  function appendBrainAiMessage(role, text, actionResult = null) {
+  function appendBrainAiMessage(role, text, actionResult = null, options = {}) {
     if (!brainAiMessages) return;
     const wrap = document.createElement('div');
     wrap.className = `brain-ai-msg ${role}`;
@@ -8507,8 +10266,21 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
 
     if (role === 'user') {
       bubble.textContent = text;
+      if (options.attachmentLabel) {
+        const tag = document.createElement('div');
+        tag.className = 'brain-ai-user-attachment';
+        tag.textContent = `📎 ${options.attachmentLabel}`;
+        bubble.appendChild(tag);
+      }
     } else {
       bubble.innerHTML = formatAiMarkdownToHtml(text);
+      // Propuesta de colocar o actualizar algo: no se toca el tablero hasta que el usuario la acepta
+      if (options.proposalId) {
+        const proposalCard = document.createElement('div');
+        proposalCard.className = 'brain-ai-action-card brain-ai-proposal-card';
+        bubble.appendChild(proposalCard);
+        renderBrainActionProposal(proposalCard, options.proposalId);
+      }
       if (actionResult) {
         const card = document.createElement('div');
         card.className = 'brain-ai-action-card';
@@ -8530,6 +10302,103 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
     brainAiMessages.scrollTop = brainAiMessages.scrollHeight;
   }
 
+  // ---------- Preguntar al Cerebro sobre lo seleccionado en el tablero ----------
+  const brainAiAttachmentEl = document.getElementById('brain-ai-attachment');
+  let brainAiAttachedSelection = null;
+
+  const BRAIN_ITEM_TYPE_LABELS = {
+    frame: 'marco', text: 'texto', sticky_note: 'nota adhesiva', embed: 'enlace', preview: 'enlace',
+    image: 'imagen', code: 'código', shape: 'forma', comment: 'comentario'
+  };
+
+  // Contenido de la selección (los marcos incluyen lo que tienen dentro) en orden de lectura
+  function buildSelectionContextForBrain() {
+    const targets = getReviewTargetsFromSelection()
+      .sort((a, b) => ((a.y || 0) - (b.y || 0)) || ((a.x || 0) - (b.x || 0)));
+    if (targets.length === 0) return null;
+    const boardTitle = workspaceBoards.find(b => b.id === currentActiveBoardId)?.title || 'el tablero';
+    const framesById = new Map(engine.items.filter(i => i.type === 'frame').map(f => [f.id, f]));
+    const MAX_ITEMS = 80;
+    const lines = targets.slice(0, MAX_ITEMS).map(it => {
+      const parts = [];
+      if (it.title) parts.push(`Título: ${it.title}`);
+      if (it.text) parts.push(`Texto: ${String(it.text).slice(0, 1500)}`);
+      if (it.code) parts.push(`Código: ${String(it.code).slice(0, 1500)}`);
+      if (it.description) parts.push(`Descripción: ${it.description}`);
+      if (it.url) parts.push(`URL: ${it.url}`);
+      const frame = it.parentId ? framesById.get(it.parentId) : null;
+      return `- [${BRAIN_ITEM_TYPE_LABELS[it.type] || it.type}] (boardId:${currentActiveBoardId}, itemId:${it.id}${frame ? `, en el marco "${frame.title || ''}"` : ''})\n  ${parts.join('\n  ') || '(sin texto)'}`;
+    });
+    if (targets.length > MAX_ITEMS) lines.push(`(… y ${targets.length - MAX_ITEMS} elementos más)`);
+    const editable = targets.filter(it => ['text', 'sticky_note', 'embed', 'frame', 'shape', 'code'].includes(it.type));
+    return {
+      boardId: currentActiveBoardId,
+      boardTitle,
+      count: targets.length,
+      label: `${targets.length === 1 ? '1 elemento' : `${targets.length} elementos`} de «${boardTitle}»`,
+      contextText: lines.join('\n'),
+      singleEditableId: targets.length === 1 && editable.length === 1 ? editable[0].id : null
+    };
+  }
+
+  function renderBrainAiAttachment() {
+    if (!brainAiAttachmentEl) return;
+    const att = brainAiAttachedSelection;
+    if (!att) {
+      brainAiAttachmentEl.style.display = 'none';
+      brainAiAttachmentEl.innerHTML = '';
+      if (brainAiInput) brainAiInput.placeholder = 'Pregunta a Brain o escribe un apunte para colocarlo en un tablero...';
+      return;
+    }
+    const modeLabels = { desarrollado: 'Desarrollado', medio: 'Medio', breve: 'Breve resumen' };
+    const suggestions = [
+      { label: 'Resumir', prompt: 'Resume en pocas viñetas lo que he seleccionado.' },
+      { label: 'Explicar', prompt: 'Explícame qué es lo que he seleccionado, para qué me sirve y cómo encaja en mi workflow.' },
+      { label: 'Hacer apunte', prompt: `Haz un apunte [Modo de resumen: ${modeLabels[currentBrainNoteSummaryMode] || 'Medio'}] en ${att.boardTitle} con lo que he seleccionado.` }
+    ];
+    if (att.singleEditableId) {
+      suggestions.push({ label: 'Actualizar apunte', prompt: 'Revisa el apunte seleccionado: corrige lo que esté desactualizado o incompleto y propón la versión actualizada.' });
+    }
+    brainAiAttachmentEl.innerHTML = `
+      <div class="brain-ai-attachment-chip">
+        <span>📎 ${escapeHtmlText(att.label)}</span>
+        <button type="button" class="brain-ai-attachment-remove" title="Quitar">✕</button>
+      </div>
+      <div class="brain-ai-attachment-suggestions">
+        ${suggestions.map((s, i) => `<button type="button" class="brain-ai-attachment-suggest" data-suggest-idx="${i}">${escapeHtmlText(s.label)}</button>`).join('')}
+      </div>
+    `;
+    brainAiAttachmentEl.querySelector('.brain-ai-attachment-remove')?.addEventListener('click', clearBrainAiAttachment);
+    brainAiAttachmentEl.querySelectorAll('[data-suggest-idx]').forEach(btn => {
+      btn.addEventListener('click', () => handleSendBrainAiMessage(suggestions[Number(btn.dataset.suggestIdx)].prompt));
+    });
+    brainAiAttachmentEl.style.display = 'flex';
+    if (brainAiInput) brainAiInput.placeholder = 'Pregunta lo que quieras sobre lo seleccionado...';
+  }
+
+  function clearBrainAiAttachment() {
+    brainAiAttachedSelection = null;
+    renderBrainAiAttachment();
+  }
+
+  function attachSelectionToBrain() {
+    if (activeEditingItem) closeInlineEditor();
+    const ctx = buildSelectionContextForBrain();
+    if (!ctx) {
+      showDevToast('Selecciona algo en el tablero primero');
+      return;
+    }
+    brainAiAttachedSelection = ctx;
+    toggleBrainAiChatPanel(true);
+    renderBrainAiAttachment();
+    setTimeout(() => brainAiInput?.focus(), 80);
+  }
+
+  document.getElementById('btn-prop-ask-brain')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    attachSelectionToBrain();
+  });
+
   // Delegación de clics para saltar a tableros/elementos desde el chat
   brainAiMessages?.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-board]');
@@ -8550,8 +10419,12 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
       brainAiInput.value = '';
     }
 
-    appendBrainAiMessage('user', text);
-    brainAiChatHistory.push({ role: 'user', text });
+    // Los elementos adjuntados viajan solo con esta pregunta
+    const attachment = brainAiAttachedSelection;
+    clearBrainAiAttachment();
+
+    appendBrainAiMessage('user', text, null, { attachmentLabel: attachment?.label });
+    brainAiChatHistory.push({ role: 'user', text: attachment ? `${text}\n[Con ${attachment.label}]` : text });
     saveBrainAiChatHistory();
 
     isBrainAiGenerating = true;
@@ -8570,24 +10443,25 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
     try {
       const preferredBoard = brainAiTargetBoardSelect?.value || 'auto';
       const ctx = await buildBrainCompleteContext(text, preferredBoard);
+      ctx.attachedSelection = attachment;
       const fullPrompt = buildFullPromptForAi(text, ctx, brainAiChatHistory);
       const aiResponse = await callConfiguredAiProvider(fullPrompt);
 
       loadingWrap.remove();
 
-      // Comprobar si la IA devolvió un bloque <brainboard_action>
-      let actionResult = null;
+      // Si la IA devolvió un bloque <brainboard_action>, se muestra como propuesta (vista previa) en vez de aplicarlo ya
+      let proposalId = null;
       const actionMatch = String(aiResponse).match(/<brainboard_action>([\s\S]*?)<\/brainboard_action>/i);
       if (actionMatch && actionMatch[1]) {
         try {
-          const actionJson = JSON.parse(actionMatch[1].trim());
-          actionResult = await executeBrainAiAction(actionJson, text);
+          const rawJson = actionMatch[1].trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+          proposalId = registerBrainActionProposal(JSON.parse(rawJson), text);
         } catch (eAct) {
           console.warn('No se pudo parsear brainboard_action:', eAct);
         }
       }
 
-      appendBrainAiMessage('assistant', aiResponse, actionResult);
+      appendBrainAiMessage('assistant', aiResponse, null, { proposalId });
       brainAiChatHistory.push({ role: 'assistant', text: aiResponse });
       saveBrainAiChatHistory();
     } catch (err) {
@@ -8976,4 +10850,10 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
     updateMinimap();
     fitBoardTitleWidth();
   });
+
+  // Papelera caducada y copia automática diaria (con retraso para no estorbar el arranque)
+  purgeExpiredTrash().catch(() => {});
+  updateAutoBackupStatusUi();
+  setTimeout(() => runAutoBackup(), 20000);
+  setInterval(() => runAutoBackup(), 60 * 60 * 1000);
 });

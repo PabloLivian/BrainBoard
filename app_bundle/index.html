@@ -61,6 +61,16 @@
         </div>
 
         <div class="home-sidebar-footer">
+          <div class="home-footer-item" id="btn-home-trash" title="Tableros eliminados: se pueden restaurar durante 30 días">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span>Papelera</span>
+            <span class="home-nav-count home-footer-count" id="home-trash-count" style="display: none;">0</span>
+          </div>
+          <div class="home-footer-item" id="btn-home-auto-backups" title="Copias de seguridad automáticas de todos los tableros">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/><polyline points="12 7 12 12 15 14"/></svg>
+            <span>Copias automáticas</span>
+            <span class="home-footer-sub" id="home-auto-backup-sub"></span>
+          </div>
           <div class="home-footer-item" id="btn-home-import" title="Importar tablero (.rtb)">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
             <span>Importar (.rtb)</span>
@@ -101,6 +111,13 @@
               </button>
             </div>
           </header>
+
+          <!-- Atajo para buscar el texto del buscador dentro del contenido de todos los tableros -->
+          <button id="btn-home-search-content" class="home-search-content-btn" style="display: none;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <span id="home-search-content-label">Buscar dentro de todos los tableros</span>
+            <kbd>Enter</kbd>
+          </button>
 
           <!-- Tabla de tableros estilo Miro -->
           <div class="home-table-container">
@@ -198,8 +215,13 @@
 
       <div class="top-bar-right" style="position: relative;">
         <!-- Buscador movido aquí -->
-        <button id="btn-board-search-trigger" class="btn btn-icon" title="Buscar en el tablero (Ctrl+F)">
+        <button id="btn-board-search-trigger" class="btn btn-icon" title="Buscar en el tablero (Ctrl+F) · En todos los tableros (Ctrl+Shift+F)">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        </button>
+
+        <!-- Índice de secciones (marcos) del tablero -->
+        <button id="btn-frames-index-trigger" class="btn btn-icon" title="Índice de secciones del tablero">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><rect x="3.5" y="4.5" width="3" height="3" rx="0.6"/><rect x="3.5" y="10.5" width="3" height="3" rx="0.6"/><rect x="3.5" y="16.5" width="3" height="3" rx="0.6"/></svg>
         </button>
 
         <!-- Mapa Visual de Frescura y Fechas de Colocación -->
@@ -325,6 +347,27 @@
               <span class="flyout-item-desc">Marco con título destacado y notas</span>
             </div>
           </div>
+          <div class="flyout-item" data-template="recurso_apunte" title="Recurso + apunte (tarjeta de enlace y nota técnica al lado)">
+            <svg viewBox="0 0 24 24"><rect x="2" y="5" width="9" height="14" rx="1.5"/><line x1="14" y1="8" x2="22" y2="8"/><line x1="14" y1="12" x2="22" y2="12"/><line x1="14" y1="16" x2="19" y2="16"/></svg>
+            <div class="flyout-item-content">
+              <span class="flyout-item-name">Recurso + apunte</span>
+              <span class="flyout-item-desc">Tarjeta de enlace y nota técnica al lado</span>
+            </div>
+          </div>
+          <div class="flyout-item" data-template="galeria" title="Galería de referencias (6 huecos para pegar imágenes)">
+            <svg viewBox="0 0 24 24"><rect x="2" y="4" width="6" height="7" rx="1"/><rect x="9" y="4" width="6" height="7" rx="1"/><rect x="16" y="4" width="6" height="7" rx="1"/><rect x="2" y="13" width="6" height="7" rx="1"/><rect x="9" y="13" width="6" height="7" rx="1"/><rect x="16" y="13" width="6" height="7" rx="1"/></svg>
+            <div class="flyout-item-content">
+              <span class="flyout-item-name">Galería de referencias</span>
+              <span class="flyout-item-desc">6 huecos: pega o arrastra imágenes encima</span>
+            </div>
+          </div>
+          <div class="flyout-item" data-template="comparativa" title="Comparativa (3 columnas con ventajas e inconvenientes)">
+            <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2"/><line x1="8.7" y1="3" x2="8.7" y2="21"/><line x1="15.3" y1="3" x2="15.3" y2="21"/><line x1="2" y1="8" x2="22" y2="8"/></svg>
+            <div class="flyout-item-content">
+              <span class="flyout-item-name">Comparativa</span>
+              <span class="flyout-item-desc">3 columnas: ventajas, inconvenientes, precio</span>
+            </div>
+          </div>
         </div>
       </div>
       <button class="tool-btn" data-tool="comment" title="Comentario o Pin (C)">
@@ -412,6 +455,55 @@
           <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
         </svg>
       </button>
+
+      <!-- Marcar como revisado (renueva la frescura de un apunte que sigue vigente) -->
+      <button id="btn-prop-mark-reviewed" class="btn btn-icon btn-prop-mark-reviewed" title="Marcar como revisado: sigue vigente y deja de contar como obsoleto" style="display: none;">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><polyline points="8 12.5 11 15.5 16.5 9.5"/></svg>
+      </button>
+
+      <!-- Preguntar al Cerebro sobre la selección -->
+      <button id="btn-prop-ask-brain" class="btn btn-icon btn-prop-ask-brain" title="Preguntar al Cerebro sobre lo seleccionado">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3l1.9 4.9L19 9.8l-5.1 1.9L12 17l-1.9-5.3L5 9.8l5.1-1.9z"/><path d="M18.5 15.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7z"/></svg>
+      </button>
+
+      <!-- Alinear y distribuir (con 2 o más elementos seleccionados) -->
+      <div class="prop-group align-objects-group" id="group-align-objects" style="display: none;">
+        <button id="btn-prop-align-objects" class="btn btn-icon" title="Alinear y distribuir">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="3" x2="4" y2="21"/><rect x="7" y="6" width="12" height="4" rx="1"/><rect x="7" y="14" width="7" height="4" rx="1"/></svg>
+        </button>
+        <div id="align-objects-popover" class="align-objects-popover">
+          <div class="align-objects-title">Alinear</div>
+          <div class="align-objects-grid">
+            <button type="button" data-align="left" title="Alinear a la izquierda">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="3" x2="4" y2="21"/><rect x="7" y="6" width="12" height="4" rx="1"/><rect x="7" y="14" width="7" height="4" rx="1"/></svg>
+            </button>
+            <button type="button" data-align="center-h" title="Centrar en horizontal">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="3" x2="12" y2="21"/><rect x="5" y="6" width="14" height="4" rx="1"/><rect x="8" y="14" width="8" height="4" rx="1"/></svg>
+            </button>
+            <button type="button" data-align="right" title="Alinear a la derecha">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="20" y1="3" x2="20" y2="21"/><rect x="5" y="6" width="12" height="4" rx="1"/><rect x="10" y="14" width="7" height="4" rx="1"/></svg>
+            </button>
+            <button type="button" data-align="top" title="Alinear arriba">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="4" x2="21" y2="4"/><rect x="6" y="7" width="4" height="12" rx="1"/><rect x="14" y="7" width="4" height="7" rx="1"/></svg>
+            </button>
+            <button type="button" data-align="middle-v" title="Centrar en vertical">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="8" width="4" height="8" rx="1"/></svg>
+            </button>
+            <button type="button" data-align="bottom" title="Alinear abajo">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="20" x2="21" y2="20"/><rect x="6" y="5" width="4" height="12" rx="1"/><rect x="14" y="10" width="4" height="7" rx="1"/></svg>
+            </button>
+          </div>
+          <div class="align-objects-title">Distribuir (3 o más)</div>
+          <div class="align-objects-grid align-objects-grid-two">
+            <button type="button" data-distribute="horizontal" title="Repartir con el mismo espacio en horizontal">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="4" x2="3" y2="20"/><line x1="21" y1="4" x2="21" y2="20"/><rect x="9" y="7" width="6" height="10" rx="1"/></svg>
+            </button>
+            <button type="button" data-distribute="vertical" title="Repartir con el mismo espacio en vertical">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="3" x2="20" y2="3"/><line x1="4" y1="21" x2="20" y2="21"/><rect x="7" y="9" width="10" height="6" rx="1"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div class="divider"></div>
 
@@ -575,7 +667,38 @@
       <span id="board-search-count" class="search-match-count">0/0</span>
       <button id="btn-search-prev" class="btn-search-arrow" title="Anterior (Shift+Enter)">▲</button>
       <button id="btn-search-next" class="btn-search-arrow" title="Siguiente (Enter)">▼</button>
+      <button id="btn-search-all-boards" class="btn-search-all-boards" title="Buscar lo mismo en todos los tableros (Ctrl+Shift+F)">En todos</button>
       <button id="btn-search-close" class="btn-search-close" title="Cerrar (Esc)">✕</button>
+    </div>
+
+    <!-- Índice de secciones (marcos) del tablero activo -->
+    <div id="frames-index-panel" class="frames-index-panel" style="display: none;">
+      <div class="frames-index-header">
+        <span class="frames-index-title">Secciones del tablero</span>
+        <span id="frames-index-count" class="frames-index-count">0</span>
+        <button id="btn-frames-index-close" class="btn-mini-close" title="Cerrar (Esc)">✕</button>
+      </div>
+      <input type="text" id="frames-index-filter" class="frames-index-filter" placeholder="Filtrar secciones..." autocomplete="off" spellcheck="false" />
+      <div id="frames-index-list" class="frames-index-list"></div>
+    </div>
+
+    <!-- Búsqueda en todos los tableros (Ctrl + Shift + F) -->
+    <div id="global-search-modal" class="global-search-backdrop" style="display: none;">
+      <div class="global-search-panel" role="dialog" aria-label="Buscar en todos los tableros">
+        <div class="global-search-input-row">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" id="global-search-input" placeholder="Buscar en todos los tableros: apuntes, enlaces, marcos..." autocomplete="off" spellcheck="false" />
+          <span id="global-search-count" class="global-search-count"></span>
+          <button id="btn-global-search-close" class="btn-mini-close" title="Cerrar (Esc)">✕</button>
+        </div>
+        <div id="global-search-results" class="global-search-results"></div>
+        <div class="global-search-footer">
+          <span><kbd>↑</kbd><kbd>↓</kbd> moverse</span>
+          <span><kbd>Enter</kbd> abrir</span>
+          <span><kbd>Esc</kbd> cerrar</span>
+          <span class="global-search-footer-hint">Sin distinguir mayúsculas ni tildes</span>
+        </div>
+      </div>
     </div>
 
     <!-- Popover de comentario -->
@@ -675,7 +798,7 @@
               <line x1="12" y1="9" x2="12" y2="13"/>
               <line x1="12" y1="17" x2="12.01" y2="17"/>
             </svg>
-            <h3>¿Eliminar tablero?</h3>
+            <h3 id="delete-board-modal-title">¿Mover a la papelera?</h3>
           </div>
           <button id="btn-close-delete-modal" class="btn-mini-close" title="Cerrar">✕</button>
         </div>
@@ -686,7 +809,38 @@
         </div>
         <div class="modal-footer">
           <button id="btn-cancel-delete-board" class="btn">Cancelar</button>
-          <button id="btn-confirm-delete-board" class="btn btn-danger">Eliminar tablero</button>
+          <button id="btn-confirm-delete-board" class="btn btn-danger">Mover a la papelera</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de copias de seguridad automáticas -->
+    <div id="auto-backup-modal" class="modal-backdrop" style="display: none;">
+      <div class="modal-dialog" style="width: 480px;">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><polyline points="21 3 21 9 15 9"/><polyline points="12 7 12 12 15 14"/></svg>
+            <h3>Copias automáticas</h3>
+          </div>
+          <button id="btn-close-auto-backup-modal" class="btn-mini-close" title="Cerrar">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc">
+            Brain Board guarda cada día una copia de todos tus tableros y conserva las 10 más recientes.
+            Las imágenes de tu carpeta de imágenes no entran en estas copias; para un paquete completo con imágenes usa <strong>Copia de seguridad (.rtb)</strong>.
+          </p>
+          <div class="auto-backup-status">
+            <div class="auto-backup-status-row"><span>Última copia</span><strong id="auto-backup-last">—</strong></div>
+            <div class="auto-backup-status-row"><span>Copias guardadas</span><strong id="auto-backup-count">—</strong></div>
+            <div class="auto-backup-path" id="auto-backup-path" title="Carpeta de las copias">—</div>
+          </div>
+        </div>
+        <div class="modal-footer" style="justify-content: space-between;">
+          <button id="btn-auto-backup-restore" class="btn">Restaurar una copia…</button>
+          <div style="display: flex; gap: 8px;">
+            <button id="btn-auto-backup-open-folder" class="btn">Abrir carpeta</button>
+            <button id="btn-auto-backup-now" class="btn btn-primary">Hacer copia ahora</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1127,6 +1281,10 @@
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <span id="hover-date-exact">Colocado el --</span>
       </div>
+      <div class="hover-date-sub-row" id="hover-date-reviewed-row" style="display: none;">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="20 6 9 17 4 12"/></svg>
+        <span id="hover-date-reviewed">Revisado el --</span>
+      </div>
     </div>
 
     <!-- Barra Flotante de Leyenda y Filtro del Mapa de Frescura / Fechas -->
@@ -1140,22 +1298,22 @@
           <span>Todos</span>
           <span class="freshness-count" id="freshness-count-all">0</span>
         </button>
-        <button class="freshness-pill" data-tier="recent" title="Colocados en los últimos 7 días">
+        <button class="freshness-pill" data-tier="recent" title="Colocados o revisados en los últimos 7 días">
           <span class="freshness-dot dot-recent"></span>
           <span>Recientes ≤7d</span>
           <span class="freshness-count" id="freshness-count-recent">0</span>
         </button>
-        <button class="freshness-pill" data-tier="current" title="Colocados en los últimos 30 días">
+        <button class="freshness-pill" data-tier="current" title="Colocados o revisados en los últimos 30 días">
           <span class="freshness-dot dot-current"></span>
           <span>Actuales ≤30d</span>
           <span class="freshness-count" id="freshness-count-current">0</span>
         </button>
-        <button class="freshness-pill" data-tier="aging" title="Colocados entre 1 y 6 meses">
+        <button class="freshness-pill" data-tier="aging" title="Colocados o revisados hace entre 1 y 6 meses">
           <span class="freshness-dot dot-aging"></span>
           <span>Intermedios ≤6m</span>
           <span class="freshness-count" id="freshness-count-aging">0</span>
         </button>
-        <button class="freshness-pill" data-tier="obsolete" title="Colocados hace más de 6 meses (Revisar / Obsoletos)">
+        <button class="freshness-pill" data-tier="obsolete" title="Sin revisar desde hace más de 6 meses (Revisar / Obsoletos)">
           <span class="freshness-dot dot-obsolete"></span>
           <span>Antiguos &gt;6m</span>
           <span class="freshness-count" id="freshness-count-obsolete">0</span>
@@ -1286,7 +1444,7 @@
           </div>
         </div>
 
-        <button type="button" class="brain-ai-chip" data-prompt="Analiza las fechas de colocación de mis tableros y dime cuáles son los elementos o enlaces más antiguos que podrían estar obsoletos y convendría revisar.">
+        <button type="button" class="brain-ai-chip" data-prompt="Analiza las fechas de colocación y de revisión de mis tableros y dime cuáles son los elementos o enlaces sin revisar desde hace más tiempo que podrían estar obsoletos y convendría revisar. Si alguno lo puedes actualizar tú, dímelo y te propongo la versión nueva.">
           <span>🕰️</span> Revisar apuntes obsoletos
         </button>
       </div>
@@ -1306,6 +1464,9 @@
 
       <!-- Mensajes de la Conversación -->
       <div id="brain-ai-messages" class="brain-ai-messages"></div>
+
+      <!-- Elementos del tablero adjuntados a la pregunta ("Preguntar al Cerebro" desde la barra de propiedades) -->
+      <div id="brain-ai-attachment" class="brain-ai-attachment" style="display: none;"></div>
 
       <!-- Composer Inferior con selectores de Modelo y Effort apilados a la izquierda -->
       <div class="brain-ai-composer">

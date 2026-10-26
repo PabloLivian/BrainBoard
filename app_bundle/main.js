@@ -137441,6 +137441,8 @@ electron_1.ipcMain.on('update-menu-items-enabled', (_event, config) => {
 });
 electron_1.ipcMain.handle('get-cookies', (_event, url) => electron_1.session.defaultSession.cookies.get({ url }));
 electron_1.ipcMain.handle('get-app-version', () => electron_1.app.getVersion());
+// Brain Board: carpeta Documentos real del usuario (puede estar redirigida a OneDrive) para las copias automáticas
+electron_1.ipcMain.handle('get-documents-path', () => electron_1.app.getPath('documents'));
 function getDisplaysInfoInitial() {
     return SystemInformation.graphics()
         .then(graphics => {
