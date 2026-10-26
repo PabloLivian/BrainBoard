@@ -1,667 +1,275 @@
+// Genera el tablero Ejemplo (app_bundle/boards/ejemplo.json), que va dentro del instalador.
+// Es una guía de todas las funciones con elementos de verdad para probar: tarjetas de enlace con estrellas,
+// la carpeta del Escritorio (%DESKTOP%, la app la cambia por el Escritorio de cada equipo), notas para alinear,
+// huecos de la plantilla Galería y notas de distintas edades para el Mapa de Frescura (ageDays: la app pone
+// la fecha al cargar la plantilla). Estilo de BoardInstructorAI.md: grises azulados, marcos con título y sin flechas.
+//
+// Uso: node scripts/create_curated_ejemplo_board.js
+// Al cambiarlo, subir SEED_VERSION. Con 20 o más, las instalaciones que tenían un Ejemplo anterior lo renuevan
+// (GUIDE_BOARD_RESET_VERSION en board_app.js) y la versión anterior va a la papelera.
 const fs = require('fs');
 const path = require('path');
 
-const nowIso = "2026-10-21T19:30:00.000Z";
+const SEED_VERSION = 20;
 
-const board = {
-  id: "ejemplo",
-  name: "Ejemplo",
-  title: "Ejemplo",
-  category: "General",
-  icon: "✨",
-  thumbnail: null,
-  updatedAt: nowIso,
-  seedVersion: 10,
-  userModified: false,
-  items: [
-    // =========================================================
-    // 1. HERO / CABECERA SUPERIOR
-    // =========================================================
-    {
-      id: "frame_hero",
-      type: "frame",
-      x: -1650,
-      y: -860,
-      width: 3300,
-      height: 360,
-      title: "🧠 BRAIN BOARD · SISTEMA DE CONOCIMIENTO INFINITO & CEREBRO IA",
-      fillColor: "#12161f",
-      strokeColor: "#232b3d",
-      zIndex: 0,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "hero_logo_img",
-      type: "image",
-      x: -1590,
-      y: -805,
-      width: 250,
-      height: 210,
-      src: "brainboard_logo_hero.png",
-      parentId: "frame_hero",
-      zIndex: 26,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "hero_main_title",
-      type: "text",
-      x: -1300,
-      y: -800,
-      width: 1800,
-      height: 48,
-      text: "Brain Board · Pizarra Infinita 100% Local con IA Integrada",
-      fontSize: 32,
-      color: "#f8fafc",
-      textAlign: "left",
-      parentId: "frame_hero",
-      zIndex: 40,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "hero_sub_title",
-      type: "text",
-      x: -1300,
-      y: -744,
-      width: 1800,
-      height: 32,
-      text: "Espacio de pensamiento visual, apuntes estructurados, biblioteca de recursos y copiloto inteligente autónomo.",
-      fontSize: 16,
-      color: "#94a3b8",
-      textAlign: "left",
-      parentId: "frame_hero",
-      zIndex: 40,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "hero_badge_privacy",
-      type: "text",
-      x: -1300,
-      y: -690,
-      width: 420,
-      height: 115,
-      text: "🔒 100% Offline & Privado\nTus tableros residen exclusivamente en tu propio disco duro. Sin suscripciones, sin nubes forzadas y sin telemetría.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#cbd5e1",
-      textAlign: "left",
-      parentId: "frame_hero",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "hero_badge_canvas",
-      type: "text",
-      x: -850,
-      y: -690,
-      width: 420,
-      height: 115,
-      text: "⚡ Motor Canvas 2D a 60 FPS\nNavegación ultra-fluida, culling visual inteligente, zoom suave y soporte para colecciones de más de 1.500 imágenes.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#cbd5e1",
-      textAlign: "left",
-      parentId: "frame_hero",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "hero_badge_brain",
-      type: "text",
-      x: -400,
-      y: -690,
-      width: 420,
-      height: 115,
-      text: "🧠 Cerebro IA Integrado (Ctrl+K)\nConexión nativa con Claude CLI, Gemini CLI o Gemini 2.5 Flash gratuito. Indexa tus tableros y coordenadas en tiempo real.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#cbd5e1",
-      textAlign: "left",
-      parentId: "frame_hero",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "hero_badge_freshness",
-      type: "text",
-      x: 50,
-      y: -690,
-      width: 420,
-      height: 115,
-      text: "🕒 Mapa de Frescura Temporal\nRastrea la fecha exacta de colocación de cada apunte para diferenciar lo actual de conocimientos obsoletos (>6 meses).",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#cbd5e1",
-      textAlign: "left",
-      parentId: "frame_hero",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-
-    // =========================================================
-    // 2. BLOQUE I: QUÉ ES Y CÓMO FUNCIONA BRAIN (EL CEREBRO IA)
-    // =========================================================
-    {
-      id: "frame_brain_info",
-      type: "frame",
-      x: -1650,
-      y: -460,
-      width: 1620,
-      height: 1680,
-      title: "🧠 BLOQUE I: QUÉ ES Y CÓMO FUNCIONA BRAIN (EL CEREBRO IA)",
-      fillColor: "#12161f",
-      strokeColor: "#232b3d",
-      zIndex: 0,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "brain_intro_card",
-      type: "text",
-      x: -1600,
-      y: -410,
-      width: 1520,
-      height: 140,
-      text: "🌟 ¿Qué es el Cerebro de Brain Board?\nEl Cerebro es tu copiloto de investigación y estructuración visual. A diferencia de un chat convencional, Brain conoce la geometría de tus tableros: lee coordenadas espaciales [x, y, ancho, alto], identifica marcos contenedores temáticos (frames), analiza fechas de frescura (createdAt) y coloca apuntes o recursos multimedia directamente en el lienzo en las coordenadas óptimas.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_brain_info",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "brain_action_notes",
-      type: "text",
-      x: -1600,
-      y: -245,
-      width: 740,
-      height: 265,
-      text: "✍️ 1. Apunte Inteligente (Knowledge Note)\n\n• Modos de resumen ajustables:\n  - Desarrollado: Análisis técnico exhaustivo con desglose de conceptos.\n  - Medio: Equilibrio ideal entre síntesis y detalle conceptual.\n  - Breve resumen: Síntesis concisa en viñetas directas.\n\n• Inserción espacial automática:\n  Brain localiza el marco activo o crea un marco temático nuevo y coloca la tarjeta de apunte con formato markdown, encabezados y contraste optimizado tanto para modo claro como modo oscuro.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_brain_info",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "brain_action_resource",
-      type: "text",
-      x: -820,
-      y: -245,
-      width: 740,
-      height: 265,
-      text: "🔗 2. Añadir Recurso (Tarjeta Compacta + Mini Caption)\n\n• Soporte universal de enlaces:\n  Pega cualquier página web, repositorio de GitHub, tweet/post de X, vídeo o documentación técnica.\n\n• Formato visual estandarizado:\n  1. Tarjeta compacta (310 × 135 px) con favicon, dominio en mayúsculas, título legible y botón directo al enlace.\n  2. Mini descripción corta de 3 a 8 palabras colocada exactamente debajo (y = embed.y + 149 px) para identificar el recurso de un vistazo (ej: \"Repositorio IA integrada en Blender\").",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_brain_info",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "brain_action_briefing",
-      type: "text",
-      x: -1600,
-      y: 45,
-      width: 740,
-      height: 245,
-      text: "📋 3. Briefing Temporal Inteligente\n\n• Filtrado por antigüedad:\n  - Últimas 24 horas: Cambios inmediatos del día.\n  - Últimos 3 días: Síntesis de avances recientes.\n  - Últimos 7 días: Resumen ejecutivo semanal.\n\n• Resumen interactivo:\n  Genera una panorámica de qué elementos se han añadido en todos tus tableros e incluye botones interactivos [[cite:boardId|itemId|Ver en tablero]] para saltar con un solo clic al elemento exacto.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_brain_info",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "brain_action_obsolete",
-      type: "text",
-      x: -820,
-      y: 45,
-      width: 740,
-      height: 245,
-      text: "🕰️ 4. Auditoría de Apuntes Obsoletos\n\n• Sincronización con el Mapa de Frescura:\n  Rastrea automáticamente los elementos colocados hace más de 6 meses en tus tableros.\n\n• Detección proactiva:\n  Te avisa si una librería, herramienta o concepto guardado ha quedado desfasado, sugiriendo actualizar su contenido o archivar el recurso para mantener tu biblioteca siempre vigente.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_brain_info",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "brain_tech_arch",
-      type: "text",
-      x: -1600,
-      y: 315,
-      width: 1520,
-      height: 280,
-      text: "⚙️ Autodetección Inteligente & Motores de IA Soportados\n\nBrain Board detecta automáticamente el mejor motor disponible en tu ordenador sin necesidad de configurar nada:\n\n1. Claude Code CLI Local (claude.exe): Si tienes Claude CLI instalado en tu PC, se autodetecta al instante con modelos Haiku, Sonnet u Opus.\n2. Gemini CLI Local (gemini.cmd): Si tienes Gemini CLI instalado, se autodetecta con soporte para Gemini 2.5 Flash.\n3. Google Gemini 2.5 Flash (Gratis): Si no tienes ningún CLI en tu PC, Brain Board activa Gemini 2.5 Flash de forma 100% gratuita con modo integrado instantáneo (0 MB añadidos al instalador).\n4. Otros Proveedores: Soporta claves de API de Anthropic Claude, OpenAI (GPT-4o), o endpoints de Ollama Local (http://localhost:11434).",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_brain_info",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "brain_workflow_tips",
-      type: "text",
-      x: -1600,
-      y: 620,
-      width: 1520,
-      height: 250,
-      text: "🚀 Atajo Global y Flujo de Trabajo con Brain\n\n• Atajo rápido: Pulsa Ctrl + K en cualquier momento y desde cualquier tablero para desplegar o plegar el Cerebro.\n• Dock flotante central: El botón circular con el logotipo de Brain Board en la parte inferior central abre el panel y muestra en su píldora el motor activo (\"Gemini\", \"Claude\", etc.).\n• Citas interactivas ([[cite]]): Cuando Brain cita un apunte o recurso, puedes hacer clic sobre el enlace en el chat y la cámara del lienzo se desplazará y hará zoom suave automáticamente hasta el objeto.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_brain_info",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "example_embed_card",
-      type: "embed",
-      x: -1550,
-      y: 910,
-      width: 310,
-      height: 135,
-      url: "https://aistudio.google.com/app/apikey",
-      domain: "AISTUDIO.GOOGLE.COM",
-      title: "Google AI Studio · Obtener API Key de Gemini 2.5 Flash",
-      description: "Portal oficial gratuito para desarrolladores de Google Gemini.",
-      parentId: "frame_brain_info",
-      zIndex: 30,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "example_embed_caption",
-      type: "text",
-      x: -1550,
-      y: 1059,
-      width: 310,
-      height: 28,
-      text: "Portal oficial de Google AI Studio",
-      fontSize: 12,
-      color: "#94a3b8",
-      textAlign: "center",
-      parentId: "frame_brain_info",
-      zIndex: 40,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "example_note_desc",
-      type: "text",
-      x: -1180,
-      y: 910,
-      width: 1100,
-      height: 230,
-      text: "📌 Ejemplo Visual de Tarjeta de Recurso y Apunte en Brain Board\n\nComo se observa a la izquierda, los recursos guardados por Brain se estructuran con un widget compacto (310×135 px) acompañado justo debajo de su mini descripción de 3 a 8 palabras (\"Portal oficial de Google AI Studio\").\n\nDe este modo, tu tablero mantiene una limpieza geométrica impecable, evitando tarjetas sobredimensionadas y permitiendo explorar cientos de enlaces rápidamente.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_brain_info",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-
-    // =========================================================
-    // 3. BLOQUE II: GUÍA PASO A PASO SETUP GOOGLE AI STUDIO
-    // =========================================================
-    {
-      id: "frame_setup_guide",
-      type: "frame",
-      x: 30,
-      y: -460,
-      width: 1620,
-      height: 1680,
-      title: "⚡ BLOQUE II: GUÍA PASO A PASO · SETUP DE GOOGLE AI STUDIO (GEMINI 2.5 FLASH)",
-      fillColor: "#12161f",
-      strokeColor: "#232b3d",
-      zIndex: 0,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    // Paso 1
-    {
-      id: "img_step1",
-      type: "image",
-      x: 70,
-      y: -400,
-      width: 730,
-      height: 340,
-      src: "step1_google_studio_create.png",
-      parentId: "frame_setup_guide",
-      zIndex: 26,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "text_step1",
-      type: "text",
-      x: 830,
-      y: -400,
-      width: 780,
-      height: 340,
-      text: "🔷 PASO 1: Entrar en Google AI Studio y Crear Clave\n\n1. Accede a Google AI Studio:\n   Entra en https://aistudio.google.com/app/apikey (o haz clic en el botón \"🔑 Conseguir API Key gratis (10s)\" dentro de Configurar Brain en Brain Board).\n\n2. Inicia sesión con Google:\n   Utiliza cualquier cuenta estándar de Google (Gmail o Workspace). No requiere introducir tarjeta de crédito ni vincular métodos de facturación.\n\n3. Botón \"Crear clave de API\":\n   En la esquina superior derecha de la sección de claves, haz clic en el botón azul Crear clave de API (\"Create API key\").",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_setup_guide",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    // Paso 2
-    {
-      id: "img_step2",
-      type: "image",
-      x: 70,
-      y: -30,
-      width: 730,
-      height: 340,
-      src: "step2_create_key_project.png",
-      parentId: "frame_setup_guide",
-      zIndex: 26,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "text_step2",
-      type: "text",
-      x: 830,
-      y: -30,
-      width: 780,
-      height: 340,
-      text: "🔷 PASO 2: Seleccionar Proyecto Nuevo Gratuito\n\n1. Opción recomendada:\n   En el cuadro de diálogo modal emergente, selecciona la opción por defecto:\n   \"Create API key in new project\" (Crear clave de API en un proyecto nuevo).\n\n2. Generación instantánea en 3 segundos:\n   Google creará un contenedor de proyecto cloud optimizado para tu clave sin necesidad de pasos adicionales ni trámites en consola.\n\n3. Cuota gratuita incluida (Free Tier):\n   Tendrás una cuota gratuita de 15 peticiones por minuto y 1 millón de tokens por minuto con el modelo Gemini 2.5 Flash, más que suficiente para miles de apuntes mensuales.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_setup_guide",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    // Paso 3
-    {
-      id: "img_step3",
-      type: "image",
-      x: 70,
-      y: 340,
-      width: 730,
-      height: 340,
-      src: "step3_copy_apikey.png",
-      parentId: "frame_setup_guide",
-      zIndex: 26,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "text_step3",
-      type: "text",
-      x: 830,
-      y: 340,
-      width: 780,
-      height: 340,
-      text: "🔷 PASO 3: Copiar la Clave Generada\n\n1. Ventana de confirmación:\n   Aparecerá el mensaje \"¡Clave de API creada!\" mostrando tu clave que comienza por AIzaSy...\n\n2. Copiar al portapapeles:\n   Haz clic en el botón azul \"Copiar\" (o pulsa el icono de portapapeles).\n\n3. Privacidad y seguridad local:\n   Tu clave de API se almacena únicamente en el almacenamiento local de tu instalación de Brain Board (%APPDATA%/BrainBoard). No se envía a ningún servidor intermedio de terceros.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_setup_guide",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    // Paso 4
-    {
-      id: "img_step4",
-      type: "image",
-      x: 70,
-      y: 710,
-      width: 730,
-      height: 340,
-      src: "step4_brainboard_setup_connected.png",
-      parentId: "frame_setup_guide",
-      zIndex: 26,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "text_step4",
-      type: "text",
-      x: 830,
-      y: 710,
-      width: 780,
-      height: 340,
-      text: "🔷 PASO 4: Pegar en Brain Board y Guardar\n\n1. Abrir Ajustes de Brain:\n   En Brain Board, pulsa Ctrl + K para abrir el panel y haz clic en el icono de engranaje (⚙️) en la cabecera.\n\n2. Pegar tu clave:\n   Pega la clave en el campo \"Google AI Studio API Key\".\n\n3. Probar conexión:\n   Haz clic en \"Probar clave\". Verás el mensaje verde de verificación:\n   \"✓ Conectado a Google gemini-2.5-flash correctamente.\"\n\n4. Guardar:\n   Haz clic en \"Guardar Configuración\". ¡Tu Cerebro IA ya está 100% operativo con Gemini 2.5 Flash!",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_setup_guide",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "step_reminder_banner",
-      type: "text",
-      x: 70,
-      y: 1080,
-      width: 1540,
-      height: 90,
-      text: "💡 Recuerda: Si descargas Brain Board y aún no tienes tu clave, Brain funciona de inmediato en modo integrado gratuito para que no tengas que detener tu flujo de trabajo.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#0284c7",
-      color: "#38bdf8",
-      textAlign: "center",
-      parentId: "frame_setup_guide",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-
-    // =========================================================
-    // 4. BLOQUE III: ATAJOS DE TECLADO Y NAVEGACIÓN PRO
-    // =========================================================
-    {
-      id: "frame_shortcuts",
-      type: "frame",
-      x: -1650,
-      y: 1260,
-      width: 1620,
-      height: 600,
-      title: "⌨️ BLOQUE III: ATAJOS DE TECLADO & GESTOS DE ALTA PRODUCTIVIDAD",
-      fillColor: "#12161f",
-      strokeColor: "#232b3d",
-      zIndex: 0,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "shortcuts_col1",
-      type: "text",
-      x: -1600,
-      y: 1320,
-      width: 490,
-      height: 500,
-      text: "🧭 Navegación y Zoom\n\n• Espacio + Arrastre:\n  Moverse por el lienzo con la mano\n\n• Botón Central del Ratón:\n  Panorámica directa en cualquier dirección\n\n• Rueda del Ratón:\n  Zoom suave hacia la posición del cursor\n\n• Tecla F:\n  Encuadrar y ajustar la vista a todo el contenido\n\n• Ctrl + F:\n  Buscar tarjetas, enlaces y textos en el tablero\n\n• Doble Clic en Lienzo:\n  Crear nota de texto en ese punto",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_shortcuts",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "shortcuts_col2",
-      type: "text",
-      x: -1085,
-      y: 1320,
-      width: 490,
-      height: 500,
-      text: "⚡ Duplicación y Edición Rápida\n\n• Alt + Clic y Arrastre:\n  ¡Duplicar instantáneamente cualquier elemento!\n\n• Ctrl + D:\n  Duplicar selección a distancia uniforme\n\n• Ctrl + C / Ctrl + V:\n  Copiar y pegar entre diferentes tableros\n\n• Ctrl + Z / Ctrl + Y:\n  Deshacer y Rehacer ilimitado\n\n• Supr / Backspace:\n  Eliminar elementos seleccionados\n\n• Arrastrar imagen desde el Explorador:\n  Importación local directa a tu tablero",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_shortcuts",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "shortcuts_col3",
-      type: "text",
-      x: -570,
-      y: 1320,
-      width: 490,
-      height: 500,
-      text: "📚 Capas, Marcos y Organización\n\n• ] / [:\n  Traer elemento adelante / Enviar elemento atrás\n\n• Shift + ] / Shift + [:\n  Traer al frente / Enviar al fondo absoluto\n\n• Mantener Ctrl al mover:\n  Desactivar guías magnéticas de imantación\n\n• Doble clic en etiqueta de marco:\n  Renombrar marco contenedor directamente\n\n• Menú Dev (<>):\n  Seleccionar todas las flechas o marcos en 1 clic\n\n• Selector Dev:\n  Copiar coordenadas [x, y, w, h] para la IA",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_shortcuts",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-
-    // =========================================================
-    // 5. BLOQUE IV: ARQUITECTURA OFFLINE-FIRST & CONTROL TOTAL
-    // =========================================================
-    {
-      id: "frame_architecture",
-      type: "frame",
-      x: 30,
-      y: 1260,
-      width: 1620,
-      height: 600,
-      title: "🔒 BLOQUE IV: ARQUITECTURA OFFLINE-FIRST, PERSISTENCIA DUAL & EXPORTACIÓN",
-      fillColor: "#12161f",
-      strokeColor: "#232b3d",
-      zIndex: 0,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "arch_col1",
-      type: "text",
-      x: 70,
-      y: 1320,
-      width: 490,
-      height: 500,
-      text: "💾 Persistencia Dual (IndexedDB + Disco)\n\n• Guardado Inmediato:\n  Cada cambio realizado se almacena en milisegundos en la base de datos IndexedDB local.\n\n• Sincronización en Disco JSON:\n  Escribe automáticamente en los archivos boards/<id>.json y app_bundle/boards/<id>.json mediante Node.js.\n\n• Protección del Usuario (userModified):\n  Tus modificaciones quedan blindadas y jamás se sobreescriben con plantillas.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_architecture",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "arch_col2",
-      type: "text",
-      x: 585,
-      y: 1320,
-      width: 490,
-      height: 500,
-      text: "📦 Exportación Autónoma (.RTB / .JSON)\n\n• Formato Contenedor .RTB:\n  Empaqueta tus tableros en un archivo comprimido TAR estándar con todas sus imágenes locales incluidas.\n\n• Portabilidad Total:\n  Puedes llevarte tus tableros a cualquier otro ordenador sin perder una sola imagen ni sufrir enlaces rotos.\n\n• Exportación en Alta Resolución:\n  Genera imágenes completas en PNG o JPG nítidas desde el menú de opciones o herramientas Dev.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_architecture",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    },
-    {
-      id: "arch_col3",
-      type: "text",
-      x: 1100,
-      y: 1320,
-      width: 490,
-      height: 500,
-      text: "🚀 Rendimiento y Privacidad Absoluta\n\n• Cero Servidores Propietarios:\n  Brain Board no depende de la nube de ninguna empresa. Si te quedas sin conexión a Internet, la aplicación sigue funcionando al 100%.\n\n• Culling Visual Inteligente:\n  El motor gráfico solo procesa los elementos visibles en tu pantalla, permitiendo manejar tableros masivos de más de 800 imágenes con fluidez extrema a 60 FPS.\n\n• Dual Theme:\n  Soporte integral nativo tanto en Modo Claro como en Modo Oscuro.",
-      fontSize: 14,
-      fillColor: "#161b26",
-      strokeColor: "#262e40",
-      color: "#f1f5f9",
-      textAlign: "left",
-      parentId: "frame_architecture",
-      zIndex: 35,
-      createdAt: nowIso,
-      updatedAt: nowIso
-    }
-  ]
+const C = {
+  frame: '#12161f',
+  frameStroke: '#232b3d',
+  card: '#161b26',
+  cardStroke: '#262e40',
+  play: '#1e2533',
+  title: '#f8fafc',
+  text: '#f1f5f9',
+  soft: '#cbd5e1',
+  muted: '#94a3b8',
+  faint: '#64748b'
 };
 
-const jsonStr = JSON.stringify(board, null, 2);
+const items = [];
+let z = 0;
+const add = (it) => { items.push({ zIndex: ++z, ...it }); return it; };
 
-// Escribir en boards/ejemplo.json y app_bundle/boards/ejemplo.json
-const destBoards = path.resolve(__dirname, '../boards/ejemplo.json');
-const destAppBundle = path.resolve(__dirname, '../app_bundle/boards/ejemplo.json');
+function frame(id, title, x, y, width, height) {
+  return add({ id, type: 'frame', title, x, y, width, height, fillColor: C.frame, strokeColor: C.frameStroke, zIndex: 0 });
+}
 
-fs.writeFileSync(destBoards, jsonStr, 'utf8');
-fs.writeFileSync(destAppBundle, jsonStr, 'utf8');
+function header(f, text) {
+  return add({
+    id: `${f.id}_header`, type: 'text', parentId: f.id,
+    x: f.x + 40, y: f.y + 40, width: f.width - 80, height: 58,
+    text, fontSize: 22, isBold: true, color: C.text, fillColor: C.card, strokeColor: C.cardStroke, textAlign: 'left'
+  });
+}
 
-console.log('Board saved successfully to:', destBoards);
-console.log('Board saved successfully to:', destAppBundle);
-console.log('Total items in board:', board.items.length);
+function note(f, id, x, y, width, height, text, opts = {}) {
+  return add({
+    id, type: 'text', parentId: f.id, x: f.x + x, y: f.y + y, width, height, text,
+    fontSize: 16, color: C.text, fillColor: C.card, strokeColor: C.cardStroke, textAlign: 'left', ...opts
+  });
+}
+
+function image(f, id, src, x, y, width, height) {
+  return add({ id, type: 'image', parentId: f.id, src, x: f.x + x, y: f.y + y, width, height });
+}
+
+function card(f, id, x, y, { url, domain, title, description, rating }) {
+  const it = { id, type: 'embed', parentId: f.id, x: f.x + x, y: f.y + y, width: 350, height: 150, url, domain, title, description, src: '' };
+  if (rating) it.rating = rating;
+  return add(it);
+}
+
+// =========================================================
+// CABECERA
+// =========================================================
+const hero = frame('frame_hero', '✨ BIENVENIDO A BRAIN BOARD', -1650, -860, 3300, 360);
+add({ id: 'hero_logo', type: 'image', parentId: hero.id, src: 'brainboard_logo_hero.png', x: -1600, y: -810, width: 250, height: 210 });
+add({
+  id: 'hero_title', type: 'text', parentId: hero.id, x: -1300, y: -815, width: 2200, height: 60,
+  text: 'Bienvenido a Brain Board', fontSize: 40, isBold: true, color: C.title, textAlign: 'left'
+});
+add({
+  id: 'hero_subtitle', type: 'text', parentId: hero.id, x: -1300, y: -748, width: 2800, height: 34,
+  text: 'Tu pizarra infinita para guardar referencias, apuntes y enlaces, y volver a encontrarlos. Este tablero es una guía: toca, mueve y prueba todo lo que quieras.',
+  fontSize: 17, color: C.muted, textAlign: 'left'
+});
+[
+  '🧠  Cerebro IA\nPregunta a tus tableros · Ctrl+K',
+  '🔗  Enlaces con estrellas\nPega una URL y puntúala',
+  '📁  Carpetas del PC\nÁbrelas desde la pizarra',
+  '🕰️  Mapa de Frescura\nQué está al día y qué no',
+  '🔍  Buscar en todo\nCtrl+Shift+F en todos los tableros',
+  '🛟  Tu trabajo, a salvo\nCopias diarias y papelera'
+].forEach((text, i) => {
+  add({
+    id: `hero_pill_${i + 1}`, type: 'text', parentId: hero.id,
+    x: -1300 + i * 485, y: -690, width: 455, height: 96,
+    text, fontSize: 16, color: C.soft, fillColor: C.card, strokeColor: C.cardStroke, textAlign: 'left'
+  });
+});
+add({
+  id: 'hero_hint', type: 'text', parentId: hero.id, x: -1300, y: -570, width: 2880, height: 34,
+  text: 'Muévete con la rueda del ratón (zoom) y arrastrando con la mano (H) o con la barra espaciadora pulsada. Doble clic en un texto para editarlo.',
+  fontSize: 15, color: C.faint, textAlign: 'left'
+});
+
+// =========================================================
+// 1 · CEREBRO IA
+// =========================================================
+const brain = frame('frame_cerebro', '🧠 1 · CEREBRO IA', -1650, -440, 1620, 820);
+header(brain, 'Pregunta a tus tableros');
+image(brain, 'cerebro_img', 'ejemplo_cerebro.webp', 40, 124, 760, 475);
+note(brain, 'cerebro_note', 830, 124, 750, 475,
+  '• Ábrelo con el botón Brain de abajo o con Ctrl+K.\n\n' +
+  '• Conoce todo lo que guardas: qué es, en qué tablero está y cuándo lo pusiste.\n\n' +
+  '• Acciones rápidas: ✍️ Apunte · 🔗 Añadir recurso · 📋 Briefing · 🕰️ Revisar apuntes obsoletos.\n\n' +
+  '• Nada cambia sin tu permiso: te enseña una propuesta, tú pulsas Insertar y luego puedes Deshacer.\n\n' +
+  '• Selecciona algo del tablero y pulsa ✨ en su barra para preguntar solo sobre eso.');
+note(brain, 'cerebro_ia', 40, 630, 1540, 150,
+  '⚙️ Qué IA usa (engranaje del chat): Ollama funciona en tu PC sin enviar nada. Claude Code o Gemini CLI usan tu cuenta. ' +
+  'Con una clave de API (Claude, Gemini u OpenAI), las preguntas van a ese proveedor. Sin configurar nada, usa un servicio gratuito de terceros.\n' +
+  'Gemini gratis: aistudio.google.com → Create API key → pégala en el engranaje.',
+  { fontSize: 15, color: C.soft });
+
+// =========================================================
+// 2 · ENLACES Y CARPETAS
+// =========================================================
+const links = frame('frame_enlaces', '🔗 2 · ENLACES Y CARPETAS', 30, -440, 1620, 820);
+header(links, 'Pega un enlace o una carpeta y listo');
+card(links, 'enlace_github', 40, 124, {
+  url: 'https://github.com/PabloLivian/BrainBoard', domain: 'GITHUB.COM', title: 'PabloLivian/BrainBoard',
+  description: 'Código y versiones de Brain Board.', rating: 5
+});
+card(links, 'enlace_docs', 420, 124, {
+  url: 'https://brain-board-web-two.vercel.app/documentacion', domain: 'BRAIN-BOARD-WEB-TWO.VERCEL.APP', title: 'Documentación de Brain Board',
+  description: 'Todas las funciones explicadas con capturas.', rating: 4
+});
+card(links, 'enlace_polyhaven', 800, 124, {
+  url: 'https://polyhaven.com', domain: 'POLYHAVEN.COM', title: 'Poly Haven',
+  description: 'HDRIs y texturas gratis. Pruébalo: pasa el ratón y ponle estrellas.'
+});
+add({
+  id: 'carpeta_escritorio', type: 'folder', parentId: links.id, path: '%DESKTOP%', title: 'Escritorio',
+  isFile: false, expanded: false, x: links.x + 1190, y: links.y + 124, width: 350, height: 122
+});
+add({
+  id: 'carpeta_hint', type: 'text', parentId: links.id, x: links.x + 1190, y: links.y + 262, width: 350, height: 60,
+  text: '👆 Es tu Escritorio. Pulsa «Ver contenido» para desplegarlo.', fontSize: 14, color: C.muted, textAlign: 'left'
+});
+note(links, 'enlaces_note', 40, 304, 1110, 220,
+  '🔗 Enlaces\n' +
+  '• Pega una URL (Ctrl+V) y se convierte en tarjeta con título, descripción y miniatura.\n' +
+  '• Pasa el ratón por una tarjeta y ponle de 1 a 5 estrellas; pulsa la misma estrella para quitarla.\n' +
+  '• Si pegas un enlace que ya tenías en cualquier tablero, te avisa con un botón «Ver».\n' +
+  '• Ábrelo con el botón ↗ de la tarjeta, con doble clic o con Ctrl + clic.');
+note(links, 'carpetas_note', 40, 554, 1110, 220,
+  '📁 Carpetas y archivos del PC\n' +
+  '• Pega una ruta, copia una carpeta en el Explorador (Ctrl+C) y pégala, o arrástrala al tablero.\n' +
+  '• La tarjeta lee el disco cada vez que la miras: siempre está al día.\n' +
+  '• Doble clic en una fila abre ese archivo; en la cabecera, abre la carpeta.\n' +
+  '• Si la ruta no existe en este PC (un disco desconectado), la tarjeta sale en rojo.');
+
+// =========================================================
+// 3 · MAPA DE FRESCURA
+// =========================================================
+const fresh = frame('frame_frescura', '🕰️ 3 · MAPA DE FRESCURA', -1650, 440, 1620, 780);
+header(fresh, '¿Qué sigue al día y qué conviene revisar?');
+[
+  { age: 0, text: '🟢 Colocado hoy\nReciente: hasta 7 días' },
+  { age: 20, text: '🔵 Hace 20 días\nActual: hasta 30 días' },
+  { age: 100, text: '🟠 Hace unos 3 meses\nIntermedio: hasta 6 meses' },
+  { age: 400, text: '🔴 Hace más de un año\nAntiguo: más de 6 meses' }
+].forEach((s, i) => {
+  note(fresh, `frescura_muestra_${i + 1}`, 40 + i * 393, 124, 360, 100, s.text, { fontSize: 16, ageDays: s.age });
+});
+image(fresh, 'frescura_img', 'ejemplo_frescura.webp', 40, 264, 760, 475);
+note(fresh, 'frescura_note', 830, 264, 750, 475,
+  '• Cada cosa guarda cuándo la colocaste. Deja el ratón quieto 2 segundos encima para verlo.\n\n' +
+  '• Pulsa el reloj 🕒 de la barra de arriba: todo se colorea según su antigüedad. Pruébalo con las 4 notas de arriba.\n\n' +
+  '• Si algo antiguo sigue valiendo, selecciónalo y pulsa «Marcar como revisado»: vuelve a contar como reciente.\n\n' +
+  '• El engranaje de la barra del mapa cambia los días de cada color.\n\n' +
+  '• En el Cerebro, «Revisar apuntes obsoletos» te propone ponerlos al día.');
+
+// =========================================================
+// 4 · BUSCAR Y NAVEGAR
+// =========================================================
+const search = frame('frame_buscar', '🔍 4 · BUSCAR Y NAVEGAR', 30, 440, 1620, 780);
+header(search, 'Encuéntralo todo, en cualquier tablero');
+image(search, 'buscar_img', 'ejemplo_busqueda.webp', 40, 124, 760, 475);
+note(search, 'buscar_note', 830, 124, 750, 475,
+  '• Ctrl+F busca en el tablero abierto.\n\n' +
+  '• Ctrl+Shift+F busca en todos tus tableros a la vez (también el botón «En todos» de la barra de búsqueda, o Enter en el buscador de Inicio).\n\n' +
+  '• No distingue mayúsculas ni tildes, acepta las palabras en cualquier orden y busca también en las descripciones de las tarjetas.\n\n' +
+  '• El botón de lista de la barra de arriba abre el índice de secciones: salta a cualquier marco del tablero.');
+note(search, 'buscar_pestanas', 40, 630, 745, 110,
+  '📑 Pestañas: abre varios tableros a la vez y cambia entre ellos, como en el navegador.', { fontSize: 15, color: C.soft });
+note(search, 'buscar_inicio', 835, 630, 745, 110,
+  '🏠 Inicio: tus tableros por categorías, con su miniatura y la última vez que los abriste.', { fontSize: 15, color: C.soft });
+
+// =========================================================
+// 5 · ORDENAR EL LIENZO
+// =========================================================
+const canvas = frame('frame_lienzo', '✏️ 5 · ORDENAR EL LIENZO', -1650, 1280, 1620, 570);
+header(canvas, 'Plantillas, alinear, capas y duplicar');
+[
+  { x: 40, y: 124, text: '1. Arrastra un recuadro alrededor de estas tres notas…' },
+  { x: 375, y: 168, text: '2. …pulsa el botón Alinear de su barra de propiedades…' },
+  { x: 710, y: 140, text: '3. …y prueba «Arriba» o «Distribuir».' }
+].forEach((n, i) => {
+  note(canvas, `lienzo_alinear_${i + 1}`, n.x, n.y, 300, 120, n.text, { fillColor: C.play, fontSize: 15, color: C.soft });
+});
+[40, 375, 710].forEach((x, i) => {
+  add({
+    id: `lienzo_hueco_${i + 1}`, type: 'shape', shape: 'rectangle', parentId: canvas.id,
+    x: canvas.x + x, y: canvas.y + 330, width: 300, height: 190,
+    text: 'Pega o arrastra una imagen aquí', fontSize: 14, isBold: false,
+    fillColor: C.card, strokeColor: '#334155', strokeWidth: 1.5, color: C.muted, textColor: C.muted,
+    isImagePlaceholder: true
+  });
+});
+note(canvas, 'lienzo_note', 1050, 124, 530, 396,
+  '• Plantillas (botón de la barra izquierda): Apuntes, Recurso + apunte, Galería y Comparativa. Los huecos de la izquierda son de la Galería: pega una imagen encima.\n' +
+  '• Alinear y distribuir: con 2 o más elementos seleccionados.\n' +
+  '• Capas: ] trae adelante y [ envía atrás (con Shift, al frente o al fondo).\n' +
+  '• Duplicar: arrastra con Alt pulsado o Ctrl+D.\n' +
+  '• Pega recortes de Windows (Win+Shift+S) tal cual.\n' +
+  '• Todo se deshace con Ctrl+Z.',
+  { fontSize: 15 });
+
+// =========================================================
+// 6 · TU TRABAJO A SALVO
+// =========================================================
+const safe = frame('frame_copias', '🛟 6 · TU TRABAJO A SALVO', 30, 1280, 1620, 570);
+header(safe, 'Guardado automático, copias diarias y papelera');
+image(safe, 'copias_img', 'ejemplo_copias.webp', 40, 124, 640, 400);
+note(safe, 'copias_note', 710, 124, 870, 400,
+  '• Cada cambio se guarda solo, al momento.\n' +
+  '• Una vez al día se copia todo en Documentos\\BrainBoard\\Copias automáticas (se guardan las 10 últimas). Se restauran desde Inicio → Copias automáticas.\n' +
+  '• Borrar un tablero lo manda a la Papelera durante 30 días (Inicio → Papelera).\n' +
+  '• Copia de seguridad (.rtb) en Inicio: todos los tableros con sus imágenes en un solo paquete.\n' +
+  '• Menú ⋮ del tablero: exportarlo (.rtb) o guardarlo como imagen PNG / JPG.\n' +
+  '• Tus tableros viven en tu ordenador: no hace falta cuenta.',
+  { fontSize: 15 });
+
+// =========================================================
+// 7 · ATAJOS DE TECLADO
+// =========================================================
+const keys = frame('frame_atajos', '⌨️ 7 · ATAJOS DE TECLADO', -1650, 1910, 3300, 320);
+header(keys, 'Atajos de teclado');
+[
+  '🛠️ Herramientas\nV seleccionar · H mano · N nota · S forma\nT texto · L conector · P lápiz · F marco · C comentario',
+  '✂️ Editar\nCtrl+C / Ctrl+X / Ctrl+V · Ctrl+A seleccionar todo\nCtrl+D o Alt + arrastrar duplicar\nCtrl+Z deshacer · Ctrl+Y rehacer',
+  '🔍 Buscar y Cerebro\nCtrl+F buscar en el tablero\nCtrl+Shift+F buscar en todos\nCtrl+K abrir el Cerebro',
+  '🗂️ Capas y vista\n] adelante · [ atrás (con Shift: al frente / al fondo)\nEspacio + arrastrar para moverte\nRueda del ratón para el zoom'
+].forEach((text, i) => {
+  note(keys, `atajos_${i + 1}`, 40 + i * 810, 124, 780, 156, text, { fontSize: 15, color: C.soft });
+});
+
+// =========================================================
+const board = {
+  id: 'ejemplo',
+  name: 'Ejemplo',
+  title: 'Ejemplo',
+  category: 'General',
+  icon: '✨',
+  thumbnail: null,
+  updatedAt: new Date().toISOString(),
+  seedVersion: SEED_VERSION,
+  userModified: false,
+  items
+};
+
+// Comprobaciones: nada fuera de su marco ni coordenadas inválidas
+const frames = new Map(items.filter(i => i.type === 'frame').map(f => [f.id, f]));
+items.forEach(it => {
+  ['x', 'y', 'width', 'height'].forEach(k => {
+    if (!Number.isFinite(it[k])) throw new Error(`${it.id}: ${k} no es un número`);
+  });
+  const f = it.parentId && frames.get(it.parentId);
+  if (f && (it.x < f.x || it.y < f.y || it.x + it.width > f.x + f.width || it.y + it.height > f.y + f.height)) {
+    throw new Error(`${it.id} se sale de su marco ${f.id}`);
+  }
+});
+
+const dest = path.resolve(__dirname, '../app_bundle/boards/ejemplo.json');
+fs.writeFileSync(dest, JSON.stringify(board, null, 2), 'utf8');
+console.log(`Ejemplo guardado en ${dest}: ${items.length} elementos, seedVersion ${SEED_VERSION}`);

@@ -137444,6 +137444,8 @@ electron_1.ipcMain.handle('get-cookies', (_event, url) => electron_1.session.def
 electron_1.ipcMain.handle('get-app-version', () => electron_1.app.getVersion());
 // Brain Board: carpeta Documentos real del usuario (puede estar redirigida a OneDrive) para las copias automáticas
 electron_1.ipcMain.handle('get-documents-path', () => electron_1.app.getPath('documents'));
+// Brain Board: Escritorio real del usuario para las rutas %DESKTOP% de las tarjetas de carpeta (tablero Ejemplo)
+electron_1.ipcMain.handle('get-desktop-path', () => electron_1.app.getPath('desktop'));
 // Brain Board: estado del portapapeles leído desde el proceso principal (en Electron recientes la ventana no tiene `clipboard`)
 electron_1.ipcMain.handle('brainboard-clipboard-info', () => {
     let filePath = null;

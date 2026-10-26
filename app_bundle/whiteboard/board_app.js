@@ -4,6 +4,22 @@ document.addEventListener('DOMContentLoaded', () => {
   const engine = new CanvasEngine(canvasElement);
   window.engine = engine;
 
+  // Escritorio real del usuario (OneDrive puede moverlo) para las tarjetas de carpeta con %DESKTOP%
+  engine.knownFolders = {};
+  (async () => {
+    let desktop = null;
+    try {
+      desktop = await window.require('electron').ipcRenderer.invoke('get-desktop-path');
+    } catch (e) {}
+    if (!desktop) {
+      try { desktop = window.require('path').join(window.require('os').homedir(), 'Desktop'); } catch (e) {}
+    }
+    if (desktop) {
+      engine.knownFolders.desktop = desktop;
+      engine.render();
+    }
+  })();
+
   // Elementos UI
   const boardTitleInput = document.getElementById('board-title');
   const saveStatusText = document.getElementById('save-status-text');
@@ -3772,6 +3788,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Abrir una carpeta (en el Explorador) o un archivo (con su programa) del equipo
   // Lo abre el proceso principal: shell.openPath llamado desde la ventana no llega a responder
   async function openLocalPath(localPath) {
+    localPath = engine.resolveLocalPath(localPath);
     if (!localPath) return;
     // Si no existe, Windows abre su propio aviso modal y la llamada no vuelve hasta cerrarlo: avisar aquí
     if (!getLocalPathInfo(localPath)) {
@@ -4958,10 +4975,48 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   window.fetchBoardSeedData = fetchBoardSeedData;
 
+  // Tableros guía que se renuevan con la app aunque estén guardados (el guardado marca userModified aunque
+  // solo se abran). Al renovarlos, la versión anterior va a la papelera durante 30 días por si se había editado.
+  const GUIDE_BOARD_RESET_VERSION = { ejemplo: 20, espacio: 10, space: 10 };
+
+  function isGuideBoardOutdated(boardId, seedVer, savedVer) {
+    const resetAt = GUIDE_BOARD_RESET_VERSION[boardId];
+    return Boolean(resetAt && seedVer >= resetAt && savedVer < resetAt);
+  }
+
+  async function moveOutdatedGuideBoardToTrash(boardId, saved) {
+    if (!saved || !Array.isArray(saved.items) || saved.items.length === 0) return;
+    const meta = workspaceBoards.find(b => b.id === boardId) || {};
+    const copyId = 'board_' + Date.now();
+    const title = `${meta.title || saved.name || boardId} (versión anterior)`;
+    const payload = { ...saved, id: copyId, name: title, seedVersion: 0, updatedAt: new Date().toISOString() };
+    await idbSaveBoard(copyId, payload);
+    boardsTrash.unshift({
+      id: copyId, title, icon: meta.icon || saved.icon || '📋', category: meta.category || saved.category || 'General',
+      thumbnail: null, deletedAt: Date.now()
+    });
+    saveTrash();
+    updateTrashCountBadge();
+    showActionToast(`«${meta.title || boardId}» se ha renovado. La versión anterior queda 30 días en la papelera.`, []);
+  }
+
   async function loadSeedBoard(targetBoardId) {
     const board = await fetchBoardSeedData(targetBoardId);
     if (board) {
       const items = (board.items && Array.isArray(board.items)) ? board.items : convertMiroToBrainBoard(board);
+      // Fechas de la plantilla relativas al momento en que se carga: ageDays (para enseñar el Mapa de Frescura)
+      // o "ahora" si no trae fecha (si no, hydrateBoardItemsDates les pondría una fecha antigua fija)
+      const nowMs = Date.now();
+      items.forEach(it => {
+        if (typeof it.ageDays === 'number') {
+          it.createdAt = new Date(nowMs - it.ageDays * 86400000).toISOString();
+          it.updatedAt = it.createdAt;
+          delete it.ageDays;
+        } else if (!it.createdAt) {
+          it.createdAt = new Date(nowMs).toISOString();
+          it.updatedAt = it.createdAt;
+        }
+      });
       sanitizeEmbedResources(items);
       engine.items = items;
       engine.selectedItemIds.clear();
@@ -5008,8 +5063,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (seedData && typeof seedData.seedVersion === 'number') {
         const savedVer = typeof savedData?.seedVersion === 'number' ? savedData.seedVersion : 0;
         // El trabajo del usuario es sagrado: solo considerar desactualizada una plantilla si el usuario NO la ha editado
-        if ((!savedData?.userModified && seedData.seedVersion > savedVer) || ((currentActiveBoardId === 'space' || currentActiveBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10) || (currentActiveBoardId === 'ejemplo' && seedData.seedVersion >= 10 && savedVer < 10)) {
+        if (!savedData?.userModified && seedData.seedVersion > savedVer) {
           isOutdatedCache = true;
+        } else if (isGuideBoardOutdated(currentActiveBoardId, seedData.seedVersion, savedVer)) {
+          isOutdatedCache = true;
+          await moveOutdatedGuideBoardToTrash(currentActiveBoardId, savedData);
         }
       }
     } catch(e) {}
@@ -5491,8 +5549,11 @@ document.addEventListener('DOMContentLoaded', () => {
       if (seedData && typeof seedData.seedVersion === 'number') {
         const savedVer = typeof saved?.seedVersion === 'number' ? saved.seedVersion : 0;
         // El trabajo del usuario es sagrado: solo considerar desactualizada una plantilla si el usuario NO la ha editado
-        if ((!saved?.userModified && seedData.seedVersion > savedVer) || ((targetBoardId === 'space' || targetBoardId === 'espacio') && seedData.seedVersion >= 10 && savedVer < 10) || (targetBoardId === 'ejemplo' && seedData.seedVersion >= 10 && savedVer < 10)) {
+        if (!saved?.userModified && seedData.seedVersion > savedVer) {
           isOutdatedCache = true;
+        } else if (isGuideBoardOutdated(targetBoardId, seedData.seedVersion, savedVer)) {
+          isOutdatedCache = true;
+          await moveOutdatedGuideBoardToTrash(targetBoardId, saved);
         }
       }
     } catch(e) {}
@@ -9148,7 +9209,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (it.description) parts.push(String(it.description).replace(/\s+/g, ' ').trim());
     if (it.url) parts.push(`URL: ${it.url}`);
     if (it.rating) parts.push(`Puntuación del usuario: ${it.rating}/5`);
-    if (it.type === 'folder' && it.path) parts.push(`${it.isFile ? 'Archivo' : 'Carpeta'} del equipo: ${it.path}`);
+    if (it.type === 'folder' && it.path) parts.push(`${it.isFile ? 'Archivo' : 'Carpeta'} del equipo: ${engine.resolveLocalPath(it.path)}`);
     if (it.parentId && framesById && framesById.has(it.parentId)) {
       parts.push(`[En marco: "${framesById.get(it.parentId).title || it.parentId}"]`);
     }

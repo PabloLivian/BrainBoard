@@ -3166,9 +3166,23 @@ class CanvasEngine {
   static FOLDER_ROW_H = 26;
   static FOLDER_MAX_ROWS = 18;
 
+  // Ruta real de una tarjeta de carpeta: %DESKTOP% es el Escritorio de cada equipo (lo usa el tablero Ejemplo;
+  // board_app lo pide a Electron porque OneDrive puede moverlo) y %VARIABLE% cualquier variable de entorno
+  resolveLocalPath(p) {
+    const s = String(p || '');
+    if (!s.includes('%')) return s;
+    const env = typeof process !== 'undefined' && process.env ? process.env : {};
+    return s.replace(/%([A-Za-z_][A-Za-z0-9_]*)%/g, (m, name) => {
+      if (name.toUpperCase() === 'DESKTOP') return (this.knownFolders && this.knownFolders.desktop) || m;
+      return env[name] ?? env[name.toUpperCase()] ?? m;
+    });
+  }
+
   getFolderListing(it) {
     if (!this.folderListingCache) this.folderListingCache = new Map();
-    const key = String(it.path || '');
+    const key = this.resolveLocalPath(it.path);
+    // Todavía sin saber dónde está el Escritorio: esperar en vez de marcar la tarjeta como no encontrada
+    if (/%DESKTOP%/i.test(key)) return { loading: true, entries: [] };
     let entry = this.folderListingCache.get(key);
     const stale = !entry || (!entry.loading && Date.now() - entry.readAt > 10000);
     if (stale && key && typeof window.require === 'function') {
@@ -3197,7 +3211,7 @@ class CanvasEngine {
   }
 
   refreshFolderListing(it) {
-    if (this.folderListingCache) this.folderListingCache.delete(String(it.path || ''));
+    if (this.folderListingCache) this.folderListingCache.delete(this.resolveLocalPath(it.path));
     this.getFolderListing(it);
   }
 
@@ -3292,7 +3306,8 @@ class CanvasEngine {
     this.ctx.clip();
 
     // Icono grande
-    const name = it.title || String(it.path || '').split(/[\\/]/).filter(Boolean).pop() || it.path || 'Carpeta';
+    const realPath = this.resolveLocalPath(it.path);
+    const name = it.title || realPath.split(/[\\/]/).filter(Boolean).pop() || realPath || 'Carpeta';
     this.ctx.textBaseline = 'middle';
     this.ctx.textAlign = 'center';
     this.ctx.fillStyle = dark ? '#e2e8f0' : '#0f172a';
@@ -3308,7 +3323,7 @@ class CanvasEngine {
     this.ctx.fillText(this.fitTextToWidth(name, textW), textX, it.y + 24);
     this.ctx.fillStyle = dark ? '#94a3b8' : '#64748b';
     this.ctx.font = '400 11.5px Consolas, Monaco, monospace';
-    this.ctx.fillText(this.fitTextToWidth(String(it.path || ''), textW, true), textX, it.y + 46);
+    this.ctx.fillText(this.fitTextToWidth(realPath, textW, true), textX, it.y + 46);
 
     let summary = '';
     if (listing.missing) summary = isFile ? 'Archivo no encontrado' : 'Carpeta no encontrada en este equipo';
