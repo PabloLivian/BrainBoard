@@ -30,10 +30,15 @@ class CanvasEngine {
     this.isMiddleDragDuplicate = false;
     this.isAltDragDuplicate = false;
     this.dragStart = { x: 0, y: 0 };
+    // Lo que se mueve en un arrastre se decide al empezar: un marco no recoge lo que pisa por el camino
+    this.dragMoveItemIds = null;
+    // Marcos recién creados que aún no se han colocado: su primer arrastre no se lleva lo que tienen encima
+    this.freshFrameIds = new Set();
     this.isResizing = false;
     this.activeResizeHandle = null;
     this.resizeTargetItem = null;
     this.resizeInitialBounds = null;
+    this.resizeFitChildren = null;
     this.resizeStartWorld = null;
     this.isSelectingMarquee = false;
     this.isMarqueeDeselect = false;
@@ -523,6 +528,40 @@ class CanvasEngine {
     return this.items.reduce((max, it) => Math.max(max, this.getDefaultZIndex(it)), 0) + 1;
   }
 
+  // Capa anterior a la más baja del tablero: un marco nuevo queda detrás de todo
+  getBottomZIndex() {
+    return this.items.reduce((min, it) => Math.min(min, this.getDefaultZIndex(it)), 0) - 1;
+  }
+
+  // Marco más pequeño que contiene a otro elemento (para anidar marcos y para el índice de secciones)
+  getContainingFrame(item) {
+    let best = null;
+    this.items.forEach(f => {
+      if (f.type !== 'frame' || f.id === item.id) return;
+      const fArea = (f.width || 0) * (f.height || 0);
+      if (item.type === 'frame' && fArea <= (item.width || 0) * (item.height || 0)) return;
+      if (!this.isItemInsideFrame(item, f)) return;
+      if (!best || fArea < best.width * best.height) best = f;
+    });
+    return best;
+  }
+
+  // Al soltar un marco nuevo por primera vez: queda al fondo, salvo dentro de otro marco, donde va justo encima de él
+  placeFreshFrame(frame) {
+    this.freshFrameIds.delete(frame.id);
+    const container = this.getContainingFrame(frame);
+    if (!container) return;
+    const containerZ = this.getDefaultZIndex(container);
+    if (this.getDefaultZIndex(frame) > containerZ) return;
+    // Por debajo de todo lo demás que hay en el marco contenedor
+    const insideZ = this.items
+      .filter(it => it.id !== frame.id && it.id !== container.id && this.getDefaultZIndex(it) > containerZ &&
+        (it.parentId === container.id || this.isItemInsideFrame(it, container)))
+      .map(it => this.getDefaultZIndex(it));
+    const nextZ = insideZ.length ? Math.min(...insideZ) : containerZ + 2;
+    frame.zIndex = containerZ + (nextZ - containerZ) / 2;
+  }
+
   // Rectángulo que ocupa un elemento (trazos y flechas por sus puntos)
   getItemRect(it) {
     const pts = it.type === 'pen' ? (it.points || []) : (it.type === 'connector' && it.start && it.end ? [it.start, it.end] : null);
@@ -628,6 +667,13 @@ class CanvasEngine {
       }
     }
     return null;
+  }
+
+  // Marco bajo el puntero. Si hay uno seleccionado ahí, gana aunque esté por detrás (un marco nuevo va al fondo)
+  getFrameAt(wx, wy) {
+    const selectedFrame = this.getSortedItemsForRender(true)
+      .find(it => it.type === 'frame' && this.selectedItemIds.has(it.id) && this.isPointInsideItem(wx, wy, it));
+    return selectedFrame || this.getItemAt(wx, wy, false);
   }
 
   // Comprueba si un punto cae sobre la pestaña/etiqueta superior del marco
@@ -912,6 +958,26 @@ class CanvasEngine {
         }
       }
     });
+  }
+
+  // Cabeceras que se ajustan al ancho del marco al redimensionarlo: las marcadas por la plantilla Apuntes
+  // y, en marcos de Apuntes anteriores, la banda con fondo que ocupa casi todo el ancho en la parte de arriba
+  getFrameFitChildren(frame) {
+    return this.items
+      .filter(c => {
+        if (c.type !== 'text' || c.parentId !== frame.id) return false;
+        if (c.fitToFrameWidth) return true;
+        const hasFill = Boolean(c.fillColor && c.fillColor !== 'transparent');
+        const top = c.y - frame.y;
+        return hasFill && c.isBold === true && top >= 0 && top <= 40 && c.x >= frame.x &&
+          (c.width || 0) >= frame.width * 0.85 && c.x + (c.width || 0) <= frame.x + frame.width;
+      })
+      .map(c => ({
+        item: c,
+        left: c.x - frame.x,
+        top: c.y - frame.y,
+        right: frame.x + frame.width - (c.x + (c.width || 0))
+      }));
   }
 
   isItemInsideFrame(child, frame) {
@@ -1625,6 +1691,7 @@ class CanvasEngine {
           aspectRatio: (handleHit.item.width || 100) / (handleHit.item.height || 100)
         };
         this.resizeStartWorld = { x: world.x, y: world.y };
+        this.resizeFitChildren = handleHit.item.type === 'frame' ? this.getFrameFitChildren(handleHit.item) : null;
         return;
       }
 
@@ -1766,7 +1833,7 @@ class CanvasEngine {
       }
 
       // 2. Si no se pulsó ningún elemento regular, comprobar si hay un frame (marco contenedor)
-      const frameUnder = this.getItemAt(world.x, world.y, false);
+      const frameUnder = this.getFrameAt(world.x, world.y);
       if (frameUnder && frameUnder.type === 'frame') {
         const isFrameSelected = this.selectedItemIds.has(frameUnder.id);
         const onHeader = this.isPointOnFrameHeader(frameUnder, world.x, world.y);
@@ -1954,9 +2021,11 @@ class CanvasEngine {
         y: world.y - 150,
         width: 400,
         height: 300,
-        title: 'Marco 1'
+        title: 'Marco 1',
+        zIndex: this.getBottomZIndex()
       };
       this.items.unshift(newFrame); // Los marcos van al fondo
+      this.freshFrameIds.add(newFrame.id);
       this.selectedItemIds.clear();
       this.selectedItemIds.add(newFrame.id);
       this.activeTool = 'select';
@@ -2048,6 +2117,8 @@ class CanvasEngine {
         textColor: '#eff3f7',
         fillColor: '#1a1a1a',
         isBold: true,
+        isIndexTitle: true,
+        fitToFrameWidth: true,
         zIndex: currentMaxZ + 2
       };
 
@@ -2070,9 +2141,39 @@ class CanvasEngine {
       };
 
       createdItems.push(frame, title, notes);
+    } else if (templateType === 'titulo_indice') {
+      // Título suelto que aparece en el índice de secciones
+      const w = 640;
+      const h = 64;
+      createdItems.push({
+        id: 'text_' + now + '_' + Math.random().toString(36).substr(2, 5),
+        type: 'text',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        x: Math.round(targetCenterX - w / 2),
+        y: Math.round(targetCenterY - h / 2),
+        width: w,
+        height: h,
+        text: 'TÍTULO DE SECCIÓN',
+        fontSize: 40,
+        color: '#eff3f7',
+        textColor: '#eff3f7',
+        fillColor: '#1a1a1a',
+        isBold: true,
+        isIndexTitle: true,
+        zIndex: currentMaxZ + 1
+      });
     } else {
       createdItems.push(...this.buildCuratedTemplate(templateType, targetCenterX, targetCenterY, now, currentMaxZ));
     }
+
+    // El marco de la plantilla va al fondo y su primer arrastre solo lleva sus propias piezas
+    const bottomZ = this.getBottomZIndex();
+    createdItems.forEach(it => {
+      if (it.type !== 'frame') return;
+      it.zIndex = bottomZ;
+      this.freshFrameIds.add(it.id);
+    });
 
     // Insertar elementos creados en el motor
     this.items.push(...createdItems);
@@ -2090,8 +2191,7 @@ class CanvasEngine {
 
     const sizes = {
       recurso_apunte: { w: 820, h: 420, title: 'Recurso + apunte', header: 'NOMBRE DEL RECURSO' },
-      galeria: { w: 1050, h: 600, title: 'Referencias', header: 'REFERENCIAS VISUALES' },
-      comparativa: { w: 1110, h: 560, title: 'Comparativa', header: 'COMPARATIVA' }
+      galeria: { w: 1050, h: 600, title: 'Referencias', header: 'REFERENCIAS VISUALES' }
     };
     const spec = sizes[templateType] || sizes.recurso_apunte;
     const fx = Math.round(centerX - spec.w / 2);
@@ -2130,25 +2230,6 @@ class CanvasEngine {
           isImagePlaceholder: true, zIndex: ++z
         });
       }
-    } else if (templateType === 'comparativa') {
-      const cols = 3;
-      const colW = Math.round((spec.w - 60 - (cols - 1) * 24) / cols);
-      ['OPCIÓN A', 'OPCIÓN B', 'OPCIÓN C'].forEach((label, i) => {
-        const cx = fx + 30 + i * (colW + 24);
-        items.push({
-          id: uid('text', 2 + i * 2), type: 'text', parentId: frameId, createdAt: nowIso, updatedAt: nowIso,
-          x: cx, y: fy + 104, width: colW, height: 46,
-          text: label, fontSize: 18, isBold: true, textAlign: 'center',
-          color: '#f1f5f9', textColor: '#f1f5f9', fillColor: '#1e2533', zIndex: ++z
-        });
-        items.push({
-          id: uid('text', 3 + i * 2), type: 'text', parentId: frameId, createdAt: nowIso, updatedAt: nowIso,
-          x: cx, y: fy + 164, width: colW, height: spec.h - 194,
-          text: '• Ventajas:\n\n• Inconvenientes:\n\n• Precio / licencia:\n\n• Ideal para:',
-          fontSize: 16, textAlign: 'left',
-          color: '#e2e8f0', textColor: '#e2e8f0', fillColor: '#161b26', zIndex: ++z
-        });
-      });
     } else {
       // Recurso + apunte: tarjeta de enlace a la izquierda y nota técnica a la derecha
       items.push({
@@ -2251,6 +2332,14 @@ class CanvasEngine {
       it.width = Math.round(newW);
       it.height = Math.round(newH);
 
+      // La cabecera de la plantilla Apuntes sigue al marco: mismo margen a cada lado y pegada arriba
+      (this.resizeFitChildren || []).forEach(fit => {
+        fit.item.x = it.x + fit.left;
+        fit.item.y = it.y + fit.top;
+        fit.item.width = Math.max(40, it.width - fit.left - fit.right);
+        this.updateConnectedLinesForItem(fit.item);
+      });
+
       // Actualizar extremos de flechas vinculadas al elemento redimensionado
       this.updateConnectedLinesForItem(it);
 
@@ -2293,17 +2382,8 @@ class CanvasEngine {
         this.activeGuides = [];
       }
 
-      const moveItemIds = new Set(this.selectedItemIds);
-      this.items.forEach(it => {
-        if (this.selectedItemIds.has(it.id) && it.type === 'frame') {
-          const frame = it;
-          this.items.forEach(child => {
-            if (child.id !== frame.id && (child.parentId === frame.id || this.isItemInsideFrame(child, frame))) {
-              moveItemIds.add(child.id);
-            }
-          });
-        }
-      });
+      if (!this.dragMoveItemIds) this.dragMoveItemIds = this.collectDragMoveItemIds();
+      const moveItemIds = this.dragMoveItemIds;
 
       this.items.forEach(it => {
         if (moveItemIds.has(it.id)) {
@@ -2369,7 +2449,7 @@ class CanvasEngine {
           this.canvas.style.cursor = ratingStar ? 'pointer' : 'move';
           this.scheduleHoverDateTooltip(itemUnder, e.clientX, e.clientY);
         } else {
-          const frameUnder = this.getItemAt(world.x, world.y, false);
+          const frameUnder = this.getFrameAt(world.x, world.y);
           if (frameUnder && frameUnder.type === 'frame' && (this.selectedItemIds.has(frameUnder.id) || this.isPointOnFrameHeaderOrBorder(frameUnder, world.x, world.y))) {
             this.canvas.style.cursor = 'move';
             this.scheduleHoverDateTooltip(frameUnder, e.clientX, e.clientY);
@@ -2437,6 +2517,25 @@ class CanvasEngine {
     }
   }
 
+  // Elementos que mueve un arrastre: lo seleccionado y lo que hay dentro de cada marco seleccionado al empezar.
+  // Un marco recién creado solo lleva sus propias piezas (las de su plantilla), no lo que tenga encima.
+  // Al duplicar con Alt ya van seleccionadas las copias del contenido, y los originales quedan debajo.
+  collectDragMoveItemIds() {
+    const moveItemIds = new Set(this.selectedItemIds);
+    if (this.isAltDragDuplicate || this.isMiddleDragDuplicate) return moveItemIds;
+    this.items.forEach(frame => {
+      if (!this.selectedItemIds.has(frame.id) || frame.type !== 'frame') return;
+      const isFresh = this.freshFrameIds.has(frame.id);
+      this.items.forEach(child => {
+        if (child.id === frame.id) return;
+        if (child.parentId === frame.id || (!isFresh && this.isItemInsideFrame(child, frame))) {
+          moveItemIds.add(child.id);
+        }
+      });
+    });
+    return moveItemIds;
+  }
+
   onPointerUp(e) {
     if (this.isConnectingFromPort && this.activeConnector) {
       if (this.hoveredSnapPort) {
@@ -2478,6 +2577,7 @@ class CanvasEngine {
       this.isMiddleDragDuplicate = false;
       this.isAltDragDuplicate = false;
       this.isDraggingItem = false;
+      this.dragMoveItemIds = null;
       this.hasMovedItem = false;
       this.dragStartScreen = null;
       this.activeGuides = [];
@@ -2495,14 +2595,23 @@ class CanvasEngine {
       this.isResizing = false;
       this.activeResizeHandle = null;
       this.resizeTargetItem = null;
+      this.resizeFitChildren = null;
       if (this.onBoardModified) this.onBoardModified();
     }
     const wasMoved = this.hasMovedItem;
     if (this.hasMovedItem) {
       this.hasMovedItem = false;
+      // Primer arrastre de un marco nuevo: ya está colocado; desde ahora arrastra lo que tenga encima
+      (this.dragMoveItemIds || []).forEach(id => {
+        if (!this.freshFrameIds.has(id)) return;
+        const frame = this.items.find(it => it.id === id);
+        if (frame) this.placeFreshFrame(frame);
+        else this.freshFrameIds.delete(id);
+      });
       if (this.onBoardModified) this.onBoardModified();
     }
     this.isDraggingItem = false;
+    this.dragMoveItemIds = null;
     this.dragStartScreen = null;
     this.activeGuides = [];
 

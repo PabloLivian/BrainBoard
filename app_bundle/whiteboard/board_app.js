@@ -1269,7 +1269,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (engine.onBoardModified) engine.onBoardModified();
     engine.render();
     autoSaveBoardImmediately();
-    const templateNames = { apuntes: 'Apuntes', recurso_apunte: 'Recurso + apunte', galeria: 'Galería de referencias', comparativa: 'Comparativa' };
+    const templateNames = { apuntes: 'Apuntes', recurso_apunte: 'Recurso + apunte', galeria: 'Galería de referencias', titulo_indice: 'Título para índice' };
     showDevToast(`Plantilla «${templateNames[templateType] || 'Apuntes'}» insertada`);
   }
   window.insertTemplate = insertTemplate;
@@ -1310,6 +1310,7 @@ document.addEventListener('DOMContentLoaded', () => {
   engine.onBoardModified = () => {
     autoSaveBoard();
     updateMinimap();
+    window.refreshFramesIndexIfOpen?.();
   };
 
   // Controles de zoom
@@ -7025,7 +7026,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Cabeceras de sección sueltas (bandas de texto con fondo, como las de los tableros importados de Miro)
   function isSectionHeaderItem(it, frames) {
-    if (!it || it.type !== 'text') return false;
+    if (!it || it.type !== 'text' || it.isIndexTitle) return false;
     const text = String(it.text || '').trim();
     const hasFill = Boolean(it.fillColor && it.fillColor !== 'transparent');
     if (!hasFill || text.length < 2 || text.length > 60 || text.includes('\n')) return false;
@@ -7034,22 +7035,60 @@ document.addEventListener('DOMContentLoaded', () => {
     return !frames.some(f => it.parentId === f.id || engine.isItemInsideFrame(it, f));
   }
 
-  // Secciones del tablero (marcos y cabeceras) en orden de lectura: por franjas de arriba abajo y de izquierda a derecha
-  function getBoardSectionsInReadingOrder() {
-    const positioned = engine.items.filter(it => it && typeof it.x === 'number' && typeof it.y === 'number');
-    const frames = positioned.filter(it => it.type === 'frame');
-    const headers = positioned.filter(it => isSectionHeaderItem(it, frames));
-    return [...frames, ...headers].sort((a, b) => (Math.round(a.y / 300) - Math.round(b.y / 300)) || (a.x - b.x));
+  const sortByReadingOrder = (list) =>
+    list.sort((a, b) => (Math.round(a.y / 300) - Math.round(b.y / 300)) || (a.x - b.x));
+
+  // Título de índice que da nombre a un marco: el de su plantilla (Apuntes), que sigue dentro del marco
+  function getFrameIndexTitle(frame) {
+    const own = engine.items.filter(c => c.type === 'text' && c.isIndexTitle && c.parentId === frame.id &&
+      String(c.text || '').trim() && engine.isItemInsideFrame(c, frame));
+    return own.sort((a, b) => a.y - b.y)[0] || null;
   }
 
-  // Nombre visible de una sección. Un marco sin título usa la cabecera de texto más alta que tiene dentro
+  // Secciones del tablero en árbol: marcos, títulos para índice y cabeceras sueltas.
+  // Un marco o un título dentro de otro marco es hijo suyo. Cada nivel va en orden de lectura
+  // (por franjas de arriba abajo y de izquierda a derecha). Devuelve la lista plana con su profundidad.
+  function getBoardSectionsTree() {
+    const positioned = engine.items.filter(it => it && typeof it.x === 'number' && typeof it.y === 'number');
+    const frames = positioned.filter(it => it.type === 'frame');
+    const frameTitleIds = new Set(frames.map(f => getFrameIndexTitle(f)?.id).filter(Boolean));
+    const indexTitles = positioned.filter(it => it.type === 'text' && it.isIndexTitle &&
+      String(it.text || '').trim() && !frameTitleIds.has(it.id));
+    const headers = positioned.filter(it => isSectionHeaderItem(it, frames));
+    const sections = [...frames, ...indexTitles, ...headers];
+
+    const children = new Map();
+    const roots = [];
+    sections.forEach(s => {
+      const parent = s.type === 'frame' || s.isIndexTitle ? engine.getContainingFrame(s) : null;
+      if (parent) {
+        if (!children.has(parent.id)) children.set(parent.id, []);
+        children.get(parent.id).push(s);
+      } else {
+        roots.push(s);
+      }
+    });
+
+    const flat = [];
+    const visit = (list, depth) => sortByReadingOrder(list).forEach(s => {
+      flat.push({ item: s, depth });
+      if (children.has(s.id)) visit(children.get(s.id), depth + 1);
+    });
+    visit(roots, 0);
+    return flat;
+  }
+
+  // Nombre visible de una sección. Un marco usa su título de índice; si no tiene,
+  // su título, y si tampoco (o es el genérico de la plantilla), la cabecera de texto más alta que tiene dentro
   function getSectionLabel(it) {
-    if (it.type !== 'frame') return String(it.text || '').replace(/\s+/g, ' ').trim();
+    if (it.type !== 'frame') return String(it.text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    const indexTitle = getFrameIndexTitle(it);
+    if (indexTitle) return String(indexTitle.text).replace(/\s+/g, ' ').trim().slice(0, 80);
     const title = String(it.title || '').trim();
-    if (title) return title;
+    if (title && title !== 'Plantilla') return title;
     const texts = engine.items.filter(c => c.type === 'text' && String(c.text || '').trim() &&
       (c.parentId === it.id || engine.isItemInsideFrame(c, it)));
-    if (texts.length === 0) return '';
+    if (texts.length === 0) return title;
     const headerLike = texts.filter(c => (c.fillColor && c.fillColor !== 'transparent') || c.isBold || (c.fontSize || 15) >= 22);
     const top = (headerLike.length ? headerLike : texts).sort((a, b) => a.y - b.y)[0];
     return String(top.text).replace(/\s+/g, ' ').trim().slice(0, 60);
@@ -7057,10 +7096,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function renderFramesIndex() {
     if (!framesIndexList) return;
-    const sections = getBoardSectionsInReadingOrder();
+    const sections = getBoardSectionsTree();
     const sectionLabel = getSectionLabel;
     const tokens = getSearchTokens(framesIndexFilter?.value || '');
-    const visible = tokens.length ? sections.filter(s => matchesSearchTokens(normalizeSearchText(sectionLabel(s)), tokens)) : sections;
+    // Al filtrar, las coincidencias salen sin sangría
+    const visible = tokens.length
+      ? sections.filter(s => matchesSearchTokens(normalizeSearchText(sectionLabel(s.item)), tokens)).map(s => ({ item: s.item, depth: 0 }))
+      : sections;
     if (framesIndexCount) framesIndexCount.textContent = String(sections.length);
 
     if (sections.length === 0) {
@@ -7072,13 +7114,15 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    framesIndexList.innerHTML = visible.map(s => {
+    framesIndexList.innerHTML = visible.map(({ item: s, depth }) => {
       const isFrame = s.type === 'frame';
       const childCount = isFrame
         ? engine.items.filter(c => c.id !== s.id && c.type !== 'connector' && (c.parentId === s.id || engine.isItemInsideFrame(c, s))).length
         : null;
       const isSelected = engine.selectedItemIds.has(s.id);
-      return `<button type="button" class="frames-index-item${isSelected ? ' active' : ''}" data-frame-id="${escapeHtmlText(s.id)}" title="Ir a la sección">
+      const indent = Math.min(depth, 6) * 16;
+      return `<button type="button" class="frames-index-item${isSelected ? ' active' : ''}${depth > 0 ? ' nested' : ''}" data-frame-id="${escapeHtmlText(s.id)}" title="Ir a la sección" style="padding-left: ${8 + indent}px">
+        ${depth > 0 ? '<span class="frames-index-item-branch" aria-hidden="true"></span>' : ''}
         <span class="frames-index-item-title">${escapeHtmlText(sectionLabel(s) || 'Marco sin título')}</span>
         ${childCount !== null ? `<span class="frames-index-item-count">${childCount}</span>` : ''}
       </button>`;
@@ -7094,6 +7138,11 @@ document.addEventListener('DOMContentLoaded', () => {
     renderFramesIndex();
     setTimeout(() => framesIndexFilter?.focus(), 30);
   }
+
+  // Con el índice abierto, se actualiza al cambiar el tablero (un título nuevo, un marco metido en otro…)
+  window.refreshFramesIndexIfOpen = () => {
+    if (framesIndexPanel?.style.display === 'flex') renderFramesIndex();
+  };
 
   function closeFramesIndex() {
     if (!framesIndexPanel) return;

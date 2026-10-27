@@ -6428,6 +6428,21 @@ body.dark-theme .home-search-content-btn:hover {
   color: #94a3b8;
 }
 
+/* Sección dentro de otra: esquina que la une con su marco padre */
+.frames-index-item-branch {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin: -6px -2px 0 0;
+  border-left: 1.5px solid #cbd5e1;
+  border-bottom: 1.5px solid #cbd5e1;
+  border-bottom-left-radius: 3px;
+}
+
+.frames-index-item.nested .frames-index-item-title {
+  font-weight: 500;
+}
+
 .frames-index-empty {
   padding: 18px 10px;
   font-size: 12px;
@@ -6476,6 +6491,10 @@ body.dark-theme .frames-index-item-title {
 
 body.dark-theme .frames-index-item-count {
   color: #64748b;
+}
+
+body.dark-theme .frames-index-item-branch {
+  border-color: #475569;
 }
 
 /* --- Aviso con botones (enlace repetido, mover a la papelera...) --- */
