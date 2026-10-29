@@ -1023,47 +1023,59 @@ class CanvasEngine {
     }) || null;
   }
 
-  // Recursos del contenedor agrupados en piezas: una tarjeta se lleva sus imágenes (unidas, o pegadas justo a su
-  // lado y a su altura) y cada pieza, el pie de texto que tiene justo debajo
+  // Recursos del contenedor agrupados en piezas: lo unido (grupos) va en una sola pieza, una tarjeta se lleva la
+  // imagen suelta que tenga justo a su lado y a su altura, y cada pieza, el pie de texto que tiene justo debajo
   getResourceFrameUnits(frame) {
     const titleIds = new Set(this.getFrameFitChildren(frame).map(f => f.item.id));
     const titleItem = this.getFrameTitleItem(frame);
     if (titleItem) titleIds.add(titleItem.id);
-    const members = this.items.filter(it => it.id !== frame.id && !titleIds.has(it.id) &&
-      !['frame', 'connector', 'pen', 'comment'].includes(it.type) && typeof it.x === 'number' &&
-      this.getContainingFrame(it)?.id === frame.id);
-    const memberIds = new Set(members.map(m => m.id));
+    const movable = (it) => !['frame', 'connector', 'comment'].includes(it.type);
+    const members = this.items.filter(it => it.id !== frame.id && !titleIds.has(it.id) && movable(it) &&
+      (it.type === 'pen' ? false : typeof it.x === 'number') && this.getContainingFrame(it)?.id === frame.id);
+
+    const units = new Map();
+    const unitKeyOf = new Map();
+    const addTo = (key, it) => {
+      if (unitKeyOf.has(it.id)) return;
+      if (!units.has(key)) units.set(key, []);
+      units.get(key).push(it);
+      unitKeyOf.set(it.id, key);
+    };
+    // 1. Grupos: todos sus elementos, aunque alguno esté fuera del marco
+    members.filter(m => this.isInGroup(m)).forEach(m => {
+      this.getGroupMembers(m).filter(movable).forEach(g => addTo('g:' + m.linkGroup, g));
+    });
+    // 2. Imagen suelta pegada a una tarjeta (a su altura, a menos de 60 px de un lado)
     const cards = members.filter(m => this.isLinkCard(m));
-    const besideCard = (img) => cards.find(c => {
+    cards.filter(c => !unitKeyOf.has(c.id)).forEach(c => addTo('i:' + c.id, c));
+    members.filter(m => m.type === 'image' && !unitKeyOf.has(m.id)).forEach(img => {
       const cy = img.y + (img.height || 0) / 2;
-      if (cy < c.y || cy > c.y + (c.height || 0)) return false;
-      const gapRight = img.x - (c.x + (c.width || 0));
-      const gapLeft = c.x - (img.x + (img.width || 0));
-      return (gapRight >= -10 && gapRight <= 60) || (gapLeft >= -10 && gapLeft <= 60);
+      const card = cards.find(c => {
+        if (cy < c.y || cy > c.y + (c.height || 0)) return false;
+        const gapRight = img.x - (c.x + (c.width || 0));
+        const gapLeft = c.x - (img.x + (img.width || 0));
+        return (gapRight >= -10 && gapRight <= 60) || (gapLeft >= -10 && gapLeft <= 60);
+      });
+      addTo(card ? unitKeyOf.get(card.id) : 'i:' + img.id, img);
     });
-    const imageOwner = new Map();
-    members.filter(m => m.type === 'image').forEach(img => {
-      const owner = this.getAttachmentCard(img);
-      if (owner && memberIds.has(owner.id)) imageOwner.set(img.id, owner);
+    // 3. El resto, cada uno en su pieza (los textos, después: pueden ser el pie de otra)
+    members.filter(m => m.type !== 'text' && !unitKeyOf.has(m.id)).forEach(m => addTo('i:' + m.id, m));
+    const placed = members.filter(m => unitKeyOf.has(m.id));
+    members.filter(m => m.type === 'text' && !unitKeyOf.has(m.id)).forEach(t => {
+      const above = placed.find(c => c.type !== 'text' && Math.abs(t.x - c.x) <= 24 &&
+        t.y >= c.y + (c.height || 0) - 4 && t.y - (c.y + (c.height || 0)) <= 40);
+      addTo(above ? unitKeyOf.get(above.id) : 'i:' + t.id, t);
     });
-    members.filter(m => m.type === 'image' && !imageOwner.has(m.id) && !m.attachedTo).forEach(img => {
-      const owner = besideCard(img);
-      if (owner) imageOwner.set(img.id, owner);
-    });
-    const anchors = members.filter(m => m.type !== 'text' && !imageOwner.has(m.id));
-    const units = new Map(anchors.map(a => [a.id, [a]]));
-    imageOwner.forEach((owner, imgId) => units.get(owner.id)?.push(members.find(m => m.id === imgId)));
-    const unitItems = members.filter(m => m.type !== 'text');
-    members.filter(m => m.type === 'text').forEach(t => {
-      const a = unitItems.find(c => Math.abs(t.x - c.x) <= 24 && t.y >= c.y + (c.height || 0) - 4 && t.y - (c.y + (c.height || 0)) <= 40);
-      if (a) units.get((imageOwner.get(a.id) || a).id).push(t);
-      else units.set(t.id, [t]);
-    });
+
     return Array.from(units.values()).map(list => {
-      const xs = list.map(i => i.x), ys = list.map(i => i.y);
-      const x2 = list.map(i => i.x + (i.width || 0)), y2 = list.map(i => i.y + (i.height || 0));
-      const bounds = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...x2) - Math.min(...xs), h: Math.max(...y2) - Math.min(...ys) };
-      return { main: list[0], items: list, bounds };
+      const rects = list.map(i => this.getItemRect(i));
+      const x = Math.min(...rects.map(r => r.x));
+      const y = Math.min(...rects.map(r => r.y));
+      const bounds = { x, y, w: Math.max(...rects.map(r => r.x + r.w)) - x, h: Math.max(...rects.map(r => r.y + r.h)) - y };
+      // Lo que manda al ordenar: la tarjeta con más estrellas, si no la primera tarjeta, si no el primero
+      const linkCards = list.filter(i => this.isLinkCard(i));
+      const main = linkCards.slice().sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0))[0] || list[0];
+      return { main, items: list, bounds };
     });
   }
 
@@ -1100,6 +1112,10 @@ class CanvasEngine {
       const dx = x - u.bounds.x;
       const dy = y - u.bounds.y;
       u.items.forEach(it => {
+        if (it.type === 'pen') {
+          (it.points || []).forEach(pt => { pt.x += dx; pt.y += dy; });
+          return;
+        }
         it.x += dx;
         it.y += dy;
         this.updateConnectedLinesForItem(it);
@@ -2086,7 +2102,7 @@ class CanvasEngine {
           const itemsToDuplicateIds = new Set(this.selectedItemIds);
           // Una tarjeta de enlace se duplica con sus imágenes unidas
           this.items.forEach(it => {
-            if (this.selectedItemIds.has(it.id)) this.getAttachmentGroup(it).forEach(g => itemsToDuplicateIds.add(g.id));
+            if (this.selectedItemIds.has(it.id)) this.getGroupMembers(it).forEach(g => itemsToDuplicateIds.add(g.id));
           });
           this.items.forEach(it => {
             if (this.selectedItemIds.has(it.id) && it.type === 'frame') {
@@ -2114,15 +2130,13 @@ class CanvasEngine {
             }
           });
 
+          const dupStamp = Date.now().toString(36);
           newItems.forEach(copy => {
             if (copy.parentId && idMap.has(copy.parentId)) {
               copy.parentId = idMap.get(copy.parentId);
             }
-            // Imagen unida: a la copia de su tarjeta, o suelta si la tarjeta no se ha duplicado
-            if (copy.attachedTo) {
-              if (idMap.has(copy.attachedTo)) copy.attachedTo = idMap.get(copy.attachedTo);
-              else delete copy.attachedTo;
-            }
+            // Las copias de un grupo forman un grupo nuevo
+            if (copy.linkGroup) copy.linkGroup = 'dup_' + copy.linkGroup + '_' + dupStamp;
             if (copy.type === 'connector') {
               if (copy.start?.item && idMap.has(copy.start.item)) copy.start.item = idMap.get(copy.start.item);
               if (copy.end?.item && idMap.has(copy.end.item)) copy.end.item = idMap.get(copy.end.item);
@@ -2990,48 +3004,111 @@ class CanvasEngine {
   }
 
   // =========================================================
-  // IMAGEN UNIDA A UNA TARJETA DE ENLACE (image.attachedTo = id de la tarjeta)
-  // Se mueven juntas y, en un contenedor de Recursos, se ordenan juntas.
+  // GRUPOS (it.linkGroup): se puede unir cualquier cosa con cualquier cosa. Lo unido se mueve, se copia,
+  // se duplica y se ordena junto. La unión de la v1.0.7 (image.attachedTo = id de la tarjeta) se convierte sola.
   // =========================================================
   isLinkCard(it) {
     return Boolean(it) && (it.type === 'embed' || it.type === 'preview');
   }
 
+  canJoinGroup(it) {
+    return Boolean(it) && it.type !== 'connector' && it.type !== 'comment';
+  }
+
+  newGroupId() {
+    return 'grp_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+  }
+
+  // Imagen unida a una tarjeta con la v1.0.7 → grupo
+  migrateLegacyAttachments() {
+    this.items.forEach(it => {
+      if (!it.attachedTo) return;
+      const card = this.items.find(c => c.id === it.attachedTo);
+      if (card) {
+        const group = card.linkGroup || it.linkGroup || this.newGroupId();
+        card.linkGroup = group;
+        it.linkGroup = group;
+      }
+      delete it.attachedTo;
+    });
+    this.groupCountCache = null;
+  }
+
+  // Cuántos elementos hay en cada grupo (se recalcula en cada dibujado)
+  getGroupCounts() {
+    if (!this.groupCountCache || this.groupCountCache.count !== this.items.length) {
+      const counts = new Map();
+      this.items.forEach(it => { if (it.linkGroup) counts.set(it.linkGroup, (counts.get(it.linkGroup) || 0) + 1); });
+      this.groupCountCache = { count: this.items.length, counts };
+    }
+    return this.groupCountCache.counts;
+  }
+
+  isInGroup(it) {
+    return Boolean(it?.linkGroup) && (this.getGroupCounts().get(it.linkGroup) || 0) >= 2;
+  }
+
+  // Todo lo que está unido a un elemento (él incluido)
+  getGroupMembers(it) {
+    if (!it || !it.linkGroup) return it ? [it] : [];
+    const members = this.items.filter(m => m.linkGroup === it.linkGroup);
+    return members.length >= 2 ? members : [it];
+  }
+
+  // Imágenes del grupo de una tarjeta (para colocar a continuación la siguiente que se pegue)
   getAttachedImages(card) {
-    if (!card) return [];
-    return this.items.filter(it => it.type === 'image' && it.attachedTo === card.id);
+    return this.getGroupMembers(card).filter(m => m.id !== card?.id && m.type === 'image');
   }
 
-  getAttachmentCard(image) {
-    if (!image || image.type !== 'image' || !image.attachedTo) return null;
-    const card = this.items.find(it => it.id === image.attachedTo);
-    return this.isLinkCard(card) ? card : null;
-  }
-
-  // La tarjeta y todas sus imágenes, partiendo de cualquiera de ellas
-  getAttachmentGroup(it) {
-    const card = this.isLinkCard(it) ? it : this.getAttachmentCard(it);
-    if (!card) return [it];
-    const images = this.getAttachedImages(card);
-    return images.length ? [card, ...images] : [it];
-  }
-
-  attachImageToCard(image, card) {
-    if (!image || image.type !== 'image' || !this.isLinkCard(card)) return false;
-    image.attachedTo = card.id;
-    if (card.parentId) image.parentId = card.parentId;
-    image.updatedAt = new Date().toISOString();
+  // Une los elementos; si alguno ya estaba en un grupo, los grupos se juntan en uno
+  joinItems(items) {
+    const list = items.filter(it => this.canJoinGroup(it));
+    if (list.length < 2) return false;
+    const groups = new Set(list.map(it => it.linkGroup).filter(Boolean));
+    const target = list.find(it => it.linkGroup)?.linkGroup || this.newGroupId();
+    this.items.forEach(it => { if (it.linkGroup && groups.has(it.linkGroup)) it.linkGroup = target; });
+    const nowIso = new Date().toISOString();
+    list.forEach(it => { it.linkGroup = target; it.updatedAt = nowIso; });
+    this.groupCountCache = null;
     return true;
   }
 
-  // Marca de unión: una anilla de cadena en la esquina de la imagen
-  drawAttachmentBadge(image) {
-    const r = 11;
-    const cx = image.x + r + 6;
-    const cy = image.y + r + 6;
+  // Saca los elementos de su grupo; un grupo que se queda con uno solo desaparece
+  leaveGroup(items) {
+    const touched = new Set();
+    items.forEach(it => {
+      if (!it.linkGroup) return;
+      touched.add(it.linkGroup);
+      delete it.linkGroup;
+    });
+    touched.forEach(g => {
+      const rest = this.items.filter(it => it.linkGroup === g);
+      if (rest.length === 1) delete rest[0].linkGroup;
+    });
+    this.groupCountCache = null;
+  }
+
+  // Une una imagen recién pegada (aún fuera del tablero) a una tarjeta
+  attachImageToCard(image, card) {
+    if (!image || !card) return false;
+    if (card.parentId) image.parentId = card.parentId;
+    const group = card.linkGroup || this.newGroupId();
+    card.linkGroup = group;
+    image.linkGroup = group;
+    image.updatedAt = new Date().toISOString();
+    this.groupCountCache = null;
+    return true;
+  }
+
+  // Marca de unión: una anilla de cadena justo fuera de la esquina superior izquierda (no tapa el texto)
+  drawGroupBadge(it) {
+    const r = 10;
+    const rect = this.getItemRect(it);
+    const cx = rect.x - 8;
+    const cy = rect.y - 8;
     const dark = this.isDarkMode;
     this.ctx.save();
-    this.ctx.fillStyle = dark ? 'rgba(30, 34, 43, 0.92)' : 'rgba(255, 255, 255, 0.95)';
+    this.ctx.fillStyle = dark ? 'rgba(30, 34, 43, 0.95)' : 'rgba(255, 255, 255, 0.97)';
     this.ctx.strokeStyle = dark ? '#3a404c' : '#cbd5e1';
     this.ctx.lineWidth = 1;
     this.ctx.beginPath();
@@ -3039,15 +3116,33 @@ class CanvasEngine {
     this.ctx.fill();
     this.ctx.stroke();
     this.ctx.strokeStyle = dark ? '#93c5fd' : '#2563eb';
-    this.ctx.lineWidth = 1.6;
+    this.ctx.lineWidth = 1.5;
     this.ctx.lineCap = 'round';
     this.ctx.translate(cx, cy);
     this.ctx.rotate(-Math.PI / 4);
     this.ctx.beginPath();
-    this.roundRect(this.ctx, -6.5, -2.6, 7, 5.2, 2.6);
+    this.roundRect(this.ctx, -6, -2.4, 6.5, 4.8, 2.4);
     this.ctx.stroke();
     this.ctx.beginPath();
-    this.roundRect(this.ctx, -0.5, -2.6, 7, 5.2, 2.6);
+    this.roundRect(this.ctx, -0.5, -2.4, 6.5, 4.8, 2.4);
+    this.ctx.stroke();
+    this.ctx.restore();
+  }
+
+  // Contorno discontinuo alrededor de todo el grupo cuando hay algo suyo seleccionado
+  drawGroupOutline(members) {
+    const rects = members.map(m => this.getItemRect(m));
+    const pad = 10;
+    const x = Math.min(...rects.map(r => r.x)) - pad;
+    const y = Math.min(...rects.map(r => r.y)) - pad;
+    const w = Math.max(...rects.map(r => r.x + r.w)) + pad - x;
+    const h = Math.max(...rects.map(r => r.y + r.h)) + pad - y;
+    this.ctx.save();
+    this.ctx.strokeStyle = this.isDarkMode ? 'rgba(147, 197, 253, 0.75)' : 'rgba(37, 99, 235, 0.65)';
+    this.ctx.lineWidth = 1.5 / this.camera.zoom;
+    this.ctx.setLineDash([6 / this.camera.zoom, 5 / this.camera.zoom]);
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, x, y, w, h, 12);
     this.ctx.stroke();
     this.ctx.restore();
   }
@@ -3058,12 +3153,12 @@ class CanvasEngine {
   collectDragMoveItemIds() {
     const moveItemIds = new Set(this.selectedItemIds);
     if (this.isAltDragDuplicate || this.isMiddleDragDuplicate) return moveItemIds;
-    // Una tarjeta de enlace y sus imágenes unidas van juntas, se arrastre la que se arrastre
+    // Lo unido va junto, se arrastre lo que se arrastre (y un marco unido se lleva su contenido)
     this.items.forEach(it => {
-      if (moveItemIds.has(it.id)) this.getAttachmentGroup(it).forEach(g => moveItemIds.add(g.id));
+      if (moveItemIds.has(it.id)) this.getGroupMembers(it).forEach(g => moveItemIds.add(g.id));
     });
     this.items.forEach(frame => {
-      if (!this.selectedItemIds.has(frame.id) || frame.type !== 'frame') return;
+      if (!moveItemIds.has(frame.id) || frame.type !== 'frame') return;
       const isFresh = this.freshFrameIds.has(frame.id);
       this.items.forEach(child => {
         if (child.id === frame.id) return;
@@ -3235,6 +3330,8 @@ class CanvasEngine {
     const dpr = window.devicePixelRatio || 1;
     this.frameTitleCache = null;
     this.itemIdIndex = null;
+    this.groupCountCache = null;
+    if (this.items.some(it => it.attachedTo)) this.migrateLegacyAttachments();
     // 1. Limpieza absoluta a nivel de pixel fisico (elimina cualquier rastro o estela)
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -3317,10 +3414,16 @@ class CanvasEngine {
         try { this.drawResourceSortPill(it); } catch (e) { console.error(e); }
       });
 
-      // Marca de las imágenes unidas a una tarjeta de enlace
+      // Grupos: contorno del que tiene algo seleccionado y marca de cadena en cada elemento unido
+      const outlinedGroups = new Set();
+      this.items.forEach(it => {
+        if (!this.selectedItemIds.has(it.id) || !this.isInGroup(it) || outlinedGroups.has(it.linkGroup)) return;
+        outlinedGroups.add(it.linkGroup);
+        try { this.drawGroupOutline(this.getGroupMembers(it)); } catch (e) { console.error(e); }
+      });
       sortedItems.forEach(it => {
-        if (it.type !== 'image' || !it.attachedTo || !isVisible(it) || !this.getAttachmentCard(it)) return;
-        try { this.drawAttachmentBadge(it); } catch (e) { console.error(e); }
+        if (!it.linkGroup || !isVisible(it) || !this.isInGroup(it)) return;
+        try { this.drawGroupBadge(it); } catch (e) { console.error(e); }
       });
 
       // 8. Smart Guides magnéticas

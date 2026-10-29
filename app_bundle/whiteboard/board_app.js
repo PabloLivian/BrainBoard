@@ -1016,27 +1016,22 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // =========================================================
-  // IMAGEN UNIDA A UNA TARJETA DE ENLACE: «Añadir imagen», «Unir» y «Separar»
+  // GRUPOS: «Unir» y «Separar» cualquier selección, y «Añadir imagen» a una tarjeta de enlace
   // =========================================================
   const btnPropAddImage = document.getElementById('btn-prop-add-image');
   const btnPropLinkImage = document.getElementById('btn-prop-link-image');
   const attachImageInput = document.getElementById('attach-image-input');
 
-  // Qué permite la selección: { card, image, action: 'link' | 'unlink' | null }
-  function getImageLinkState() {
-    const selected = engine.items.filter(it => engine.selectedItemIds.has(it.id));
-    if (selected.length === 2) {
-      const card = selected.find(it => engine.isLinkCard(it));
-      const image = selected.find(it => it.type === 'image');
-      if (card && image) return { card, image, action: image.attachedTo === card.id ? 'unlink' : 'link' };
+  // Qué permite la selección: 'link' (unir), 'unlink' (separar) o null
+  function getGroupAction() {
+    const selected = engine.items.filter(it => engine.selectedItemIds.has(it.id) && engine.canJoinGroup(it));
+    if (selected.length >= 2) {
+      const first = selected[0];
+      const allTogether = engine.isInGroup(first) && selected.every(it => it.linkGroup === first.linkGroup);
+      return { selected, action: allTogether ? 'unlink' : 'link' };
     }
-    if (selected.length === 1) {
-      const it = selected[0];
-      const card = engine.isLinkCard(it) ? it : engine.getAttachmentCard(it);
-      if (card && engine.getAttachedImages(card).length) return { card, image: it.type === 'image' ? it : null, action: 'unlink' };
-      if (card) return { card, image: null, action: null };
-    }
-    return { card: null, image: null, action: null };
+    if (selected.length === 1 && engine.isInGroup(selected[0])) return { selected, action: 'unlink' };
+    return { selected, action: null };
   }
 
   function syncImageLinkButtons() {
@@ -1044,30 +1039,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const addBtn = document.getElementById('btn-prop-add-image');
     const linkBtn = document.getElementById('btn-prop-link-image');
     const linkLabel = document.getElementById('btn-prop-link-image-label');
-    const state = getImageLinkState();
-    const single = engine.selectedItemIds.size === 1;
-    if (addBtn) addBtn.style.display = state.card && single && engine.isLinkCard(engine.items.find(it => engine.selectedItemIds.has(it.id))) ? 'inline-flex' : 'none';
+    const { action } = getGroupAction();
+    if (addBtn) addBtn.style.display = getSelectedLinkCard() ? 'inline-flex' : 'none';
     if (linkBtn) {
-      linkBtn.style.display = state.action ? 'inline-flex' : 'none';
-      if (linkLabel) linkLabel.textContent = state.action === 'unlink' ? 'Separar' : 'Unir';
-      linkBtn.title = state.action === 'unlink'
-        ? 'Separar la imagen del enlace (dejan de moverse juntos)'
-        : 'Unir la imagen al enlace: se mueven y se ordenan juntos';
+      linkBtn.style.display = action ? 'inline-flex' : 'none';
+      if (linkLabel) linkLabel.textContent = action === 'unlink' ? 'Separar' : 'Unir';
+      linkBtn.title = action === 'unlink'
+        ? 'Separar del grupo: dejan de moverse juntos'
+        : 'Unir lo seleccionado: se mueven, se copian y se ordenan juntos';
     }
   }
 
   btnPropLinkImage?.addEventListener('click', () => {
-    const state = getImageLinkState();
-    if (!state.action) return;
+    const { selected, action } = getGroupAction();
+    if (!action) return;
     engine.saveSnapshot();
-    if (state.action === 'link') {
-      engine.attachImageToCard(state.image, state.card);
-      showDevToast('Imagen unida al enlace');
+    if (action === 'link') {
+      engine.joinItems(selected);
+      showDevToast(`${selected.length} elementos unidos`);
     } else {
-      // Con la pareja seleccionada se separa esa imagen; con solo la tarjeta, todas las suyas
-      const images = state.image ? [state.image] : engine.getAttachedImages(state.card);
-      images.forEach(im => { delete im.attachedTo; im.updatedAt = new Date().toISOString(); });
-      showDevToast(images.length > 1 ? 'Imágenes separadas del enlace' : 'Imagen separada del enlace');
+      engine.leaveGroup(selected);
+      showDevToast(selected.length > 1 ? 'Grupo separado' : 'Separado del grupo');
     }
     engine.render();
     syncPropertiesBarWithSelection();
@@ -3395,8 +3387,8 @@ document.addEventListener('DOMContentLoaded', () => {
     engine.items.forEach(it => {
       if (engine.selectedItemIds.has(it.id)) {
         itemsMap.set(it.id, it);
-        // Una tarjeta de enlace se copia con sus imágenes unidas
-        engine.getAttachmentGroup(it).forEach(g => itemsMap.set(g.id, g));
+        // Lo unido se copia junto
+        engine.getGroupMembers(it).forEach(g => itemsMap.set(g.id, g));
       }
     });
 
@@ -3674,6 +3666,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Paso 2: Trasladar coordenadas y remapear referencias entre elementos y conectores
+    const pasteGroupStamp = Date.now().toString(36);
     newClones.forEach(clone => {
       if (clone.type === 'connector') {
         if (clone.start && Number.isFinite(clone.start.x)) clone.start.x += dx;
@@ -3720,11 +3713,9 @@ document.addEventListener('DOMContentLoaded', () => {
           delete clone.parentId;
         }
       }
-      // Imagen unida a una tarjeta: se une a la copia de la tarjeta; si la tarjeta no se copió, va suelta
-      if (clone.attachedTo) {
-        if (idMap.has(clone.attachedTo)) clone.attachedTo = idMap.get(clone.attachedTo);
-        else delete clone.attachedTo;
-      }
+      // Las copias de un grupo forman un grupo nuevo
+      delete clone.attachedTo;
+      if (clone.linkGroup) clone.linkGroup = 'paste_' + clone.linkGroup + '_' + pasteGroupStamp;
     });
 
     // Paso 3: Guardar snapshot para Deshacer (Ctrl+Z) y añadir elementos al lienzo
