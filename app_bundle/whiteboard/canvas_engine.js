@@ -1453,6 +1453,9 @@ class CanvasEngine {
       this.items.filter(it => it.type === 'sticky_note' && isTarget(it)).forEach(it => {
         try { this.drawStickyNote(it); } catch (e) { console.error(e); }
       });
+      this.items.filter(it => it.type === 'spoiler' && isTarget(it)).forEach(it => {
+        try { this.drawSpoiler(it); } catch (e) { console.error(e); }
+      });
       this.items.filter(it => it.type === 'text' && it.fillColor && it.fillColor !== 'transparent' && isTarget(it)).forEach(it => {
         try { this.drawText(it); } catch (e) { console.error(e); }
       });
@@ -1778,6 +1781,19 @@ class CanvasEngine {
           return;
         }
 
+        // Texto desplegable: el botón copia el texto; un clic en la cabecera (sin arrastrar) lo abre o lo cierra al soltar
+        this.potentialSpoilerToggle = null;
+        if (clickedItem.type === 'spoiler' && !e.shiftKey) {
+          if (this.isPointOnSpoilerCopy(clickedItem, world.x, world.y)) {
+            this.copySpoilerText(clickedItem);
+            this.selectedItemIds.clear();
+            this.selectedItemIds.add(clickedItem.id);
+            if (this.onSelectionChange) this.onSelectionChange([clickedItem.id]);
+            return;
+          }
+          if (this.isPointOnSpoilerHeader(clickedItem, world.x, world.y)) this.potentialSpoilerToggle = clickedItem;
+        }
+
         // Estrellas de puntuación de una tarjeta de enlace
         const ratingStar = e.shiftKey ? 0 : this.getEmbedRatingStarAt(clickedItem, world.x, world.y);
         if (ratingStar) {
@@ -1982,8 +1998,8 @@ class CanvasEngine {
         createdAt: nowIso,
         updatedAt: nowIso,
         points: [{ x: world.x, y: world.y }],
-        color: this.activeColor === '#fff9b0' ? '#1a1a1a' : this.activeColor,
-        strokeWidth: 3,
+        color: this.penColor || '#1a1a1a',
+        strokeWidth: this.penWidth || 3,
         zIndex: this.getTopZIndex()
       };
       this.items.push(this.currentDrawing);
@@ -2141,6 +2157,26 @@ class CanvasEngine {
       };
 
       createdItems.push(frame, title, notes);
+    } else if (templateType === 'desplegable') {
+      // Texto desplegable (spoiler): se crea abierto para escribir el texto; un clic en la cabecera lo cierra
+      const w = 440;
+      const spoiler = {
+        id: 'spoiler_' + now + '_' + Math.random().toString(36).substr(2, 5),
+        type: 'spoiler',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        x: Math.round(targetCenterX - w / 2),
+        y: 0,
+        width: w,
+        height: CanvasEngine.SPOILER_HEADER_H,
+        title: 'Pulsa para ver el texto',
+        text: '',
+        expanded: true,
+        zIndex: currentMaxZ + 1
+      };
+      spoiler.height = this.computeSpoilerHeight(spoiler);
+      spoiler.y = Math.round(targetCenterY - spoiler.height / 2);
+      createdItems.push(spoiler);
     } else if (templateType === 'titulo_indice') {
       // Título suelto que aparece en el índice de secciones
       const w = 640;
@@ -2445,8 +2481,14 @@ class CanvasEngine {
         const isLinkCard = itemUnder && (itemUnder.type === 'embed' || itemUnder.type === 'preview');
         const ratingStar = isLinkCard ? this.getEmbedRatingStarAt(itemUnder, world.x, world.y) : 0;
         this.setRatingHover(isLinkCard ? itemUnder.id : null, ratingStar);
+        const onSpoilerCopy = this.isPointOnSpoilerCopy(itemUnder, world.x, world.y);
+        const spoilerCopyId = onSpoilerCopy ? itemUnder.id : null;
+        if (spoilerCopyId !== (this.hoveredSpoilerCopyId || null)) {
+          this.hoveredSpoilerCopyId = spoilerCopyId;
+          this.render();
+        }
         if (itemUnder) {
-          this.canvas.style.cursor = ratingStar ? 'pointer' : 'move';
+          this.canvas.style.cursor = (ratingStar || onSpoilerCopy) ? 'pointer' : 'move';
           this.scheduleHoverDateTooltip(itemUnder, e.clientX, e.clientY);
         } else {
           const frameUnder = this.getFrameAt(world.x, world.y);
@@ -2615,6 +2657,12 @@ class CanvasEngine {
     this.dragStartScreen = null;
     this.activeGuides = [];
 
+    if (this.potentialSpoilerToggle) {
+      const spoiler = this.potentialSpoilerToggle;
+      this.potentialSpoilerToggle = null;
+      if (!wasMoved && this.items.includes(spoiler)) this.toggleSpoilerExpanded(spoiler);
+    }
+
     this.potentialFrameHeaderClick = null;
 
     if (this.isSelectingDevCoords && this.devCoordsBox) {
@@ -2717,6 +2765,11 @@ class CanvasEngine {
 
       const isVisible = (it) => {
         if (it.type === 'connector') return true;
+        // Los trazos de pluma no tienen x/y: su posición son sus puntos
+        if (it.type === 'pen') {
+          const r = this.getItemRect(it);
+          return (r.x + r.w >= vpMinX && r.x <= vpMaxX && r.y + r.h >= vpMinY && r.y <= vpMaxY);
+        }
         const ix = it.x || 0;
         const iy = it.y || 0;
         const iw = it.width || 100;
@@ -2747,6 +2800,7 @@ class CanvasEngine {
             case 'pen': this.drawPen(it); break;
             case 'comment': this.drawComment(it); break;
             case 'folder': this.drawFolder(it); break;
+            case 'spoiler': this.drawSpoiler(it); break;
           }
           if (this.freshnessMapMode && matchesFilter && it.type !== 'connector' && it.type !== 'pen') {
             this.drawFreshnessOverlay(it);
@@ -3501,6 +3555,214 @@ class CanvasEngine {
         }
       }
     }
+    this.ctx.restore();
+  }
+
+  // =========================================================
+  // TEXTO DESPLEGABLE (type: 'spoiler')
+  // Cabecera con título que abre y cierra el texto (title = cabecera, text = contenido) y botón para copiarlo.
+  // =========================================================
+  static SPOILER_HEADER_H = 46;
+  static SPOILER_BODY_FONT = 15;
+  static SPOILER_BODY_PAD = 16;
+  static SPOILER_COPY_SIZE = 30;
+
+  getSpoilerBodyFont() {
+    return `400 ${CanvasEngine.SPOILER_BODY_FONT}px OpenSans, -apple-system, "Segoe UI", sans-serif`;
+  }
+
+  getSpoilerLineHeight() {
+    return Math.round(CanvasEngine.SPOILER_BODY_FONT * 1.45);
+  }
+
+  // Líneas que ocupa un texto con el ajuste de wrapText
+  countWrappedLines(text, font, maxWidth) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.font = font;
+    let count = 0;
+    String(text || '').split('\n').forEach(para => {
+      if (!para.trim()) { count++; return; }
+      const words = para.split(' ');
+      let current = words[0] || '';
+      for (let i = 1; i < words.length; i++) {
+        if (ctx.measureText(current + ' ' + words[i]).width < maxWidth) current += ' ' + words[i];
+        else { count++; current = words[i]; }
+      }
+      count++;
+    });
+    ctx.restore();
+    return Math.max(1, count);
+  }
+
+  // Alto según esté cerrado (solo la cabecera) o abierto (cabecera + texto completo)
+  computeSpoilerHeight(it) {
+    const C = CanvasEngine;
+    if (!it.expanded) return C.SPOILER_HEADER_H;
+    const lines = this.countWrappedLines(it.text, this.getSpoilerBodyFont(), Math.max(40, (it.width || 420) - C.SPOILER_BODY_PAD * 2));
+    return C.SPOILER_HEADER_H + C.SPOILER_BODY_PAD * 2 + lines * this.getSpoilerLineHeight();
+  }
+
+  getSpoilerCopyRect(it) {
+    const C = CanvasEngine;
+    const s = C.SPOILER_COPY_SIZE;
+    return { x: it.x + it.width - s - 8, y: it.y + (C.SPOILER_HEADER_H - s) / 2, w: s, h: s };
+  }
+
+  isPointOnSpoilerCopy(it, wx, wy) {
+    if (!it || it.type !== 'spoiler') return false;
+    const r = this.getSpoilerCopyRect(it);
+    return wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h;
+  }
+
+  isPointOnSpoilerHeader(it, wx, wy) {
+    if (!it || it.type !== 'spoiler') return false;
+    return wx >= it.x && wx <= it.x + it.width && wy >= it.y && wy <= it.y + CanvasEngine.SPOILER_HEADER_H;
+  }
+
+  toggleSpoilerExpanded(it) {
+    this.saveSnapshot();
+    it.expanded = !it.expanded;
+    it.height = this.computeSpoilerHeight(it);
+    this.render();
+    if (this.onBoardModified) this.onBoardModified();
+  }
+
+  copySpoilerText(it) {
+    if (this.onCopyText) this.onCopyText(String(it.text || ''), it);
+    this.spoilerCopiedId = it.id;
+    this.render();
+    clearTimeout(this.spoilerCopiedTimer);
+    this.spoilerCopiedTimer = setTimeout(() => {
+      this.spoilerCopiedId = null;
+      this.render();
+    }, 1400);
+  }
+
+  drawSpoiler(it) {
+    const C = CanvasEngine;
+    const dark = this.isDarkMode;
+    const r = 10;
+    const H = C.SPOILER_HEADER_H;
+    const editingTitle = this.editingItemId === it.id && this.editingSpoilerPart === 'title';
+    const editingBody = this.editingItemId === it.id && this.editingSpoilerPart !== 'title';
+
+    // El alto sigue al texto (al escribir, al cambiar el ancho o al abrir y cerrar)
+    const wanted = this.computeSpoilerHeight(it);
+    if (Math.abs(wanted - (it.height || 0)) > 1 && !this.isResizing && !editingBody) {
+      it.height = wanted;
+      if (this.onBoardModified) setTimeout(() => this.onBoardModified(), 0);
+    }
+
+    this.ctx.save();
+    // Tarjeta con el mismo estilo que las de carpeta y enlaces
+    this.ctx.save();
+    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
+    this.ctx.shadowBlur = 8 / this.camera.zoom;
+    this.ctx.shadowOffsetY = 3 / this.camera.zoom;
+    this.ctx.fillStyle = dark ? '#1E222B' : '#ffffff';
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
+    this.ctx.fill();
+    this.ctx.restore();
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
+    this.ctx.clip();
+
+    // Cabecera (algo más marcada cuando está abierto, para separarla del texto)
+    if (it.expanded) {
+      this.ctx.fillStyle = dark ? '#262A34' : '#f8fafc';
+      this.ctx.fillRect(it.x, it.y, it.width, H);
+      this.ctx.strokeStyle = dark ? '#2D323B' : '#e2e8f0';
+      this.ctx.lineWidth = 1;
+      this.ctx.beginPath();
+      this.ctx.moveTo(it.x, it.y + H);
+      this.ctx.lineTo(it.x + it.width, it.y + H);
+      this.ctx.stroke();
+    }
+
+    // Flecha: ▸ cerrado, ▾ abierto
+    const accent = dark ? '#93c5fd' : '#2563eb';
+    const ax = it.x + 20;
+    const ay = it.y + H / 2;
+    this.ctx.fillStyle = accent;
+    this.ctx.beginPath();
+    if (it.expanded) {
+      this.ctx.moveTo(ax - 5.5, ay - 3);
+      this.ctx.lineTo(ax + 5.5, ay - 3);
+      this.ctx.lineTo(ax, ay + 4);
+    } else {
+      this.ctx.moveTo(ax - 3, ay - 5.5);
+      this.ctx.lineTo(ax + 4, ay);
+      this.ctx.lineTo(ax - 3, ay + 5.5);
+    }
+    this.ctx.closePath();
+    this.ctx.fill();
+
+    // Título
+    const copyRect = this.getSpoilerCopyRect(it);
+    if (!editingTitle) {
+      this.ctx.textBaseline = 'middle';
+      this.ctx.textAlign = 'left';
+      this.ctx.fillStyle = dark ? '#f1f5f9' : '#0f172a';
+      this.ctx.font = '700 15px OpenSans, -apple-system, "Segoe UI", sans-serif';
+      const title = String(it.title || '').trim() || 'Texto desplegable';
+      this.ctx.fillText(this.fitTextToWidth(title, Math.max(20, copyRect.x - (it.x + 38) - 8)), it.x + 36, ay + 1);
+    }
+
+    // Botón de copiar (marca verde un momento tras copiar)
+    const copied = this.spoilerCopiedId === it.id;
+    const hovered = this.hoveredSpoilerCopyId === it.id;
+    this.ctx.fillStyle = copied ? (dark ? 'rgba(16, 185, 129, 0.18)' : '#ecfdf5')
+      : hovered ? (dark ? '#323844' : '#e2e8f0') : (dark ? '#2A2F3A' : '#f1f5f9');
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, copyRect.x, copyRect.y, copyRect.w, copyRect.h, 7);
+    this.ctx.fill();
+    const cx = copyRect.x + copyRect.w / 2;
+    const cy = copyRect.y + copyRect.h / 2;
+    this.ctx.lineWidth = 1.6;
+    this.ctx.lineCap = 'round';
+    this.ctx.lineJoin = 'round';
+    if (copied) {
+      this.ctx.strokeStyle = '#10b981';
+      this.ctx.beginPath();
+      this.ctx.moveTo(cx - 5, cy);
+      this.ctx.lineTo(cx - 1.5, cy + 3.5);
+      this.ctx.lineTo(cx + 5.5, cy - 4);
+      this.ctx.stroke();
+    } else {
+      this.ctx.strokeStyle = hovered ? accent : (dark ? '#cbd5e1' : '#475569');
+      this.ctx.beginPath();
+      this.roundRect(this.ctx, cx - 3, cy - 3, 9, 9, 2);
+      this.ctx.stroke();
+      this.ctx.beginPath();
+      this.ctx.moveTo(cx - 6, cy + 3);
+      this.ctx.lineTo(cx - 6, cy - 4);
+      this.ctx.quadraticCurveTo(cx - 6, cy - 6, cx - 4, cy - 6);
+      this.ctx.lineTo(cx + 3, cy - 6);
+      this.ctx.stroke();
+    }
+
+    // Texto completo
+    if (it.expanded && !editingBody) {
+      this.ctx.textBaseline = 'top';
+      this.ctx.textAlign = 'left';
+      this.ctx.font = this.getSpoilerBodyFont();
+      const empty = !String(it.text || '').trim();
+      this.ctx.fillStyle = empty ? (dark ? '#64748b' : '#94a3b8') : (dark ? '#e2e8f0' : '#1e293b');
+      this.wrapText(this.ctx, empty ? 'Doble clic para escribir el texto' : it.text,
+        it.x + C.SPOILER_BODY_PAD, it.y + H + C.SPOILER_BODY_PAD,
+        Math.max(40, it.width - C.SPOILER_BODY_PAD * 2), this.getSpoilerLineHeight(), 'top');
+    }
+    this.ctx.restore();
+
+    // Borde por encima de todo
+    this.ctx.save();
+    this.ctx.strokeStyle = dark ? '#333842' : '#e2e8f0';
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
+    this.ctx.stroke();
     this.ctx.restore();
   }
 

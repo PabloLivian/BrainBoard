@@ -169,6 +169,11 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function applyColorToSelection(type, colorHex) {
+    // Color de la pluma (desde el panel de la pluma): no toca la selección
+    if (type === 'pen') {
+      window.setPenColor?.(colorHex);
+      return;
+    }
     if (type === 'text') {
       if (textColorIndicator) textColorIndicator.style.backgroundColor = colorHex;
       if (engine.selectedItemIds.size > 0) {
@@ -182,26 +187,39 @@ document.addEventListener('DOMContentLoaded', () => {
         if (activeEditingItem) {
           activeEditingItem.textColor = colorHex;
           activeEditingItem.color = colorHex;
-          inlineEditor.style.color = colorHex;
-          inlineEditor.style.caretColor = colorHex;
+          // En modo oscuro, el editor enseña el color con el que lo pinta el lienzo (un color oscuro sale claro)
+          const shownColor = engine.isDarkMode && activeEditingItem.type !== 'sticky_note' && engine.isDarkColor(colorHex) ? '#f1f5f9' : colorHex;
+          inlineEditor.style.color = shownColor;
+          inlineEditor.style.caretColor = shownColor;
         }
         engine.render();
         autoSaveBoard();
       }
     } else if (type === 'fill') {
-      if (fillColorIndicator) fillColorIndicator.style.backgroundColor = colorHex;
+      // colorHex null = "Sin color": formas, textos y marcos quedan sin relleno (las notas adhesivas siempre llevan color)
+      setFillColorIndicator(colorHex || 'transparent');
       if (engine.selectedItemIds.size > 0) {
         engine.saveSnapshot();
         engine.items.forEach(it => {
           if (engine.selectedItemIds.has(it.id)) {
-            if (it.type === 'sticky_note') it.color = colorHex;
-            else if (it.type === 'shape' || it.type === 'text' || it.type === 'frame') it.fillColor = colorHex;
+            if (it.type === 'sticky_note') {
+              if (colorHex) it.color = colorHex;
+            } else if (it.type === 'shape' || it.type === 'text' || it.type === 'frame') {
+              it.fillColor = colorHex || 'transparent';
+            }
           }
         });
         engine.render();
         autoSaveBoard();
       }
     }
+  }
+
+  function setFillColorIndicator(color) {
+    if (!fillColorIndicator) return;
+    const isNone = !color || color === 'transparent';
+    fillColorIndicator.classList.toggle('is-none', isNone);
+    fillColorIndicator.style.backgroundColor = isNone ? 'transparent' : color;
   }
 
   function renderColorPopovers() {
@@ -220,6 +238,20 @@ document.addEventListener('DOMContentLoaded', () => {
       // Grid de colores favoritos
       const grid = document.createElement('div');
       grid.className = 'color-palette-grid';
+
+      // Relleno: primera muestra "Sin color" para quitarlo
+      if (targetMode === 'fill') {
+        const none = document.createElement('div');
+        none.className = 'color-swatch color-swatch-none';
+        none.title = 'Sin color (quitar el relleno)';
+        none.addEventListener('click', (e) => {
+          e.stopPropagation();
+          applyColorToSelection('fill', null);
+          popover.classList.remove('visible');
+        });
+        none.addEventListener('contextmenu', (e) => e.preventDefault());
+        grid.appendChild(none);
+      }
 
       favorites.forEach(col => {
         const swatch = document.createElement('div');
@@ -264,6 +296,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     populatePopover(textColorPopover, 'text');
     populatePopover(fillColorPopover, 'fill');
+    window.renderPenOptions?.();
   }
 
   // --- Funciones de Conversión de Color HSV / RGB / HEX ---
@@ -918,7 +951,11 @@ document.addEventListener('DOMContentLoaded', () => {
       textColorIndicator.style.backgroundColor = tColor;
     }
     if (fillColorIndicator) {
-      fillColorIndicator.style.backgroundColor = first.fillColor || (first.type === 'sticky_note' ? (first.color || '#fff9b0') : (first.type === 'frame' ? '#bbcbd2' : '#ffffff'));
+      // Un texto sin fondo también cuenta como "sin color"
+      const fill = first.type === 'sticky_note' ? (first.color || '#fff9b0')
+        : first.type === 'text' ? (first.fillColor || 'transparent')
+        : (first.fillColor || (first.type === 'frame' ? '#bbcbd2' : '#ffffff'));
+      setFillColorIndicator(fill);
     }
 
     if (groupFillColor) {
@@ -944,14 +981,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const alignGroup = propertiesBar?.querySelector('.align-group');
     const textColorGroup = propertiesBar?.querySelector('.color-dropdown-group');
 
-    // Imágenes y tarjetas de carpeta no tienen texto editable
-    const noTextControls = isImage || first.type === 'folder';
+    // Imágenes, tarjetas de carpeta y textos desplegables no tienen controles de formato de texto
+    // Un trazo de pluma solo conserva el color (el del texto se aplica a la línea)
+    const isPen = first.type === 'pen';
+    const noTextControls = isImage || isPen || first.type === 'folder' || first.type === 'spoiler';
     if (fontFamGroup) fontFamGroup.style.display = noTextControls ? 'none' : 'flex';
     if (fontSizeGroup) fontSizeGroup.style.display = noTextControls ? 'none' : 'flex';
     if (textStyleGroup) textStyleGroup.style.display = noTextControls ? 'none' : 'flex';
     if (alignGroup) alignGroup.style.display = noTextControls ? 'none' : 'flex';
-    if (textColorGroup) textColorGroup.style.display = noTextControls ? 'none' : 'flex';
-    if (groupFillColor && first.type === 'folder') groupFillColor.style.display = 'none';
+    if (textColorGroup) textColorGroup.style.display = (noTextControls && !isPen) ? 'none' : 'flex';
+    if (groupFillColor && (first.type === 'folder' || first.type === 'spoiler')) groupFillColor.style.display = 'none';
 
     // "Marcar como revisado": con el Mapa de Frescura activo o si hay algo antiguo (>6 meses) seleccionado
     const markReviewedBtn = document.getElementById('btn-prop-mark-reviewed');
@@ -969,7 +1008,27 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!canAlign) document.getElementById('align-objects-popover')?.classList.remove('visible');
     }
 
+    hideOrphanPropertiesDividers();
     updatePropertiesBarPosition();
+  }
+
+  // Un separador solo se ve entre dos grupos visibles (sin texto, p. ej., quedaban «| | |» sueltos)
+  function hideOrphanPropertiesDividers() {
+    if (!propertiesBar) return;
+    const isShown = (el) => el.style.display !== 'none' && getComputedStyle(el).display !== 'none';
+    let seenVisible = false;
+    let pending = null;
+    Array.from(propertiesBar.children).forEach(el => {
+      if (el.classList.contains('divider')) {
+        el.style.display = 'none';
+        if (seenVisible && !pending) pending = el;
+        return;
+      }
+      if (!isShown(el)) return;
+      if (pending) pending.style.display = '';
+      pending = null;
+      seenVisible = true;
+    });
   }
 
   // =========================================================
@@ -1169,6 +1228,85 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // =========================================================
+  // PLUMA: grosor y color (de los colores favoritos), recordados entre sesiones
+  // =========================================================
+  const penOptionsMenu = document.getElementById('pen-options-menu');
+  const penWidthRow = document.getElementById('pen-width-row');
+  const penColorGrid = document.getElementById('pen-color-grid');
+  const PEN_SETTINGS_KEY = 'brainboard_pen_settings_v1';
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(PEN_SETTINGS_KEY) || 'null');
+    if (saved?.color) engine.penColor = saved.color;
+    if (saved?.width) engine.penWidth = Number(saved.width) || 3;
+  } catch (err) {}
+  if (!engine.penColor) engine.penColor = '#1a1a1a';
+  if (!engine.penWidth) engine.penWidth = 4;
+
+  function savePenSettings() {
+    try {
+      localStorage.setItem(PEN_SETTINGS_KEY, JSON.stringify({ color: engine.penColor, width: engine.penWidth }));
+    } catch (err) {}
+  }
+
+  function renderPenOptions() {
+    penWidthRow?.querySelectorAll('.pen-width-btn').forEach(btn => {
+      btn.classList.toggle('active', Number(btn.dataset.width) === engine.penWidth);
+    });
+    if (!penColorGrid) return;
+    penColorGrid.innerHTML = '';
+    const current = String(engine.penColor || '').toLowerCase();
+    getFavoriteColors().forEach(col => {
+      const swatch = document.createElement('div');
+      swatch.className = 'color-swatch' + (col.toLowerCase() === current ? ' active' : '');
+      swatch.style.backgroundColor = col;
+      swatch.title = col;
+      swatch.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setPenColor(col);
+      });
+      penColorGrid.appendChild(swatch);
+    });
+    // "+": selector de color avanzado; el color elegido se guarda también en favoritos
+    const addBtn = document.createElement('div');
+    addBtn.className = 'color-swatch-add';
+    addBtn.textContent = '+';
+    addBtn.title = 'Otro color (se añade a favoritos)';
+    addBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPhotoshopColorPicker('pen', engine.penColor || '#1a1a1a');
+    });
+    penColorGrid.appendChild(addBtn);
+  }
+  window.renderPenOptions = renderPenOptions;
+
+  function setPenColor(color) {
+    if (!color) return;
+    engine.penColor = color;
+    savePenSettings();
+    renderPenOptions();
+  }
+  window.setPenColor = setPenColor;
+
+  penWidthRow?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.pen-width-btn');
+    if (!btn) return;
+    e.stopPropagation();
+    engine.penWidth = Number(btn.dataset.width) || 3;
+    savePenSettings();
+    renderPenOptions();
+  });
+
+  function setPenOptionsVisible(visible) {
+    if (!penOptionsMenu) return;
+    if (visible) renderPenOptions();
+    penOptionsMenu.style.display = visible ? 'flex' : 'none';
+  }
+
+  // Al empezar a dibujar se cierra el panel (se vuelve a abrir con un clic en la pluma)
+  canvasElement.addEventListener('pointerdown', () => setPenOptionsVisible(false));
+
   function setActiveTool(toolName, shapeType = null, templateType = null) {
     engine.activeTool = toolName;
     if (shapeType) {
@@ -1180,13 +1318,14 @@ document.addEventListener('DOMContentLoaded', () => {
     toolButtons.forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tool === toolName);
     });
-    canvasElement.style.cursor = toolName === 'hand' ? 'grab' : 'default';
+    canvasElement.style.cursor = toolName === 'hand' ? 'grab' : (toolName === 'pen' ? 'crosshair' : 'default');
     if (shapeFlyoutMenu && toolName !== 'shape') {
       shapeFlyoutMenu.style.display = 'none';
     }
     if (templateFlyoutMenu && toolName !== 'template') {
       templateFlyoutMenu.style.display = 'none';
     }
+    setPenOptionsVisible(toolName === 'pen');
   }
 
   toolButtons.forEach(btn => {
@@ -1206,6 +1345,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const isVisible = shapeFlyoutMenu.style.display !== 'none';
         shapeFlyoutMenu.style.display = isVisible ? 'none' : 'flex';
         if (templateFlyoutMenu) templateFlyoutMenu.style.display = 'none';
+        return;
+      }
+      if (tool === 'pen' && isAlreadyActive && penOptionsMenu) {
+        setPenOptionsVisible(penOptionsMenu.style.display === 'none');
         return;
       }
 
@@ -1269,7 +1412,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (engine.onBoardModified) engine.onBoardModified();
     engine.render();
     autoSaveBoardImmediately();
-    const templateNames = { apuntes: 'Apuntes', recurso_apunte: 'Recurso + apunte', galeria: 'Galería de referencias', titulo_indice: 'Título para índice' };
+    const templateNames = { apuntes: 'Apuntes', recurso_apunte: 'Recurso + apunte', galeria: 'Galería de referencias', titulo_indice: 'Título para índice', desplegable: 'Texto desplegable' };
     showDevToast(`Plantilla «${templateNames[templateType] || 'Apuntes'}» insertada`);
   }
   window.insertTemplate = insertTemplate;
@@ -1311,6 +1454,16 @@ document.addEventListener('DOMContentLoaded', () => {
     autoSaveBoard();
     updateMinimap();
     window.refreshFramesIndexIfOpen?.();
+  };
+
+  // Botón de copiar de un texto desplegable
+  engine.onCopyText = (text) => {
+    if (!text.trim()) {
+      showDevToast('Este desplegable aún no tiene texto');
+      return;
+    }
+    writeSystemClipboardText(text);
+    showDevToast('Texto copiado');
   };
 
   // Controles de zoom
@@ -4124,6 +4277,13 @@ document.addEventListener('DOMContentLoaded', () => {
         openLocalPath(entry ? entry.path : clicked.path);
         return;
       }
+      // Texto desplegable: doble clic en la cabecera edita el título; en el texto (o con él cerrado), el texto
+      if (clicked.type === 'spoiler') {
+        if (engine.isPointOnSpoilerCopy(clicked, world.x, world.y)) return;
+        const onHeader = engine.isPointOnSpoilerHeader(clicked, world.x, world.y);
+        openInlineEditor(clicked, onHeader ? 'title' : 'text');
+        return;
+      }
       if (clicked.type === 'frame') {
         if (engine.isPointOnFrameHeader(clicked, world.x, world.y)) {
           openInlineEditor(clicked);
@@ -4145,20 +4305,44 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Estado previo a la edición: el paso de deshacer se guarda ANTES de escribir
   let inlineEditSession = null;
+  // En un texto desplegable se edita su título ('title') o su texto ('text')
+  let activeEditingPart = null;
 
-  function openInlineEditor(item) {
+  function getInlineEditValue(item) {
+    if (item.type === 'spoiler') return (activeEditingPart === 'title' ? item.title : item.text) || '';
+    return item.text || item.title || '';
+  }
+
+  function setInlineEditValue(item, val) {
+    if (item.type === 'frame' || (item.type === 'spoiler' && activeEditingPart === 'title')) {
+      item.title = val;
+    } else {
+      item.text = val;
+    }
+  }
+
+  function openInlineEditor(item, spoilerPart = 'text') {
     if (!item) return;
     if (activeEditingItem && activeEditingItem !== item) closeInlineEditor();
+
+    activeEditingPart = item.type === 'spoiler' ? spoilerPart : null;
+    engine.editingSpoilerPart = activeEditingPart;
 
     const undoTopBefore = engine.undoStack[engine.undoStack.length - 1];
     const redoBackup = engine.redoStack.slice();
     engine.saveSnapshot();
     const undoTopAfter = engine.undoStack[engine.undoStack.length - 1];
     inlineEditSession = {
-      originalValue: item.text || item.title || '',
+      originalValue: getInlineEditValue(item),
       pushedSnapshot: undoTopAfter !== undoTopBefore ? undoTopAfter : null,
       redoBackup
     };
+
+    // Para escribir el texto de un desplegable cerrado, se abre
+    if (item.type === 'spoiler' && activeEditingPart === 'text' && !item.expanded) {
+      item.expanded = true;
+      item.height = engine.computeSpoilerHeight(item);
+    }
 
     activeEditingItem = item;
     engine.editingItemId = item.id;
@@ -4176,21 +4360,25 @@ document.addEventListener('DOMContentLoaded', () => {
     const isItalic = Boolean(item.isItalic);
     const align = item.textAlign || (item.type === 'sticky_note' || item.type === 'shape' ? 'center' : ((item.fillColor && item.fillColor !== 'transparent' && (!item.text || !item.text.includes('\n'))) ? 'center' : 'left'));
 
+    const hasDarkBanner = item.fillColor === '#2d2d2d' || item.fillColor === '#40414c' || item.fillColor === '#1a1a1a';
     let textColor = item.textColor;
     if (!textColor) {
       if (item.type === 'sticky_note') {
         textColor = '#1a1a1a';
       } else if (item.type === 'code') {
         textColor = '#abb2bf';
-      } else if (item.fillColor === '#2d2d2d' || item.fillColor === '#40414c' || item.fillColor === '#1a1a1a') {
+      } else if (hasDarkBanner) {
         textColor = engine.isDarkMode ? '#0f172a' : '#ffffff';
       } else {
         textColor = item.color || (engine.isDarkMode ? '#f1f5f9' : '#1a1a1a');
       }
-    } else if (engine.isDarkMode && engine.isDarkColor(textColor)) {
-      if (item.fillColor === '#2d2d2d' || item.fillColor === '#40414c' || item.fillColor === '#1a1a1a') {
+    }
+    // En modo oscuro, el mismo color que pinta el lienzo: un texto oscuro se ve claro
+    // (los banners oscuros se pintan plateados, con texto oscuro; las notas adhesivas no cambian)
+    if (engine.isDarkMode && item.type !== 'sticky_note' && item.type !== 'code') {
+      if (hasDarkBanner) {
         textColor = '#0f172a';
-      } else if (item.type !== 'sticky_note') {
+      } else if (engine.isDarkColor(textColor)) {
         textColor = '#f1f5f9';
       }
     }
@@ -4204,7 +4392,19 @@ document.addEventListener('DOMContentLoaded', () => {
     inlineEditor.style.caretColor = textColor;
     inlineEditor.style.lineHeight = '1.35';
 
-    inlineEditor.value = item.text || item.title || '';
+    if (item.type === 'spoiler') {
+      const isTitle = activeEditingPart === 'title';
+      inlineEditor.style.fontFamily = 'OpenSans, -apple-system, "Segoe UI", sans-serif';
+      inlineEditor.style.fontWeight = isTitle ? '700' : '400';
+      inlineEditor.style.fontStyle = 'normal';
+      inlineEditor.style.textAlign = 'left';
+      const spoilerColor = isTitle ? (engine.isDarkMode ? '#f1f5f9' : '#0f172a') : (engine.isDarkMode ? '#e2e8f0' : '#1e293b');
+      inlineEditor.style.color = spoilerColor;
+      inlineEditor.style.caretColor = spoilerColor;
+      inlineEditor.style.lineHeight = isTitle ? '1.35' : '1.45';
+    }
+
+    inlineEditor.value = getInlineEditValue(item);
 
     // 1. Mostrar primero para que las dimensiones y estilos sean calculables
     inlineEditor.style.display = 'block';
@@ -4243,6 +4443,37 @@ document.addEventListener('DOMContentLoaded', () => {
       inlineEditor.style.lineHeight = `${20 * zoom}px`;
       return;
     }
+
+    // Texto desplegable: el título en su cabecera (entre la flecha y el botón de copiar) o el texto debajo
+    if (activeEditingItem.type === 'spoiler') {
+      const it = activeEditingItem;
+      const headerH = CanvasEngine.SPOILER_HEADER_H;
+      const pad = CanvasEngine.SPOILER_BODY_PAD;
+      inlineEditor.style.backgroundColor = 'transparent';
+      inlineEditor.style.borderRadius = '3px';
+      inlineEditor.style.padding = '0px';
+      if (activeEditingPart === 'title') {
+        const copyRect = engine.getSpoilerCopyRect(it);
+        inlineEditor.style.left = `${screen.x + 36 * zoom}px`;
+        inlineEditor.style.top = `${screen.y + (headerH - 22) / 2 * zoom}px`;
+        inlineEditor.style.width = `${Math.max(60, (copyRect.x - it.x - 44) * zoom)}px`;
+        inlineEditor.style.height = `${22 * zoom}px`;
+        inlineEditor.style.fontSize = `${15 * zoom}px`;
+        inlineEditor.style.lineHeight = `${22 * zoom}px`;
+        inlineEditor.style.whiteSpace = 'nowrap';
+      } else {
+        inlineEditor.style.left = `${screen.x + pad * zoom}px`;
+        inlineEditor.style.top = `${screen.y + (headerH + pad) * zoom}px`;
+        inlineEditor.style.width = `${Math.max(60, (it.width - pad * 2) * zoom)}px`;
+        inlineEditor.style.fontSize = `${CanvasEngine.SPOILER_BODY_FONT * zoom}px`;
+        inlineEditor.style.lineHeight = '1.45';
+        inlineEditor.style.whiteSpace = '';
+        inlineEditor.style.height = 'auto';
+        inlineEditor.style.height = `${Math.max(engine.getSpoilerLineHeight() * zoom, inlineEditor.scrollHeight)}px`;
+      }
+      return;
+    }
+    inlineEditor.style.whiteSpace = '';
 
     const screenW = Math.max(80, (activeEditingItem.width || 150) * zoom);
     const screenH = Math.max(30, (activeEditingItem.height || 40) * zoom);
@@ -4290,11 +4521,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function closeInlineEditor() {
     if (!activeEditingItem) return;
     const val = inlineEditor.value;
-    if (activeEditingItem.type === 'frame') {
-      activeEditingItem.title = val;
-    } else {
-      activeEditingItem.text = val;
-    }
+    setInlineEditValue(activeEditingItem, val);
 
     const session = inlineEditSession;
     inlineEditSession = null;
@@ -4311,8 +4538,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     inlineEditor.style.display = 'none';
     inlineEditor.style.backgroundColor = 'transparent';
+    inlineEditor.style.whiteSpace = '';
+    if (activeEditingItem.type === 'spoiler') activeEditingItem.height = engine.computeSpoilerHeight(activeEditingItem);
     activeEditingItem = null;
+    activeEditingPart = null;
     engine.editingItemId = null;
+    engine.editingSpoilerPart = null;
     engine.render();
     autoSaveBoardImmediately();
   }
@@ -4320,10 +4551,15 @@ document.addEventListener('DOMContentLoaded', () => {
   inlineEditor.addEventListener('input', () => {
     if (!activeEditingItem) return;
     const val = inlineEditor.value;
-    if (activeEditingItem.type === 'frame') {
-      activeEditingItem.title = val;
-    } else {
-      activeEditingItem.text = val;
+    setInlineEditValue(activeEditingItem, val);
+
+    // Texto desplegable: la tarjeta crece con el texto
+    if (activeEditingItem.type === 'spoiler') {
+      activeEditingItem.height = engine.computeSpoilerHeight(activeEditingItem);
+      updateInlineEditorPosition();
+      engine.render();
+      autoSaveBoard();
+      return;
     }
 
     // Auto-expandir altura si el texto crece
@@ -4354,6 +4590,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   inlineEditor.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      closeInlineEditor();
+    } else if (e.key === 'Enter' && activeEditingPart === 'title') {
+      // El título de un desplegable es de una sola línea
+      e.preventDefault();
       closeInlineEditor();
     }
   });
@@ -10737,7 +10977,8 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
 
   const BRAIN_ITEM_TYPE_LABELS = {
     frame: 'marco', text: 'texto', sticky_note: 'nota adhesiva', embed: 'enlace', preview: 'enlace',
-    image: 'imagen', code: 'código', shape: 'forma', comment: 'comentario', folder: 'carpeta del equipo'
+    image: 'imagen', code: 'código', shape: 'forma', comment: 'comentario', folder: 'carpeta del equipo',
+    spoiler: 'texto desplegable'
   };
 
   // Contenido de la selección (los marcos incluyen lo que tienen dentro) en orden de lectura
