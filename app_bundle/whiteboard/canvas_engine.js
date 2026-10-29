@@ -196,7 +196,7 @@ class CanvasEngine {
       const months = Math.max(1, Math.floor(ageDays / 30.4));
       return `Hace ${months} ${months === 1 ? 'mes' : 'meses'}`;
     }
-    const years = (ageDays / 365.25).toFixed(1).replace(/\.0$/, '');
+    const years = (ageDays / 365.25).toFixed(1).replace(/\.0$/, '').replace('.', ',');
     return `Hace ${years} ${years === '1' ? 'año' : 'años'}`;
   }
 
@@ -1023,7 +1023,8 @@ class CanvasEngine {
     }) || null;
   }
 
-  // Recursos del contenedor agrupados en piezas: una tarjeta o imagen se lleva el pie de texto que tiene justo debajo
+  // Recursos del contenedor agrupados en piezas: una tarjeta se lleva sus imágenes (unidas, o pegadas justo a su
+  // lado y a su altura) y cada pieza, el pie de texto que tiene justo debajo
   getResourceFrameUnits(frame) {
     const titleIds = new Set(this.getFrameFitChildren(frame).map(f => f.item.id));
     const titleItem = this.getFrameTitleItem(frame);
@@ -1031,11 +1032,31 @@ class CanvasEngine {
     const members = this.items.filter(it => it.id !== frame.id && !titleIds.has(it.id) &&
       !['frame', 'connector', 'pen', 'comment'].includes(it.type) && typeof it.x === 'number' &&
       this.getContainingFrame(it)?.id === frame.id);
-    const anchors = members.filter(m => m.type !== 'text');
+    const memberIds = new Set(members.map(m => m.id));
+    const cards = members.filter(m => this.isLinkCard(m));
+    const besideCard = (img) => cards.find(c => {
+      const cy = img.y + (img.height || 0) / 2;
+      if (cy < c.y || cy > c.y + (c.height || 0)) return false;
+      const gapRight = img.x - (c.x + (c.width || 0));
+      const gapLeft = c.x - (img.x + (img.width || 0));
+      return (gapRight >= -10 && gapRight <= 60) || (gapLeft >= -10 && gapLeft <= 60);
+    });
+    const imageOwner = new Map();
+    members.filter(m => m.type === 'image').forEach(img => {
+      const owner = this.getAttachmentCard(img);
+      if (owner && memberIds.has(owner.id)) imageOwner.set(img.id, owner);
+    });
+    members.filter(m => m.type === 'image' && !imageOwner.has(m.id) && !m.attachedTo).forEach(img => {
+      const owner = besideCard(img);
+      if (owner) imageOwner.set(img.id, owner);
+    });
+    const anchors = members.filter(m => m.type !== 'text' && !imageOwner.has(m.id));
     const units = new Map(anchors.map(a => [a.id, [a]]));
+    imageOwner.forEach((owner, imgId) => units.get(owner.id)?.push(members.find(m => m.id === imgId)));
+    const unitItems = members.filter(m => m.type !== 'text');
     members.filter(m => m.type === 'text').forEach(t => {
-      const a = anchors.find(c => Math.abs(t.x - c.x) <= 24 && t.y >= c.y + (c.height || 0) - 4 && t.y - (c.y + (c.height || 0)) <= 40);
-      if (a) units.get(a.id).push(t);
+      const a = unitItems.find(c => Math.abs(t.x - c.x) <= 24 && t.y >= c.y + (c.height || 0) - 4 && t.y - (c.y + (c.height || 0)) <= 40);
+      if (a) units.get((imageOwner.get(a.id) || a).id).push(t);
       else units.set(t.id, [t]);
     });
     return Array.from(units.values()).map(list => {
@@ -1237,6 +1258,151 @@ class CanvasEngine {
       return lum < 95;
     }
     return false;
+  }
+
+  // =========================================================
+  // COLORES QUE SE VEN (una sola regla para el lienzo, el editor y la barra)
+  // - Un color elegido en la paleta (fillColorFixed / textColorFixed) se pinta tal cual en los dos temas.
+  // - Lo no elegido (plantillas, Miro, Cerebro) se adapta al tema como siempre.
+  // - Un texto no elegido que se leería mal sobre su fondo real pasa a claro u oscuro.
+  // =========================================================
+  static DARK_BANNERS = new Set(['#2d2d2d', '#1a1a1a', '#40414c']);
+
+  parseColorRgb(color) {
+    if (!color || typeof color !== 'string') return null;
+    const c = color.trim().toLowerCase();
+    if (c === 'transparent' || c === 'none') return null;
+    if (c === 'white') return [255, 255, 255];
+    if (c === 'black') return [0, 0, 0];
+    const m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+    if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
+    if (!c.startsWith('#')) return null;
+    let hex = c.slice(1);
+    if (hex.length === 3) hex = hex.split('').map(h => h + h).join('');
+    if (hex.length < 6) return null;
+    return [0, 2, 4].map(i => parseInt(hex.substr(i, 2), 16) || 0);
+  }
+
+  relativeLuminance(color) {
+    const rgb = this.parseColorRgb(color);
+    if (!rgb) return null;
+    const [r, g, b] = rgb.map(v => {
+      const s = v / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  }
+
+  contrastRatio(a, b) {
+    const la = this.relativeLuminance(a);
+    const lb = this.relativeLuminance(b);
+    if (la === null || lb === null) return 21;
+    return (Math.max(la, lb) + 0.05) / (Math.min(la, lb) + 0.05);
+  }
+
+  // Si el texto apenas se distingue de su fondo, el claro u oscuro que mejor se lea.
+  // Umbral bajo a propósito: solo corrige lo que no se lee (negro sobre negro, blanco sobre blanco),
+  // no los colores con intención (un naranja sobre blanco se queda naranja)
+  ensureReadable(textColor, bgColor) {
+    if (!bgColor || this.contrastRatio(textColor, bgColor) >= 1.6) return textColor;
+    const light = '#f1f5f9';
+    const dark = '#0f172a';
+    return this.contrastRatio(light, bgColor) >= this.contrastRatio(dark, bgColor) ? light : dark;
+  }
+
+  getCanvasBackground() {
+    return this.isDarkMode ? '#0f1316' : '#f8f9fa';
+  }
+
+  // Relleno que se ve (null si no tiene)
+  getDisplayFill(it) {
+    if (!it) return null;
+    const dark = this.isDarkMode;
+    if (it.type === 'sticky_note') return it.color || '#fff9b0';
+    if (it.type === 'frame') {
+      const fill = it.fillColor || '#bbcbd2';
+      if (fill === 'transparent') return null;
+      if (it.fillColorFixed || !dark) return fill;
+      return (this.isLightColor(fill) || fill.toLowerCase() === '#bbcbd2') ? '#23262D' : fill;
+    }
+    if (it.type === 'shape') {
+      const fill = it.fillColor || '#ffffff';
+      if (fill === 'transparent') return null;
+      if (it.fillColorFixed || !dark) return fill;
+      return this.isLightColor(fill) ? '#23262d' : fill;
+    }
+    if (it.type === 'text') {
+      const fill = it.fillColor;
+      if (!fill || fill === 'transparent') return null;
+      if (it.fillColorFixed || !dark) return fill;
+      if (CanvasEngine.DARK_BANNERS.has(fill.toLowerCase())) return '#eef2f5';
+      return this.isLightColor(fill) ? '#23262d' : fill;
+    }
+    return null;
+  }
+
+  // Fondo sobre el que se lee un elemento: su relleno o, si no tiene, el de su marco o el del lienzo
+  getReadingBackground(it) {
+    const own = this.getDisplayFill(it);
+    if (own) return own;
+    const parent = it.parentId ? this.getItemById(it.parentId) : null;
+    const frame = parent?.type === 'frame' ? parent : null;
+    return (frame && this.getDisplayFill(frame)) || this.getCanvasBackground();
+  }
+
+  // Búsqueda por id con un índice que se rehace en cada dibujado
+  getItemById(id) {
+    if (!this.itemIdIndex || this.itemIdIndex.count !== this.items.length) {
+      this.itemIdIndex = { count: this.items.length, map: new Map(this.items.map(i => [i.id, i])) };
+    }
+    return this.itemIdIndex.map.get(id) || null;
+  }
+
+  // Color del texto que se ve en textos, formas y notas adhesivas
+  getDisplayTextColor(it) {
+    const dark = this.isDarkMode;
+    const hasUrl = Boolean(this.extractUrlFromItem(it));
+    const fixed = it.textColorFixed && (it.textColor || it.color);
+    if (it.type === 'sticky_note') {
+      if (it.textColorFixed && it.textColor) return it.textColor;
+      return this.ensureReadable(hasUrl ? '#1d4ed8' : (it.textColor || '#1a1a1a'), this.getDisplayFill(it));
+    }
+    if (it.type === 'shape') {
+      if (fixed) return it.textColor || it.color;
+      const fill = this.getDisplayFill(it);
+      let textColor = it.textColor;
+      if (!textColor) {
+        const strokeColor = it.strokeColor || '#1a1a1a';
+        const rgb = this.parseColorRgb(fill);
+        const fillIsDark = rgb ? (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) < 140 : false;
+        textColor = (dark || fillIsDark) ? '#ffffff' : strokeColor;
+      } else if (dark && this.isDarkColor(textColor)) {
+        textColor = '#f1f5f9';
+      }
+      return this.ensureReadable(textColor, this.getReadingBackground(it));
+    }
+    // Texto
+    if (fixed) return it.textColor || it.color;
+    const hasFill = Boolean(it.fillColor && it.fillColor !== 'transparent');
+    const banner = hasFill && CanvasEngine.DARK_BANNERS.has(String(it.fillColor).toLowerCase());
+    let textColor = it.textColor || it.color || '#1a1a1a';
+    if (dark) {
+      if (hasUrl) textColor = (banner && !it.fillColorFixed) ? '#1d4ed8' : '#60a5fa';
+      else if (banner && !it.fillColorFixed) textColor = '#0f172a';
+      else if (this.isDarkColor(textColor)) textColor = '#f1f5f9';
+    } else if (hasUrl) {
+      textColor = banner ? '#60a5fa' : '#1d4ed8';
+    } else if (banner) {
+      textColor = it.textColor || it.color || '#ffffff';
+    }
+    return this.ensureReadable(textColor, this.getReadingBackground(it));
+  }
+
+  // Trazo de la pluma que se ve
+  getDisplayPenColor(it) {
+    const color = it.color || '#1a1a1a';
+    if (it.textColorFixed || !this.isDarkMode) return color;
+    return this.isDarkColor(color) ? '#F1F5F9' : color;
   }
 
   isLightColor(color) {
@@ -1918,6 +2084,10 @@ class CanvasEngine {
         }
         if (this.selectedItemIds.size > 0) {
           const itemsToDuplicateIds = new Set(this.selectedItemIds);
+          // Una tarjeta de enlace se duplica con sus imágenes unidas
+          this.items.forEach(it => {
+            if (this.selectedItemIds.has(it.id)) this.getAttachmentGroup(it).forEach(g => itemsToDuplicateIds.add(g.id));
+          });
           this.items.forEach(it => {
             if (this.selectedItemIds.has(it.id) && it.type === 'frame') {
               const frame = it;
@@ -1947,6 +2117,11 @@ class CanvasEngine {
           newItems.forEach(copy => {
             if (copy.parentId && idMap.has(copy.parentId)) {
               copy.parentId = idMap.get(copy.parentId);
+            }
+            // Imagen unida: a la copia de su tarjeta, o suelta si la tarjeta no se ha duplicado
+            if (copy.attachedTo) {
+              if (idMap.has(copy.attachedTo)) copy.attachedTo = idMap.get(copy.attachedTo);
+              else delete copy.attachedTo;
             }
             if (copy.type === 'connector') {
               if (copy.start?.item && idMap.has(copy.start.item)) copy.start.item = idMap.get(copy.start.item);
@@ -2205,6 +2380,8 @@ class CanvasEngine {
         updatedAt: nowIso,
         points: [{ x: world.x, y: world.y }],
         color: this.penColor || '#1a1a1a',
+        // Un color elegido en el panel de la pluma se respeta en los dos temas
+        ...(this.penColorChosen ? { textColorFixed: true } : {}),
         strokeWidth: this.penWidth || 3,
         zIndex: this.getTopZIndex()
       };
@@ -2812,12 +2989,79 @@ class CanvasEngine {
     }
   }
 
+  // =========================================================
+  // IMAGEN UNIDA A UNA TARJETA DE ENLACE (image.attachedTo = id de la tarjeta)
+  // Se mueven juntas y, en un contenedor de Recursos, se ordenan juntas.
+  // =========================================================
+  isLinkCard(it) {
+    return Boolean(it) && (it.type === 'embed' || it.type === 'preview');
+  }
+
+  getAttachedImages(card) {
+    if (!card) return [];
+    return this.items.filter(it => it.type === 'image' && it.attachedTo === card.id);
+  }
+
+  getAttachmentCard(image) {
+    if (!image || image.type !== 'image' || !image.attachedTo) return null;
+    const card = this.items.find(it => it.id === image.attachedTo);
+    return this.isLinkCard(card) ? card : null;
+  }
+
+  // La tarjeta y todas sus imágenes, partiendo de cualquiera de ellas
+  getAttachmentGroup(it) {
+    const card = this.isLinkCard(it) ? it : this.getAttachmentCard(it);
+    if (!card) return [it];
+    const images = this.getAttachedImages(card);
+    return images.length ? [card, ...images] : [it];
+  }
+
+  attachImageToCard(image, card) {
+    if (!image || image.type !== 'image' || !this.isLinkCard(card)) return false;
+    image.attachedTo = card.id;
+    if (card.parentId) image.parentId = card.parentId;
+    image.updatedAt = new Date().toISOString();
+    return true;
+  }
+
+  // Marca de unión: una anilla de cadena en la esquina de la imagen
+  drawAttachmentBadge(image) {
+    const r = 11;
+    const cx = image.x + r + 6;
+    const cy = image.y + r + 6;
+    const dark = this.isDarkMode;
+    this.ctx.save();
+    this.ctx.fillStyle = dark ? 'rgba(30, 34, 43, 0.92)' : 'rgba(255, 255, 255, 0.95)';
+    this.ctx.strokeStyle = dark ? '#3a404c' : '#cbd5e1';
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.stroke();
+    this.ctx.strokeStyle = dark ? '#93c5fd' : '#2563eb';
+    this.ctx.lineWidth = 1.6;
+    this.ctx.lineCap = 'round';
+    this.ctx.translate(cx, cy);
+    this.ctx.rotate(-Math.PI / 4);
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, -6.5, -2.6, 7, 5.2, 2.6);
+    this.ctx.stroke();
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, -0.5, -2.6, 7, 5.2, 2.6);
+    this.ctx.stroke();
+    this.ctx.restore();
+  }
+
   // Elementos que mueve un arrastre: lo seleccionado y lo que hay dentro de cada marco seleccionado al empezar.
   // Un marco recién creado solo lleva sus propias piezas (las de su plantilla), no lo que tenga encima.
   // Al duplicar con Alt ya van seleccionadas las copias del contenido, y los originales quedan debajo.
   collectDragMoveItemIds() {
     const moveItemIds = new Set(this.selectedItemIds);
     if (this.isAltDragDuplicate || this.isMiddleDragDuplicate) return moveItemIds;
+    // Una tarjeta de enlace y sus imágenes unidas van juntas, se arrastre la que se arrastre
+    this.items.forEach(it => {
+      if (moveItemIds.has(it.id)) this.getAttachmentGroup(it).forEach(g => moveItemIds.add(g.id));
+    });
     this.items.forEach(frame => {
       if (!this.selectedItemIds.has(frame.id) || frame.type !== 'frame') return;
       const isFresh = this.freshFrameIds.has(frame.id);
@@ -2990,6 +3234,7 @@ class CanvasEngine {
   render() {
     const dpr = window.devicePixelRatio || 1;
     this.frameTitleCache = null;
+    this.itemIdIndex = null;
     // 1. Limpieza absoluta a nivel de pixel fisico (elimina cualquier rastro o estela)
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -3070,6 +3315,12 @@ class CanvasEngine {
       sortedItems.forEach(it => {
         if (it.type !== 'frame' || !it.isResourceBoard || !isVisible(it)) return;
         try { this.drawResourceSortPill(it); } catch (e) { console.error(e); }
+      });
+
+      // Marca de las imágenes unidas a una tarjeta de enlace
+      sortedItems.forEach(it => {
+        if (it.type !== 'image' || !it.attachedTo || !isVisible(it) || !this.getAttachmentCard(it)) return;
+        try { this.drawAttachmentBadge(it); } catch (e) { console.error(e); }
       });
 
       // 8. Smart Guides magnéticas
@@ -3227,8 +3478,7 @@ class CanvasEngine {
       const fontSize = it.fontSize || 15;
       const fontFamily = it.fontFamily || 'OpenSans, -apple-system, sans-serif';
       const isBold = it.isBold ? '700 ' : '400 ';
-      const hasUrl = Boolean(this.extractUrlFromItem(it));
-      this.ctx.fillStyle = hasUrl ? '#1d4ed8' : (it.textColor || '#1a1a1a');
+      this.ctx.fillStyle = this.getDisplayTextColor(it);
       const align = it.textAlign || 'center';
       this.ctx.textAlign = align;
       this.ctx.textBaseline = 'middle';
@@ -3244,16 +3494,11 @@ class CanvasEngine {
 
   drawShape(it) {
     this.ctx.save();
-    let fillColor = it.fillColor || '#ffffff';
+    const fillColor = this.getDisplayFill(it) || 'transparent';
     let strokeColor = it.strokeColor || '#1a1a1a';
 
-    if (this.isDarkMode) {
-      if (this.isLightColor(fillColor)) {
-        fillColor = '#23262d';
-      }
-      if (this.isDarkColor(strokeColor)) {
-        strokeColor = '#333842';
-      }
+    if (this.isDarkMode && this.isDarkColor(strokeColor)) {
+      strokeColor = '#333842';
     }
 
     this.ctx.fillStyle = fillColor;
@@ -3284,32 +3529,14 @@ class CanvasEngine {
     this.ctx.stroke();
 
     if (it.text && this.editingItemId !== it.id) {
-      let isDarkBg = false;
-      if (this.isDarkMode) {
-        isDarkBg = true;
-      } else if (fillColor && fillColor.startsWith('#')) {
-        const hex = fillColor.replace('#', '');
-        const r = parseInt(hex.substring(0, 2), 16) || 0;
-        const g = parseInt(hex.substring(2, 4), 16) || 0;
-        const b = parseInt(hex.substring(4, 6), 16) || 0;
-        const lum = (0.299 * r + 0.587 * g + 0.114 * b);
-        isDarkBg = lum < 140;
-      }
       const isHeader = (it.height >= 50 && it.text && it.text.length <= 10);
       const fontSize = it.fontSize || (isHeader ? 22 : 14);
       const fontFamily = it.fontFamily || 'OpenSans, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
       const isBold = it.isBold !== undefined ? it.isBold : true;
       const fontStyle = it.isItalic ? 'italic ' : '';
 
-      let textColor = it.textColor;
-      if (!textColor) {
-        textColor = isDarkBg ? '#ffffff' : (strokeColor || '#1a1a1a');
-      } else if (this.isDarkMode && this.isDarkColor(textColor)) {
-        textColor = '#f1f5f9';
-      }
-
       const align = it.textAlign || 'center';
-      this.ctx.fillStyle = textColor;
+      this.ctx.fillStyle = this.getDisplayTextColor(it);
       this.ctx.font = `${fontStyle}${isBold ? '700 ' : '400 '}${fontSize}px ${fontFamily}`;
       this.ctx.textAlign = align;
       this.ctx.textBaseline = 'middle';
@@ -3327,15 +3554,8 @@ class CanvasEngine {
     this.ctx.save();
     const hasFill = Boolean(it.fillColor && it.fillColor !== 'transparent');
 
-    let textFillColor = it.fillColor;
-    if (this.isDarkMode && hasFill) {
-      if (it.fillColor === '#2d2d2d' || it.fillColor === '#1a1a1a' || it.fillColor === '#40414c') {
-        // En modo oscuro (como en la imagen del usuario), los banners destacados oscuros se convierten en banners plateados claros #EEF2F5 con texto oscuro
-        textFillColor = '#eef2f5';
-      } else if (this.isLightColor(it.fillColor)) {
-        textFillColor = '#23262d';
-      }
-    }
+    // En modo oscuro las bandas oscuras no elegidas a mano se ven plateadas y los fondos claros, grises (getDisplayFill)
+    const textFillColor = this.getDisplayFill(it);
 
     // Si tiene relleno, dibujar la caja / banner / tarjeta
     if (hasFill && textFillColor) {
@@ -3370,29 +3590,7 @@ class CanvasEngine {
     const fontStyle = it.isItalic ? 'italic ' : '';
     this.ctx.font = `${fontStyle}${isBold ? '700 ' : '400 '}${fontSize}px ${fontFamily}`;
 
-    const hasUrl = Boolean(this.extractUrlFromItem(it));
-
-    let textColor = it.textColor || it.color || '#1a1a1a';
-    if (this.isDarkMode) {
-      if (hasUrl) {
-        textColor = (hasFill && textFillColor === '#eef2f5') ? '#1d4ed8' : '#60a5fa';
-      } else if (hasFill && textFillColor === '#eef2f5') {
-        textColor = '#0f172a';
-      } else if (this.isDarkColor(textColor)) {
-        textColor = '#f1f5f9';
-      }
-    } else {
-      if (hasUrl) {
-        textColor = (hasFill && (it.fillColor === '#2d2d2d' || it.fillColor === '#40414c' || it.fillColor === '#1a1a1a')) ? '#60a5fa' : '#1d4ed8';
-      } else if (hasFill) {
-        if (it.fillColor === '#2d2d2d' || it.fillColor === '#40414c' || it.fillColor === '#1a1a1a') {
-          textColor = it.textColor || it.color || '#ffffff';
-        } else if (it.fillColor === '#bbcbd2') {
-          textColor = it.textColor || it.color || '#1a1a1a';
-        }
-      }
-    }
-    this.ctx.fillStyle = textColor;
+    this.ctx.fillStyle = this.getDisplayTextColor(it);
 
     const align = it.textAlign || (hasFill && (!it.text || !it.text.includes('\n')) ? 'center' : 'left');
     this.ctx.textAlign = align;
@@ -4347,11 +4545,7 @@ class CanvasEngine {
   drawPen(it) {
     if (!it.points || it.points.length < 2) return;
     this.ctx.save();
-    let strokeColor = it.color || '#1a1a1a';
-    if (this.isDarkMode && this.isDarkColor(strokeColor)) {
-      strokeColor = '#F1F5F9';
-    }
-    this.ctx.strokeStyle = strokeColor;
+    this.ctx.strokeStyle = this.getDisplayPenColor(it);
     this.ctx.lineWidth = it.strokeWidth || 3;
     this.ctx.lineCap = 'round';
     this.ctx.lineJoin = 'round';
@@ -4421,15 +4615,12 @@ class CanvasEngine {
   drawFrame(it) {
     this.ctx.save();
 
-    let fillColor = it.fillColor || '#bbcbd2';
+    const fillColor = this.getDisplayFill(it) || 'transparent';
     let borderColor = '#94a3b8';
     let tabColor = '#475569';
     let tabTextColor = '#ffffff';
 
     if (this.isDarkMode) {
-      if (this.isLightColor(fillColor) || fillColor.toLowerCase() === '#bbcbd2') {
-        fillColor = '#23262D';
-      }
       borderColor = '#333842';
       tabColor = '#2D323E';
       tabTextColor = '#E2E8F0';

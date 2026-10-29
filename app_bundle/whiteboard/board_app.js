@@ -178,19 +178,20 @@ document.addEventListener('DOMContentLoaded', () => {
       if (textColorIndicator) textColorIndicator.style.backgroundColor = colorHex;
       if (engine.selectedItemIds.size > 0) {
         engine.saveSnapshot();
+        // Un color elegido se respeta tal cual en los dos temas
         engine.items.forEach(it => {
           if (engine.selectedItemIds.has(it.id)) {
             it.textColor = colorHex;
             it.color = colorHex;
+            it.textColorFixed = true;
           }
         });
         if (activeEditingItem) {
           activeEditingItem.textColor = colorHex;
           activeEditingItem.color = colorHex;
-          // En modo oscuro, el editor enseña el color con el que lo pinta el lienzo (un color oscuro sale claro)
-          const shownColor = engine.isDarkMode && activeEditingItem.type !== 'sticky_note' && engine.isDarkColor(colorHex) ? '#f1f5f9' : colorHex;
-          inlineEditor.style.color = shownColor;
-          inlineEditor.style.caretColor = shownColor;
+          activeEditingItem.textColorFixed = true;
+          inlineEditor.style.color = colorHex;
+          inlineEditor.style.caretColor = colorHex;
         }
         engine.render();
         autoSaveBoard();
@@ -206,6 +207,7 @@ document.addEventListener('DOMContentLoaded', () => {
               if (colorHex) it.color = colorHex;
             } else if (it.type === 'shape' || it.type === 'text' || it.type === 'frame') {
               it.fillColor = colorHex || 'transparent';
+              it.fillColorFixed = true;
             }
           }
         });
@@ -1008,9 +1010,84 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!canAlign) document.getElementById('align-objects-popover')?.classList.remove('visible');
     }
 
+    syncImageLinkButtons();
     hideOrphanPropertiesDividers();
     updatePropertiesBarPosition();
   }
+
+  // =========================================================
+  // IMAGEN UNIDA A UNA TARJETA DE ENLACE: «Añadir imagen», «Unir» y «Separar»
+  // =========================================================
+  const btnPropAddImage = document.getElementById('btn-prop-add-image');
+  const btnPropLinkImage = document.getElementById('btn-prop-link-image');
+  const attachImageInput = document.getElementById('attach-image-input');
+
+  // Qué permite la selección: { card, image, action: 'link' | 'unlink' | null }
+  function getImageLinkState() {
+    const selected = engine.items.filter(it => engine.selectedItemIds.has(it.id));
+    if (selected.length === 2) {
+      const card = selected.find(it => engine.isLinkCard(it));
+      const image = selected.find(it => it.type === 'image');
+      if (card && image) return { card, image, action: image.attachedTo === card.id ? 'unlink' : 'link' };
+    }
+    if (selected.length === 1) {
+      const it = selected[0];
+      const card = engine.isLinkCard(it) ? it : engine.getAttachmentCard(it);
+      if (card && engine.getAttachedImages(card).length) return { card, image: it.type === 'image' ? it : null, action: 'unlink' };
+      if (card) return { card, image: null, action: null };
+    }
+    return { card: null, image: null, action: null };
+  }
+
+  function syncImageLinkButtons() {
+    // Se buscan aquí (no con las constantes de arriba): la barra puede sincronizarse antes de que se definan
+    const addBtn = document.getElementById('btn-prop-add-image');
+    const linkBtn = document.getElementById('btn-prop-link-image');
+    const linkLabel = document.getElementById('btn-prop-link-image-label');
+    const state = getImageLinkState();
+    const single = engine.selectedItemIds.size === 1;
+    if (addBtn) addBtn.style.display = state.card && single && engine.isLinkCard(engine.items.find(it => engine.selectedItemIds.has(it.id))) ? 'inline-flex' : 'none';
+    if (linkBtn) {
+      linkBtn.style.display = state.action ? 'inline-flex' : 'none';
+      if (linkLabel) linkLabel.textContent = state.action === 'unlink' ? 'Separar' : 'Unir';
+      linkBtn.title = state.action === 'unlink'
+        ? 'Separar la imagen del enlace (dejan de moverse juntos)'
+        : 'Unir la imagen al enlace: se mueven y se ordenan juntos';
+    }
+  }
+
+  btnPropLinkImage?.addEventListener('click', () => {
+    const state = getImageLinkState();
+    if (!state.action) return;
+    engine.saveSnapshot();
+    if (state.action === 'link') {
+      engine.attachImageToCard(state.image, state.card);
+      showDevToast('Imagen unida al enlace');
+    } else {
+      // Con la pareja seleccionada se separa esa imagen; con solo la tarjeta, todas las suyas
+      const images = state.image ? [state.image] : engine.getAttachedImages(state.card);
+      images.forEach(im => { delete im.attachedTo; im.updatedAt = new Date().toISOString(); });
+      showDevToast(images.length > 1 ? 'Imágenes separadas del enlace' : 'Imagen separada del enlace');
+    }
+    engine.render();
+    syncPropertiesBarWithSelection();
+    autoSaveBoardImmediately();
+  });
+
+  btnPropAddImage?.addEventListener('click', () => {
+    if (!getSelectedLinkCard()) return;
+    attachImageInput?.click();
+  });
+
+  attachImageInput?.addEventListener('change', () => {
+    const file = attachImageInput.files?.[0];
+    const card = getSelectedLinkCard();
+    attachImageInput.value = '';
+    if (!file || !card) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => pasteExternalImage(evt.target.result, null, null, null, { card });
+    reader.readAsDataURL(file);
+  });
 
   // Un separador solo se ve entre dos grupos visibles (sin texto, p. ej., quedaban «| | |» sueltos)
   function hideOrphanPropertiesDividers() {
@@ -1238,7 +1315,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   try {
     const saved = JSON.parse(localStorage.getItem(PEN_SETTINGS_KEY) || 'null');
-    if (saved?.color) engine.penColor = saved.color;
+    if (saved?.color) {
+      engine.penColor = saved.color;
+      engine.penColorChosen = true;
+    }
     if (saved?.width) engine.penWidth = Number(saved.width) || 3;
   } catch (err) {}
   if (!engine.penColor) engine.penColor = '#1a1a1a';
@@ -1246,7 +1326,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function savePenSettings() {
     try {
-      localStorage.setItem(PEN_SETTINGS_KEY, JSON.stringify({ color: engine.penColor, width: engine.penWidth }));
+      // El color solo se guarda si se eligió (el de serie se adapta al tema)
+      localStorage.setItem(PEN_SETTINGS_KEY, JSON.stringify({ color: engine.penColorChosen ? engine.penColor : null, width: engine.penWidth }));
     } catch (err) {}
   }
 
@@ -1284,6 +1365,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function setPenColor(color) {
     if (!color) return;
     engine.penColor = color;
+    engine.penColorChosen = true;
     savePenSettings();
     renderPenOptions();
   }
@@ -3313,6 +3395,8 @@ document.addEventListener('DOMContentLoaded', () => {
     engine.items.forEach(it => {
       if (engine.selectedItemIds.has(it.id)) {
         itemsMap.set(it.id, it);
+        // Una tarjeta de enlace se copia con sus imágenes unidas
+        engine.getAttachmentGroup(it).forEach(g => itemsMap.set(g.id, g));
       }
     });
 
@@ -3636,6 +3720,11 @@ document.addEventListener('DOMContentLoaded', () => {
           delete clone.parentId;
         }
       }
+      // Imagen unida a una tarjeta: se une a la copia de la tarjeta; si la tarjeta no se copió, va suelta
+      if (clone.attachedTo) {
+        if (idMap.has(clone.attachedTo)) clone.attachedTo = idMap.get(clone.attachedTo);
+        else delete clone.attachedTo;
+      }
     });
 
     // Paso 3: Guardar snapshot para Deshacer (Ctrl+Z) y añadir elementos al lienzo
@@ -3705,9 +3794,30 @@ document.addEventListener('DOMContentLoaded', () => {
     return candidates[candidates.length - 1] || null;
   }
 
-  function pasteExternalImage(dataUrl, imgWidth = null, imgHeight = null, targetWorldPos = null) {
+  // Única tarjeta de enlace seleccionada (para unirle una imagen)
+  function getSelectedLinkCard() {
+    if (engine.selectedItemIds.size !== 1) return null;
+    const sel = engine.items.find(it => engine.selectedItemIds.has(it.id));
+    return engine.isLinkCard(sel) ? sel : null;
+  }
+
+  // Coloca una imagen a la derecha de la tarjeta (con su alto, sin deformar) y la une a ella.
+  // Si la tarjeta ya tiene imágenes, va a continuación de la última.
+  function attachNewImageBesideCard(imgItem, card, w, h) {
+    const height = Math.max(60, card.height || 135);
+    imgItem.height = height;
+    imgItem.width = Math.round(height * ((w || 400) / (h || 300)));
+    const right = engine.getAttachedImages(card).reduce((max, im) => Math.max(max, im.x + (im.width || 0)), card.x + (card.width || 0));
+    imgItem.x = Math.round(right + 16);
+    imgItem.y = Math.round(card.y);
+    engine.attachImageToCard(imgItem, card);
+  }
+
+  function pasteExternalImage(dataUrl, imgWidth = null, imgHeight = null, targetWorldPos = null, options = {}) {
     const target = targetWorldPos || getPasteTargetPosition();
     const placeholder = findImagePlaceholderTarget(target);
+    // Pegar con una tarjeta de enlace seleccionada: la imagen se une a ella (o a la tarjeta indicada)
+    const card = options.card || (options.fromPaste && !placeholder ? getSelectedLinkCard() : null);
     const handleAddImage = (w, h) => {
       let finalW = w || 400;
       let finalH = h || 300;
@@ -3745,13 +3855,16 @@ document.addEventListener('DOMContentLoaded', () => {
         engine.items = engine.items.filter(it => it.id !== placeholder.id);
       }
 
+      const attached = Boolean(card && engine.items.includes(card) && !placeholder);
+      if (attached) attachNewImageBesideCard(imgItem, card, w, h);
+
       engine.items.push(imgItem);
       engine.selectedItemIds.clear();
-      engine.selectedItemIds.add(imgItem.id);
-      if (engine.onSelectionChange) engine.onSelectionChange([imgItem.id]);
+      engine.selectedItemIds.add(attached ? card.id : imgItem.id);
+      if (engine.onSelectionChange) engine.onSelectionChange([attached ? card.id : imgItem.id]);
       engine.render();
       autoSaveBoard();
-      showDevToast('Imagen pegada');
+      showDevToast(attached ? 'Imagen unida al enlace' : 'Imagen pegada');
     };
 
     if (imgWidth && imgHeight && imgWidth > 0 && imgHeight > 0) {
@@ -4116,7 +4229,7 @@ document.addEventListener('DOMContentLoaded', () => {
           if (file) {
             const reader = new FileReader();
             reader.onload = (evt) => {
-              pasteExternalImage(evt.target.result, null, null, targetWorldPos);
+              pasteExternalImage(evt.target.result, null, null, targetWorldPos, { fromPaste: true });
             };
             reader.readAsDataURL(file);
             return;
@@ -4131,7 +4244,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (file.type && file.type.startsWith('image/')) {
           const reader = new FileReader();
           reader.onload = (evt) => {
-            pasteExternalImage(evt.target.result, null, null, targetWorldPos);
+            pasteExternalImage(evt.target.result, null, null, targetWorldPos, { fromPaste: true });
           };
           reader.readAsDataURL(file);
           return;
@@ -4157,7 +4270,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {}
 
     if (clipImg && clipImg.dataUrl) {
-      pasteExternalImage(clipImg.dataUrl, clipImg.width, clipImg.height, targetWorldPos);
+      pasteExternalImage(clipImg.dataUrl, clipImg.width, clipImg.height, targetWorldPos, { fromPaste: true });
       return;
     }
 
@@ -4172,7 +4285,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (blob) {
               const reader = new FileReader();
               reader.onload = (evt) => {
-                pasteExternalImage(evt.target.result, null, null, targetWorldPos);
+                pasteExternalImage(evt.target.result, null, null, targetWorldPos, { fromPaste: true });
               };
               reader.readAsDataURL(blob);
               return;
@@ -4187,7 +4300,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const isUrl = /^https?:\/\/[^\s]+/i.test(trimmedText) || /^www\.[a-z0-9\-]+(\.[a-z0-9\-]+)+[^\s]*/i.test(trimmedText);
       if (isUrl) {
         if (/\.(png|jpe?g|webp|gif|svg)(\?.*)?$/i.test(trimmedText) || trimmedText.includes('gstatic.com/images?')) {
-          pasteExternalImage(trimmedText, null, null, targetWorldPos);
+          pasteExternalImage(trimmedText, null, null, targetWorldPos, { fromPaste: true });
           return;
         }
         pasteExternalUrl(trimmedText, targetWorldPos);
@@ -4410,27 +4523,14 @@ document.addEventListener('DOMContentLoaded', () => {
     const isItalic = Boolean(item.isItalic);
     const align = item.textAlign || (item.type === 'sticky_note' || item.type === 'shape' ? 'center' : ((item.fillColor && item.fillColor !== 'transparent' && (!item.text || !item.text.includes('\n'))) ? 'center' : 'left'));
 
-    const hasDarkBanner = item.fillColor === '#2d2d2d' || item.fillColor === '#40414c' || item.fillColor === '#1a1a1a';
-    let textColor = item.textColor;
-    if (!textColor) {
-      if (item.type === 'sticky_note') {
-        textColor = '#1a1a1a';
-      } else if (item.type === 'code') {
-        textColor = '#abb2bf';
-      } else if (hasDarkBanner) {
-        textColor = engine.isDarkMode ? '#0f172a' : '#ffffff';
-      } else {
-        textColor = item.color || (engine.isDarkMode ? '#f1f5f9' : '#1a1a1a');
-      }
-    }
-    // En modo oscuro, el mismo color que pinta el lienzo: un texto oscuro se ve claro
-    // (los banners oscuros se pintan plateados, con texto oscuro; las notas adhesivas no cambian)
-    if (engine.isDarkMode && item.type !== 'sticky_note' && item.type !== 'code') {
-      if (hasDarkBanner) {
-        textColor = '#0f172a';
-      } else if (engine.isDarkColor(textColor)) {
-        textColor = '#f1f5f9';
-      }
+    // El mismo color con el que lo pinta el lienzo (respeta lo elegido y se adapta al tema y al fondo)
+    let textColor;
+    if (item.type === 'code') {
+      textColor = item.textColor || '#abb2bf';
+    } else if (item.type === 'frame') {
+      textColor = '#ffffff';
+    } else {
+      textColor = engine.getDisplayTextColor(item);
     }
 
     inlineEditor.style.fontFamily = fontFamily;
@@ -4545,13 +4645,7 @@ document.addEventListener('DOMContentLoaded', () => {
       inlineEditor.style.borderRadius = `${8 * zoom}px`;
     } else if (activeEditingItem.fillColor && activeEditingItem.fillColor !== 'transparent') {
       inlineEditor.style.padding = `${10 * zoom}px ${14 * zoom}px`;
-      let bg = activeEditingItem.fillColor;
-      if (engine.isDarkMode && (bg === '#2d2d2d' || bg === '#1a1a1a' || bg === '#40414c')) {
-        bg = '#eef2f5';
-      } else if (engine.isDarkMode && engine.isLightColor(bg)) {
-        bg = '#23262d';
-      }
-      inlineEditor.style.backgroundColor = bg;
+      inlineEditor.style.backgroundColor = engine.getDisplayFill(activeEditingItem) || 'transparent';
       inlineEditor.style.borderRadius = `${Math.min(8, (activeEditingItem.height || 40) / 4) * zoom}px`;
     } else {
       inlineEditor.style.padding = '0px';
@@ -6845,6 +6939,173 @@ document.addEventListener('DOMContentLoaded', () => {
       'marcos contenedores'
     );
   });
+
+  // =========================================================
+  // DESARROLLADOR: CAMBIAR LA FECHA DE LO SELECCIONADO (colocación o revisión, con calendario)
+  // Para reordenar en el Mapa de Frescura tableros importados con todo en la misma fecha. Se deshace con Ctrl+Z.
+  // =========================================================
+  const changeDatesModal = document.getElementById('change-dates-modal');
+  const changeDatesGrid = document.getElementById('change-dates-grid');
+  const changeDatesMonth = document.getElementById('change-dates-month');
+  const changeDatesYear = document.getElementById('change-dates-year');
+  const changeDatesPreview = document.getElementById('change-dates-preview');
+  const changeDatesCount = document.getElementById('change-dates-count');
+  const changeDatesIncludeFrames = document.getElementById('change-dates-include-frames');
+  const CHANGE_DATES_MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+  const changeDatesState = { selected: null, viewYear: 0, viewMonth: 0 };
+
+  // Lo seleccionado y, si se pide, lo que hay dentro de los marcos seleccionados
+  function getChangeDatesTargets() {
+    const selected = engine.items.filter(it => engine.selectedItemIds.has(it.id));
+    const ids = new Set(selected.map(it => it.id));
+    if (changeDatesIncludeFrames?.checked) {
+      selected.filter(it => it.type === 'frame').forEach(frame => {
+        engine.items.forEach(child => {
+          if (child.id !== frame.id && (child.parentId === frame.id || engine.isItemInsideFrame(child, frame))) ids.add(child.id);
+        });
+      });
+    }
+    return engine.items.filter(it => ids.has(it.id));
+  }
+
+  const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const changeDatesMode = () => document.querySelector('input[name="change-dates-mode"]:checked')?.value || 'created';
+
+  function renderChangeDatesModal() {
+    const targets = getChangeDatesTargets();
+    const hasFrames = engine.items.some(it => engine.selectedItemIds.has(it.id) && it.type === 'frame');
+    const framesRow = document.getElementById('change-dates-frames-row');
+    if (framesRow) framesRow.style.display = hasFrames ? '' : 'none';
+    if (changeDatesCount) changeDatesCount.textContent = `${targets.length} ${targets.length === 1 ? 'elemento' : 'elementos'} ${hasFrames && changeDatesIncludeFrames?.checked ? '(con el contenido de los marcos)' : 'seleccionados'}`;
+
+    const today = startOfDay(new Date());
+    const { viewYear, viewMonth } = changeDatesState;
+    if (changeDatesMonth) changeDatesMonth.value = String(viewMonth);
+    if (changeDatesYear) changeDatesYear.value = String(viewYear);
+
+    // Rejilla de lunes a domingo
+    const first = new Date(viewYear, viewMonth, 1);
+    const offset = (first.getDay() + 6) % 7;
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const sel = changeDatesState.selected;
+    let html = ['L', 'M', 'X', 'J', 'V', 'S', 'D'].map(d => `<span class="change-dates-dow">${d}</span>`).join('');
+    for (let i = 0; i < offset; i++) html += '<span></span>';
+    for (let day = 1; day <= daysInMonth; day++) {
+      const date = new Date(viewYear, viewMonth, day);
+      const isFuture = date > today;
+      const isSel = sel && date.getTime() === sel.getTime();
+      const isToday = date.getTime() === today.getTime();
+      html += `<button type="button" class="change-dates-day${isSel ? ' selected' : ''}${isToday ? ' today' : ''}" data-day="${day}"${isFuture ? ' disabled' : ''}>${day}</button>`;
+    }
+    if (changeDatesGrid) changeDatesGrid.innerHTML = html;
+
+    // Cómo saldrá en el Mapa de Frescura
+    if (changeDatesPreview) {
+      if (!sel) {
+        changeDatesPreview.innerHTML = 'Elige un día';
+      } else {
+        const iso = new Date(sel.getFullYear(), sel.getMonth(), sel.getDate(), 12).toISOString();
+        const info = engine.getItemFreshnessInfo({ id: 'preview', createdAt: iso });
+        const note = changeDatesMode() === 'created'
+          ? 'Se quitan las revisiones que tuvieran.'
+          : 'Solo cuenta en los elementos colocados antes de ese día.';
+        changeDatesPreview.innerHTML = `<span class="change-dates-dot" style="background:${info.color}"></span>
+          <span><b>${escapeHtmlText(info.formattedDate)}</b> · ${escapeHtmlText(info.relativeText)} · ${escapeHtmlText(info.tierLabel)}<br><small>${note}</small></span>`;
+      }
+    }
+  }
+
+  function setChangeDatesSelected(date) {
+    changeDatesState.selected = startOfDay(date);
+    changeDatesState.viewYear = date.getFullYear();
+    changeDatesState.viewMonth = date.getMonth();
+    renderChangeDatesModal();
+  }
+
+  function openChangeDatesModal() {
+    if (!changeDatesModal) return;
+    if (engine.selectedItemIds.size === 0) {
+      showDevToast('Selecciona primero los elementos a los que cambiar la fecha');
+      return;
+    }
+    // Selectores de mes y año (desde 2015 hasta hoy)
+    const thisYear = new Date().getFullYear();
+    if (changeDatesMonth && !changeDatesMonth.options.length) {
+      changeDatesMonth.innerHTML = CHANGE_DATES_MONTHS.map((m, i) => `<option value="${i}">${m}</option>`).join('');
+    }
+    if (changeDatesYear) {
+      let years = '';
+      for (let y = thisYear; y >= 2015; y--) years += `<option value="${y}">${y}</option>`;
+      changeDatesYear.innerHTML = years;
+    }
+    // Empieza en la fecha de colocación del primero seleccionado
+    const firstSel = engine.items.find(it => engine.selectedItemIds.has(it.id));
+    const ms = engine.getItemCreatedAtMs(firstSel) || Date.now();
+    changeDatesModal.style.display = 'flex';
+    setChangeDatesSelected(new Date(Math.min(ms, Date.now())));
+  }
+
+  function closeChangeDatesModal() {
+    if (changeDatesModal) changeDatesModal.style.display = 'none';
+  }
+
+  function applyChangeDates() {
+    const sel = changeDatesState.selected;
+    const targets = getChangeDatesTargets();
+    if (!sel || targets.length === 0) return;
+    // Mediodía de ese día (así ningún huso horario lo pasa al día anterior o siguiente)
+    const iso = new Date(sel.getFullYear(), sel.getMonth(), sel.getDate(), 12).toISOString();
+    const mode = changeDatesMode();
+    engine.saveSnapshot();
+    targets.forEach(it => {
+      if (mode === 'created') {
+        it.createdAt = iso;
+        delete it.reviewedAt;
+      } else {
+        it.reviewedAt = iso;
+      }
+    });
+    closeChangeDatesModal();
+    engine.render();
+    autoSaveBoardImmediately();
+    const { formattedDate } = engine.formatDateParts(Date.parse(iso));
+    showDevToast(`${mode === 'created' ? 'Colocados' : 'Revisados'} el ${formattedDate}: ${targets.length} ${targets.length === 1 ? 'elemento' : 'elementos'} (Ctrl+Z para deshacer)`);
+  }
+
+  document.getElementById('dev-opt-change-dates')?.addEventListener('click', () => {
+    devOptionsMenu?.classList.remove('visible');
+    openChangeDatesModal();
+  });
+  document.getElementById('btn-close-change-dates')?.addEventListener('click', closeChangeDatesModal);
+  document.getElementById('btn-cancel-change-dates')?.addEventListener('click', closeChangeDatesModal);
+  document.getElementById('btn-apply-change-dates')?.addEventListener('click', applyChangeDates);
+  changeDatesModal?.addEventListener('click', (e) => { if (e.target === changeDatesModal) closeChangeDatesModal(); });
+  changeDatesModal?.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeChangeDatesModal();
+    else if (e.key === 'Enter' && !e.target.closest('select')) applyChangeDates();
+  });
+  changeDatesGrid?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.change-dates-day');
+    if (!btn || btn.disabled) return;
+    setChangeDatesSelected(new Date(changeDatesState.viewYear, changeDatesState.viewMonth, Number(btn.dataset.day)));
+  });
+  document.getElementById('change-dates-quick')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-days]');
+    if (!btn) return;
+    setChangeDatesSelected(new Date(Date.now() - Number(btn.dataset.days) * 86400000));
+  });
+  const shiftChangeDatesMonth = (delta) => {
+    const d = new Date(changeDatesState.viewYear, changeDatesState.viewMonth + delta, 1);
+    changeDatesState.viewYear = d.getFullYear();
+    changeDatesState.viewMonth = d.getMonth();
+    renderChangeDatesModal();
+  };
+  document.getElementById('change-dates-prev')?.addEventListener('click', () => shiftChangeDatesMonth(-1));
+  document.getElementById('change-dates-next')?.addEventListener('click', () => shiftChangeDatesMonth(1));
+  changeDatesMonth?.addEventListener('change', () => { changeDatesState.viewMonth = Number(changeDatesMonth.value); renderChangeDatesModal(); });
+  changeDatesYear?.addEventListener('change', () => { changeDatesState.viewYear = Number(changeDatesYear.value); renderChangeDatesModal(); });
+  changeDatesIncludeFrames?.addEventListener('change', renderChangeDatesModal);
+  document.querySelectorAll('input[name="change-dates-mode"]').forEach(r => r.addEventListener('change', renderChangeDatesModal));
 
   // Cierre de menús flotantes al hacer clic fuera
   document.addEventListener('click', (e) => {
