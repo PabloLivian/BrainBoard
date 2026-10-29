@@ -192,6 +192,8 @@ const list = [
       const S = window.__shots;
       await S.openBoard('IA generativa');
       S.frame(-20, -40, 820, 420);
+      // El primer clic elige la herramienta y el segundo abre su menú
+      S.click('btn-tool-template');
       S.click('btn-tool-template');
     }
   },

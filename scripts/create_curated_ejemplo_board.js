@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const SEED_VERSION = 20;
+const SEED_VERSION = 21;
 
 const C = {
   frame: '#12161f',
@@ -207,7 +207,7 @@ header(canvas, 'Plantillas, alinear, capas y duplicar');
   });
 });
 note(canvas, 'lienzo_note', 1050, 124, 530, 396,
-  '• Plantillas (botón de la barra izquierda): Apuntes, Recurso + apunte, Galería y Comparativa. Los huecos de la izquierda son de la Galería: pega una imagen encima.\n' +
+  '• Plantillas (tercer botón de la barra izquierda): Apuntes, Recursos, Galería, Texto desplegable y más. Los huecos de la izquierda son de la Galería: pega una imagen encima.\n' +
   '• Alinear y distribuir: con 2 o más elementos seleccionados.\n' +
   '• Capas: ] trae adelante y [ envía atrás (con Shift, al frente o al fondo).\n' +
   '• Duplicar: arrastra con Alt pulsado o Ctrl+D.\n' +
