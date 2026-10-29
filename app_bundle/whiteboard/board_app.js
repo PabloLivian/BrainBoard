@@ -1412,7 +1412,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (engine.onBoardModified) engine.onBoardModified();
     engine.render();
     autoSaveBoardImmediately();
-    const templateNames = { apuntes: 'Apuntes', recurso_apunte: 'Recurso + apunte', galeria: 'Galería de referencias', titulo_indice: 'Título para índice', desplegable: 'Texto desplegable' };
+    const templateNames = { apuntes: 'Apuntes', recurso_apunte: 'Recurso + apunte', galeria: 'Galería de referencias', titulo_indice: 'Título para índice', desplegable: 'Texto desplegable', recursos: 'Recursos' };
     showDevToast(`Plantilla «${templateNames[templateType] || 'Apuntes'}» insertada`);
   }
   window.insertTemplate = insertTemplate;
@@ -1455,6 +1455,53 @@ document.addEventListener('DOMContentLoaded', () => {
     updateMinimap();
     window.refreshFramesIndexIfOpen?.();
   };
+
+  // Menú «Ordenar» de un contenedor de recursos (plantilla Recursos)
+  let resourceSortMenu = null;
+  function closeResourceSortMenu() {
+    resourceSortMenu?.remove();
+    resourceSortMenu = null;
+  }
+  engine.onResourceSortClick = (frame, screenX, screenY) => {
+    closeResourceSortMenu();
+    // Después del pointerdown que lo abre (si no, el cierre por clic fuera lo quitaría al momento)
+    setTimeout(() => openResourceSortMenu(frame, screenX, screenY), 0);
+  };
+  function openResourceSortMenu(frame, screenX, screenY) {
+    closeResourceSortMenu();
+    const menu = document.createElement('div');
+    menu.className = 'resource-sort-menu';
+    const options = [
+      ['newest', 'Más reciente', 'Lo último que añadiste, primero'],
+      ['oldest', 'Menos reciente', 'Lo más antiguo, primero'],
+      ['most_stars', 'Más estrellas', 'De 5 a 1 estrella; sin puntuar al final'],
+      ['least_stars', 'Menos estrellas', 'De 1 a 5 estrellas; sin puntuar al final']
+    ];
+    menu.innerHTML = '<div class="resource-sort-menu-title">ORDENAR RECURSOS</div>' + options.map(([mode, label, desc]) =>
+      `<button type="button" class="resource-sort-option${frame.sortMode === mode ? ' active' : ''}" data-mode="${mode}">
+        <span class="resource-sort-option-name">${label}</span>
+        <span class="resource-sort-option-desc">${desc}</span>
+      </button>`).join('');
+    document.body.appendChild(menu);
+    const w = menu.offsetWidth;
+    const h = menu.offsetHeight;
+    menu.style.left = `${Math.max(8, Math.min(window.innerWidth - w - 8, screenX - w))}px`;
+    menu.style.top = `${Math.max(8, Math.min(window.innerHeight - h - 8, screenY + 6))}px`;
+    menu.addEventListener('pointerdown', (e) => e.stopPropagation());
+    menu.addEventListener('click', (e) => {
+      const btn = e.target.closest('.resource-sort-option');
+      if (!btn) return;
+      const count = engine.sortResourceFrame(frame, btn.dataset.mode);
+      closeResourceSortMenu();
+      autoSaveBoardImmediately();
+      const label = options.find(o => o[0] === btn.dataset.mode)?.[1] || '';
+      showDevToast(count ? `Recursos ordenados: ${label.toLowerCase()}` : 'Este contenedor aún no tiene recursos');
+    });
+    resourceSortMenu = menu;
+  }
+  document.addEventListener('pointerdown', () => closeResourceSortMenu());
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeResourceSortMenu(); });
+  canvasElement.addEventListener('wheel', () => closeResourceSortMenu(), { passive: true });
 
   // Botón de copiar de un texto desplegable
   engine.onCopyText = (text) => {
@@ -4249,6 +4296,8 @@ document.addEventListener('DOMContentLoaded', () => {
   // Doble clic para editar texto in-situ o abrir enlaces
   canvasElement.addEventListener('dblclick', (e) => {
     const world = engine.screenToWorld(e.clientX, e.clientY);
+    // Doble clic en el botón «Ordenar»: no editar el título que tiene debajo
+    if (engine.getResourceSortPillAt(world.x, world.y)) return;
     let clicked = null;
     if (engine.selectedItemIds.size === 1) {
       const selId = Array.from(engine.selectedItemIds)[0];

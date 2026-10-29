@@ -410,6 +410,98 @@ html, body {
   user-select: none;
 }
 
+/* Menú «Ordenar» del contenedor de recursos */
+.resource-sort-menu {
+  position: fixed;
+  z-index: 900;
+  width: 250px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.06);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  user-select: none;
+  animation: searchSlideDown 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.resource-sort-menu-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: #94a3b8;
+  padding: 4px 8px 4px;
+}
+
+.resource-sort-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+
+.resource-sort-option:hover {
+  background: #f1f5f9;
+}
+
+.resource-sort-option.active {
+  background: #eff6ff;
+}
+
+.resource-sort-option-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1e293b;
+}
+
+.resource-sort-option.active .resource-sort-option-name {
+  color: #2563eb;
+}
+
+.resource-sort-option-desc {
+  font-size: 11px;
+  color: #64748b;
+}
+
+body.dark-theme .resource-sort-menu {
+  background: #1e222b;
+  border-color: #2d323b;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-theme .resource-sort-menu-title {
+  color: #64748b;
+}
+
+body.dark-theme .resource-sort-option:hover {
+  background: #262b34;
+}
+
+body.dark-theme .resource-sort-option.active {
+  background: rgba(59, 130, 246, 0.18);
+}
+
+body.dark-theme .resource-sort-option-name {
+  color: #e2e8f0;
+}
+
+body.dark-theme .resource-sort-option.active .resource-sort-option-name {
+  color: #93c5fd;
+}
+
+body.dark-theme .resource-sort-option-desc {
+  color: #94a3b8;
+}
+
 /* Panel de la pluma: grosor y color (favoritos) */
 .pen-options-menu {
   min-width: 0;

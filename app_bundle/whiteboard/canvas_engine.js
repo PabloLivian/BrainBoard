@@ -982,7 +982,161 @@ class CanvasEngine {
   }
 
   // Títulos que trae cada plantilla en la etiqueta del marco: con ellos, la etiqueta enseña la cabecera
-  static GENERIC_FRAME_TITLES = new Set(['plantilla', 'recurso + apunte', 'referencias', 'comparativa', '']);
+  static GENERIC_FRAME_TITLES = new Set(['plantilla', 'recurso + apunte', 'referencias', 'comparativa', 'recursos', '']);
+
+  // =========================================================
+  // CONTENEDOR DE RECURSOS (plantilla Recursos, frame.isResourceBoard)
+  // Botón «Ordenar» encima del marco: recoloca los recursos en filas por fecha o por estrellas.
+  // =========================================================
+  static RESOURCE_SORT_LABELS = {
+    newest: 'Más reciente',
+    oldest: 'Menos reciente',
+    most_stars: 'Más estrellas',
+    least_stars: 'Menos estrellas'
+  };
+
+  // El botón va dentro de la banda del título, a la derecha (sin título, encima del marco a la derecha)
+  getResourceSortPillRect(frame) {
+    const label = this.getResourceSortPillLabel(frame);
+    this.ctx.save();
+    this.ctx.font = '600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const w = Math.ceil(this.ctx.measureText(label).width) + 54;
+    this.ctx.restore();
+    const h = 30;
+    const titleItem = this.getFrameTitleItem(frame);
+    if (titleItem && this.isItemInsideFrame(titleItem, frame)) {
+      return { x: titleItem.x + titleItem.width - w - 12, y: titleItem.y + ((titleItem.height || 0) - h) / 2, w, h };
+    }
+    return { x: frame.x + frame.width - w, y: frame.y - h - 6, w, h };
+  }
+
+  getResourceSortPillLabel(frame) {
+    const mode = CanvasEngine.RESOURCE_SORT_LABELS[frame.sortMode];
+    return mode ? `Orden: ${mode}` : 'Ordenar';
+  }
+
+  getResourceSortPillAt(wx, wy) {
+    const frames = this.getSortedItemsForRender(true).filter(it => it.type === 'frame' && it.isResourceBoard);
+    return frames.find(f => {
+      const r = this.getResourceSortPillRect(f);
+      return wx >= r.x && wx <= r.x + r.w && wy >= r.y && wy <= r.y + r.h;
+    }) || null;
+  }
+
+  // Recursos del contenedor agrupados en piezas: una tarjeta o imagen se lleva el pie de texto que tiene justo debajo
+  getResourceFrameUnits(frame) {
+    const titleIds = new Set(this.getFrameFitChildren(frame).map(f => f.item.id));
+    const titleItem = this.getFrameTitleItem(frame);
+    if (titleItem) titleIds.add(titleItem.id);
+    const members = this.items.filter(it => it.id !== frame.id && !titleIds.has(it.id) &&
+      !['frame', 'connector', 'pen', 'comment'].includes(it.type) && typeof it.x === 'number' &&
+      this.getContainingFrame(it)?.id === frame.id);
+    const anchors = members.filter(m => m.type !== 'text');
+    const units = new Map(anchors.map(a => [a.id, [a]]));
+    members.filter(m => m.type === 'text').forEach(t => {
+      const a = anchors.find(c => Math.abs(t.x - c.x) <= 24 && t.y >= c.y + (c.height || 0) - 4 && t.y - (c.y + (c.height || 0)) <= 40);
+      if (a) units.get(a.id).push(t);
+      else units.set(t.id, [t]);
+    });
+    return Array.from(units.values()).map(list => {
+      const xs = list.map(i => i.x), ys = list.map(i => i.y);
+      const x2 = list.map(i => i.x + (i.width || 0)), y2 = list.map(i => i.y + (i.height || 0));
+      const bounds = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...x2) - Math.min(...xs), h: Math.max(...y2) - Math.min(...ys) };
+      return { main: list[0], items: list, bounds };
+    });
+  }
+
+  // Ordena y recoloca los recursos de izquierda a derecha y en filas, bajo el título. Sin estrellas van al final.
+  sortResourceFrame(frame, mode) {
+    if (!frame || !CanvasEngine.RESOURCE_SORT_LABELS[mode]) return 0;
+    this.saveSnapshot();
+    const units = this.getResourceFrameUnits(frame);
+    const time = (u) => Date.parse(u.main.createdAt || '') || 0;
+    const stars = (u) => Number(u.main.rating) || 0;
+    units.sort((a, b) => {
+      if (mode === 'newest') return time(b) - time(a);
+      if (mode === 'oldest') return time(a) - time(b);
+      const sa = stars(a), sb = stars(b);
+      if (!sa !== !sb) return sa ? -1 : 1;
+      if (sa !== sb) return mode === 'most_stars' ? sb - sa : sa - sb;
+      return time(b) - time(a);
+    });
+
+    const pad = 30;
+    const gap = 24;
+    const titleItem = this.getFrameTitleItem(frame) || this.getFrameFitChildren(frame)[0]?.item;
+    const startY = titleItem ? titleItem.y + (titleItem.height || 0) + 28 : frame.y + 40;
+    const maxX = frame.x + frame.width - pad;
+    let x = frame.x + pad;
+    let y = startY;
+    let rowH = 0;
+    units.forEach(u => {
+      if (x > frame.x + pad && x + u.bounds.w > maxX) {
+        x = frame.x + pad;
+        y += rowH + gap;
+        rowH = 0;
+      }
+      const dx = x - u.bounds.x;
+      const dy = y - u.bounds.y;
+      u.items.forEach(it => {
+        it.x += dx;
+        it.y += dy;
+        this.updateConnectedLinesForItem(it);
+      });
+      x += u.bounds.w + gap;
+      rowH = Math.max(rowH, u.bounds.h);
+    });
+    // Si no caben, el marco crece hacia abajo
+    if (units.length) {
+      const needed = Math.ceil(y + rowH + pad - frame.y);
+      if (needed > frame.height) frame.height = needed;
+    }
+    frame.sortMode = mode;
+    frame.updatedAt = new Date().toISOString();
+    this.render();
+    if (this.onBoardModified) this.onBoardModified();
+    return units.length;
+  }
+
+  drawResourceSortPill(frame) {
+    const r = this.getResourceSortPillRect(frame);
+    const dark = this.isDarkMode;
+    const hovered = this.hoveredSortPillId === frame.id;
+    this.ctx.save();
+    this.ctx.fillStyle = hovered ? (dark ? '#323844' : '#e2e8f0') : (dark ? '#262A34' : '#ffffff');
+    this.ctx.strokeStyle = dark ? '#3a404c' : '#cbd5e1';
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, r.x, r.y, r.w, r.h, 6);
+    this.ctx.fill();
+    this.ctx.stroke();
+    const accent = dark ? '#93c5fd' : '#2563eb';
+    // Icono ⇅
+    const ix = r.x + 16;
+    const iy = r.y + r.h / 2;
+    this.ctx.strokeStyle = accent;
+    this.ctx.lineWidth = 1.5;
+    this.ctx.lineCap = 'round';
+    this.ctx.lineJoin = 'round';
+    this.ctx.beginPath();
+    this.ctx.moveTo(ix - 3, iy + 5); this.ctx.lineTo(ix - 3, iy - 5); this.ctx.moveTo(ix - 6, iy - 2); this.ctx.lineTo(ix - 3, iy - 5); this.ctx.lineTo(ix, iy - 2);
+    this.ctx.moveTo(ix + 3, iy - 5); this.ctx.lineTo(ix + 3, iy + 5); this.ctx.moveTo(ix, iy + 2); this.ctx.lineTo(ix + 3, iy + 5); this.ctx.lineTo(ix + 6, iy + 2);
+    this.ctx.stroke();
+    this.ctx.fillStyle = dark ? '#e2e8f0' : '#1e293b';
+    this.ctx.font = '600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(this.getResourceSortPillLabel(frame), r.x + 29, iy + 0.5);
+    // Flecha del desplegable
+    this.ctx.fillStyle = dark ? '#94a3b8' : '#64748b';
+    this.ctx.beginPath();
+    this.ctx.moveTo(r.x + r.w - 18, iy - 2.5);
+    this.ctx.lineTo(r.x + r.w - 10, iy - 2.5);
+    this.ctx.lineTo(r.x + r.w - 14, iy + 2.5);
+    this.ctx.closePath();
+    this.ctx.fill();
+    this.ctx.restore();
+  }
 
   // Texto que hace de título del marco: el título de índice de su plantilla (Apuntes) o, si la etiqueta
   // conserva el nombre genérico de la plantilla, la banda de cabecera de arriba. Se calcula una vez por dibujado.
@@ -1673,6 +1827,22 @@ class CanvasEngine {
         return;
       }
 
+      // 0. Botón «Ordenar» de un contenedor de recursos: abre el menú de orden
+      const sortFrame = this.getResourceSortPillAt(world.x, world.y);
+      if (sortFrame) {
+        this.selectedItemIds.clear();
+        this.selectedItemIds.add(sortFrame.id);
+        if (this.onSelectionChange) this.onSelectionChange([sortFrame.id]);
+        this.render();
+        if (this.onResourceSortClick) {
+          const r = this.getResourceSortPillRect(sortFrame);
+          const s = this.worldToScreen(r.x + r.w, r.y + r.h);
+          const rect = this.canvas.getBoundingClientRect();
+          this.onResourceSortClick(sortFrame, rect.left + s.x, rect.top + s.y);
+        }
+        return;
+      }
+
       // 0. Barra "Ver contenido" de una tarjeta de carpeta: despliega o recoge su contenido
       const folderToggle = this.getFolderToggleAt(world.x, world.y);
       if (folderToggle) {
@@ -2193,6 +2363,45 @@ class CanvasEngine {
       };
 
       createdItems.push(frame, title, notes);
+    } else if (templateType === 'recursos') {
+      // Contenedor de recursos: título que sigue al ancho del marco y botón «Ordenar» (fecha o estrellas)
+      const frameW = 1100;
+      const frameH = 620;
+      const frameX = Math.round(targetCenterX - frameW / 2);
+      const frameY = Math.round(targetCenterY - frameH / 2);
+      const frameId = 'frame_' + now + '_' + Math.random().toString(36).substr(2, 5);
+      createdItems.push({
+        id: frameId,
+        type: 'frame',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        x: frameX,
+        y: frameY,
+        width: frameW,
+        height: frameH,
+        title: 'Recursos',
+        isResourceBoard: true,
+        zIndex: currentMaxZ + 1
+      }, {
+        id: 'text_' + now + '_' + Math.random().toString(36).substr(2, 5),
+        type: 'text',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        parentId: frameId,
+        x: frameX + 23,
+        y: frameY + 17,
+        width: frameW - 50,
+        height: 64,
+        text: 'RECURSOS',
+        fontSize: 40,
+        color: '#eff3f7',
+        textColor: '#eff3f7',
+        fillColor: '#1a1a1a',
+        isBold: true,
+        isIndexTitle: true,
+        fitToFrameWidth: true,
+        zIndex: currentMaxZ + 2
+      });
     } else if (templateType === 'desplegable') {
       // Texto desplegable (spoiler): se crea abierto para escribir el texto; un clic en la cabecera lo cierra
       const w = 440;
@@ -2507,8 +2716,16 @@ class CanvasEngine {
         this.render();
       }
 
-      const handleHit = this.getResizeHandleAt(world.x, world.y);
-      if (handleHit) {
+      const sortPillFrame = this.getResourceSortPillAt(world.x, world.y);
+      if ((sortPillFrame?.id || null) !== (this.hoveredSortPillId || null)) {
+        this.hoveredSortPillId = sortPillFrame?.id || null;
+        this.render();
+      }
+      const handleHit = sortPillFrame ? null : this.getResizeHandleAt(world.x, world.y);
+      if (sortPillFrame) {
+        this.canvas.style.cursor = 'pointer';
+        this.clearHoverDateTooltip();
+      } else if (handleHit) {
         this.canvas.style.cursor = handleHit.cursor;
         this.clearHoverDateTooltip();
         this.setRatingHover(null, 0);
@@ -2847,6 +3064,12 @@ class CanvasEngine {
         } finally {
           this.ctx.restore();
         }
+      });
+
+      // Botón «Ordenar» de los contenedores de recursos, por encima de su título
+      sortedItems.forEach(it => {
+        if (it.type !== 'frame' || !it.isResourceBoard || !isVisible(it)) return;
+        try { this.drawResourceSortPill(it); } catch (e) { console.error(e); }
       });
 
       // 8. Smart Guides magnéticas
@@ -4220,6 +4443,25 @@ class CanvasEngine {
     this.ctx.strokeStyle = borderColor;
     this.ctx.lineWidth = 1;
     this.ctx.strokeRect(it.x, it.y, it.width, it.height);
+
+    // Contenedor de recursos vacío: cómo llenarlo (el botón «Ordenar» se dibuja al final, por encima de todo)
+    if (it.isResourceBoard) {
+      const titleItem = this.getFrameTitleItem(it);
+      const hasContent = this.items.some(c => c.id !== it.id && c.id !== titleItem?.id && c.type !== 'frame' &&
+        c.type !== 'connector' && c.type !== 'pen' && typeof c.x === 'number' && this.isItemInsideFrame(c, it));
+      if (!hasContent) {
+        const top = titleItem ? titleItem.y + (titleItem.height || 0) : it.y;
+        this.ctx.save();
+        this.ctx.fillStyle = this.isDarkMode ? '#64748b' : '#64748b';
+        this.ctx.font = '500 17px OpenSans, -apple-system, "Segoe UI", sans-serif';
+        this.ctx.textAlign = 'center';
+        this.ctx.textBaseline = 'middle';
+        this.ctx.fillText('Pega o arrastra aquí enlaces, vídeos e imágenes', it.x + it.width / 2, (top + it.y + it.height) / 2 - 12);
+        this.ctx.font = '400 14px OpenSans, -apple-system, "Segoe UI", sans-serif';
+        this.ctx.fillText('Luego ordénalos con el botón «Ordenar» de arriba a la derecha', it.x + it.width / 2, (top + it.y + it.height) / 2 + 14);
+        this.ctx.restore();
+      }
+    }
 
     // Etiqueta del marco arriba si tiene título o ligero contorno sutil si está vacía
     const tabHeight = 26;
