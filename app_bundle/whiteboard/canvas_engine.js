@@ -680,7 +680,8 @@ class CanvasEngine {
   isPointOnFrameHeader(frame, wx, wy) {
     if (!frame || frame.type !== 'frame') return false;
     const tabHeight = 28;
-    const tabWidth = Math.max(80, (frame.title ? frame.title.length * 9 : 0) + 26);
+    const label = this.getFrameLabel(frame);
+    const tabWidth = Math.max(80, (label ? label.length * 9 : 0) + 26);
     return wx >= frame.x && wx <= frame.x + tabWidth && wy >= frame.y - tabHeight && wy <= frame.y + 4;
   }
 
@@ -978,6 +979,41 @@ class CanvasEngine {
         top: c.y - frame.y,
         right: frame.x + frame.width - (c.x + (c.width || 0))
       }));
+  }
+
+  // Títulos que trae cada plantilla en la etiqueta del marco: con ellos, la etiqueta enseña la cabecera
+  static GENERIC_FRAME_TITLES = new Set(['plantilla', 'recurso + apunte', 'referencias', 'comparativa', '']);
+
+  // Texto que hace de título del marco: el título de índice de su plantilla (Apuntes) o, si la etiqueta
+  // conserva el nombre genérico de la plantilla, la banda de cabecera de arriba. Se calcula una vez por dibujado.
+  getFrameTitleItem(frame) {
+    if (!frame || frame.type !== 'frame') return null;
+    if (!this.frameTitleCache || this.frameTitleCache.count !== this.items.length) {
+      const byParent = new Map();
+      this.items.forEach(c => {
+        if (c.type !== 'text' || !c.parentId || !String(c.text || '').trim()) return;
+        if (!byParent.has(c.parentId)) byParent.set(c.parentId, []);
+        byParent.get(c.parentId).push(c);
+      });
+      this.frameTitleCache = { count: this.items.length, byParent, result: new Map() };
+    }
+    const cache = this.frameTitleCache;
+    if (cache.result.has(frame.id)) return cache.result.get(frame.id);
+    const children = (cache.byParent.get(frame.id) || []).filter(c => this.isItemInsideFrame(c, frame));
+    let found = children.filter(c => c.isIndexTitle).sort((a, b) => a.y - b.y)[0] || null;
+    if (!found && CanvasEngine.GENERIC_FRAME_TITLES.has(String(frame.title || '').trim().toLowerCase())) {
+      found = this.getFrameFitChildren(frame).map(f => f.item).filter(c => String(c.text || '').trim()).sort((a, b) => a.y - b.y)[0] || null;
+    }
+    cache.result.set(frame.id, found);
+    return found;
+  }
+
+  // Lo que pone la etiqueta del marco
+  getFrameLabel(frame) {
+    const titleItem = this.getFrameTitleItem(frame);
+    if (!titleItem) return String(frame?.title || '');
+    const text = String(titleItem.text).replace(/\s+/g, ' ').trim();
+    return text.length > 60 ? text.slice(0, 59) + '…' : text;
   }
 
   isItemInsideFrame(child, frame) {
@@ -2736,6 +2772,7 @@ class CanvasEngine {
   // Renderizado del lienzo
   render() {
     const dpr = window.devicePixelRatio || 1;
+    this.frameTitleCache = null;
     // 1. Limpieza absoluta a nivel de pixel fisico (elimina cualquier rastro o estela)
     this.ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
@@ -4186,10 +4223,11 @@ class CanvasEngine {
 
     // Etiqueta del marco arriba si tiene título o ligero contorno sutil si está vacía
     const tabHeight = 26;
-    if (it.title) {
+    const label = this.getFrameLabel(it);
+    if (label) {
       const titleFont = '600 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
       this.ctx.font = titleFont;
-      const textWidth = this.ctx.measureText(it.title).width;
+      const textWidth = this.ctx.measureText(label).width;
       const tabWidth = Math.max(70, textWidth + 24);
 
       this.ctx.fillStyle = tabColor;
@@ -4206,7 +4244,7 @@ class CanvasEngine {
       this.ctx.fillStyle = tabTextColor;
       this.ctx.textAlign = 'left';
       this.ctx.textBaseline = 'middle';
-      this.ctx.fillText(it.title, it.x + 12, it.y - tabHeight / 2);
+      this.ctx.fillText(label, it.x + 12, it.y - tabHeight / 2);
     } else {
       // Si en la etiqueta no hay nada, habrá un ligero contorno casi inapreciable
       const tabWidth = 80;

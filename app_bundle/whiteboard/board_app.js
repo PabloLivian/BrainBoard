@@ -4286,7 +4286,8 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (clicked.type === 'frame') {
         if (engine.isPointOnFrameHeader(clicked, world.x, world.y)) {
-          openInlineEditor(clicked);
+          // La etiqueta enseña el título del contenedor: editarla es editar ese título
+          openInlineEditor(engine.getFrameTitleItem(clicked) || clicked);
           return;
         } else {
           clicked = null;
@@ -7278,11 +7279,9 @@ document.addEventListener('DOMContentLoaded', () => {
   const sortByReadingOrder = (list) =>
     list.sort((a, b) => (Math.round(a.y / 300) - Math.round(b.y / 300)) || (a.x - b.x));
 
-  // Título de índice que da nombre a un marco: el de su plantilla (Apuntes), que sigue dentro del marco
+  // Título que da nombre a un marco (el mismo que enseña su etiqueta): el de su plantilla, que sigue dentro del marco
   function getFrameIndexTitle(frame) {
-    const own = engine.items.filter(c => c.type === 'text' && c.isIndexTitle && c.parentId === frame.id &&
-      String(c.text || '').trim() && engine.isItemInsideFrame(c, frame));
-    return own.sort((a, b) => a.y - b.y)[0] || null;
+    return engine.getFrameTitleItem(frame);
   }
 
   // Secciones del tablero en árbol: marcos, títulos para índice y cabeceras sueltas.
