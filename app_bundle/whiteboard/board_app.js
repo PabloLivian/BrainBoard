@@ -1041,6 +1041,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const linkLabel = document.getElementById('btn-prop-link-image-label');
     const { action } = getGroupAction();
     if (addBtn) addBtn.style.display = getSelectedLinkCard() ? 'inline-flex' : 'none';
+    const captionBtn = document.getElementById('btn-prop-ai-caption');
+    if (captionBtn) captionBtn.style.display = getSelectedLinkCard() ? 'inline-flex' : 'none';
     if (linkBtn) {
       linkBtn.style.display = action ? 'inline-flex' : 'none';
       if (linkLabel) linkLabel.textContent = action === 'unlink' ? 'Separar' : 'Unir';
@@ -1064,6 +1066,98 @@ document.addEventListener('DOMContentLoaded', () => {
     engine.render();
     syncPropertiesBarWithSelection();
     autoSaveBoardImmediately();
+  });
+
+  // =========================================================
+  // RESUMEN CON IA DE UNA TARJETA DE ENLACE: 4-14 palabras debajo de la tarjeta, unidas a ella
+  // =========================================================
+  // El pie que ya tiene la tarjeta (en su grupo y justo debajo), para cambiarlo en vez de poner otro
+  function findCardCaption(card) {
+    return engine.getGroupMembers(card).find(t => t.type === 'text' && t.id !== card.id &&
+      Math.abs(t.x - card.x) <= 24 && t.y >= card.y + card.height - 4 && t.y - (card.y + card.height) <= 40) || null;
+  }
+
+  function cleanAiCaption(raw) {
+    let text = String(raw || '')
+      .replace(/<brainboard_action>[\s\S]*?<\/brainboard_action>/gi, '')
+      .replace(/```[\s\S]*?```/g, '')
+      .split('\n').map(l => l.trim()).filter(Boolean)[0] || '';
+    // Quita viñetas, negritas, comillas y un «Resumen:» delante, en el orden en que vengan
+    const QUOTES = /^["'«“*_`\s-]+|["'»”*_`\s]+$/g;
+    text = text.replace(QUOTES, '').replace(/^(resumen|summary|descripci[oó]n|texto)\s*:\s*/i, '').replace(QUOTES, '').replace(/[.。]+$/, '').trim();
+    const words = text.split(/\s+/).filter(Boolean);
+    return words.slice(0, 14).join(' ');
+  }
+
+  async function createAiCaptionForCard(card) {
+    const btn = document.getElementById('btn-prop-ai-caption');
+    if (btn?.classList.contains('is-loading')) return;
+    btn?.classList.add('is-loading');
+    showDevToast(`Pidiendo el resumen a ${getProviderDisplayName(brainAiSettings.provider)}…`);
+    try {
+      let live = '';
+      try {
+        const info = await fetchLiveUrlContextForAi(card.url);
+        if (info) live = JSON.stringify(info).slice(0, 1500);
+      } catch (e) {}
+      const prompt = [
+        'Escribe un resumen de entre 4 y 14 palabras, en español de España, que diga para qué sirve este recurso o de qué trata.',
+        'Responde SOLO con el resumen: una línea, sin comillas, sin punto final, sin emojis y sin ninguna acción <brainboard_action>.',
+        '',
+        `Título: ${card.title || ''}`,
+        `Descripción: ${card.description || ''}`,
+        `Enlace: ${card.url || ''}`,
+        live ? `Información del enlace: ${live}` : ''
+      ].join('\n');
+      const caption = cleanAiCaption(await callConfiguredAiProvider(prompt));
+      if (caption.split(/\s+/).length < 2) throw new Error('La IA no ha devuelto un resumen');
+      if (!engine.items.includes(card)) return;
+
+      engine.saveSnapshot();
+      const nowIso = new Date().toISOString();
+      let text = findCardCaption(card);
+      if (text) {
+        text.text = caption;
+        text.updatedAt = nowIso;
+        text.reviewedAt = nowIso;
+      } else {
+        text = {
+          id: 'text_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+          type: 'text',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+          x: card.x,
+          y: card.y + card.height + 14,
+          width: Math.max(card.width + 20, 200),
+          height: 34,
+          text: caption,
+          fontSize: 20,
+          color: '#1a1a1a',
+          textColor: '#1a1a1a',
+          fillColor: null,
+          textAlign: 'left',
+          zIndex: engine.getTopZIndex()
+        };
+        if (card.parentId) text.parentId = card.parentId;
+        engine.items.push(text);
+      }
+      engine.joinItems([card, text]);
+      // Si no cabe en una línea, la caja crece
+      text.height = Math.max(34, engine.measureTextItemHeight(text));
+      engine.render();
+      syncPropertiesBarWithSelection();
+      autoSaveBoardImmediately();
+      showDevToast('Resumen añadido y unido a la tarjeta');
+    } catch (err) {
+      showDevToast(`No se pudo crear el resumen: ${err.message || err}`);
+    } finally {
+      btn?.classList.remove('is-loading');
+    }
+  }
+
+  document.getElementById('btn-prop-ai-caption')?.addEventListener('click', () => {
+    const card = getSelectedLinkCard();
+    if (card) createAiCaptionForCard(card);
   });
 
   btnPropAddImage?.addEventListener('click', () => {
@@ -1392,7 +1486,9 @@ document.addEventListener('DOMContentLoaded', () => {
     toolButtons.forEach(btn => {
       btn.classList.toggle('active', btn.dataset.tool === toolName);
     });
-    canvasElement.style.cursor = toolName === 'hand' ? 'grab' : (toolName === 'pen' ? 'crosshair' : 'default');
+    // Texto: cursor de texto; las que crean arrastrando un recuadro, cruz
+    const CREATE_TOOLS = ['pen', 'sticky_note', 'shape', 'frame', 'template', 'connector'];
+    canvasElement.style.cursor = toolName === 'hand' ? 'grab' : toolName === 'text' ? 'text' : (CREATE_TOOLS.includes(toolName) ? 'crosshair' : 'default');
     if (shapeFlyoutMenu && toolName !== 'shape') {
       shapeFlyoutMenu.style.display = 'none';
     }
@@ -1471,10 +1567,22 @@ document.addEventListener('DOMContentLoaded', () => {
       e.stopPropagation();
       const tpl = item.dataset.template || 'apuntes';
       engine.selectedTemplateType = tpl;
+      templateFlyoutItems.forEach(i => i.classList.toggle('active', i === item));
       if (templateFlyoutMenu) templateFlyoutMenu.style.display = 'none';
-      insertTemplate(tpl);
+      // La plantilla queda lista: clic en el tablero para crearla, o arrastra para darle tamaño
+      setActiveTool('template', null, tpl);
+      const name = item.querySelector('.flyout-item-name')?.textContent || 'la plantilla';
+      showDevToast(`${name}: haz clic en el tablero o arrastra para darle tamaño`);
     });
   });
+
+  // Herramientas que crean algo: al terminar vuelve el puntero, y un texto o una nota se abren para escribir
+  const justCreatedItemIds = new Set();
+  engine.onToolReset = () => setActiveTool('select');
+  engine.onItemCreatedForEditing = (item) => {
+    justCreatedItemIds.add(item.id);
+    openInlineEditor(item);
+  };
 
   function insertTemplate(templateType = 'apuntes', customPos = null) {
     if (!engine) return;
@@ -1529,6 +1637,101 @@ document.addEventListener('DOMContentLoaded', () => {
     updateMinimap();
     window.refreshFramesIndexIfOpen?.();
   };
+
+  // =========================================================
+  // CLIC DERECHO SOBRE UNA IMAGEN: «Copiar imagen» al portapapeles de Windows
+  // (arrastrar con el botón derecho sigue moviendo el lienzo; solo un clic sin arrastrar abre el menú)
+  // =========================================================
+  let canvasContextMenu = null;
+  let rightClickStart = null;
+
+  function closeCanvasContextMenu() {
+    canvasContextMenu?.remove();
+    canvasContextMenu = null;
+  }
+
+  // La imagen tal como se ve, en PNG (sirve igual si viene de un archivo o pegada como data URL)
+  function getImageItemPngDataUrl(item) {
+    return new Promise((resolve, reject) => {
+      const draw = (img) => {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth || img.width;
+        c.height = img.naturalHeight || img.height;
+        c.getContext('2d').drawImage(img, 0, 0);
+        resolve(c.toDataURL('image/png'));
+      };
+      if (item.imgElement?.complete && item.imgElement.naturalWidth) return draw(item.imgElement);
+      const img = new Image();
+      img.onload = () => draw(img);
+      img.onerror = () => reject(new Error('No se pudo cargar la imagen'));
+      img.src = resolveImageSrc(item.src);
+    });
+  }
+
+  async function copyImageItemToClipboard(item) {
+    try {
+      const png = await getImageItemPngDataUrl(item);
+      let done = false;
+      try {
+        const electron = window.require('electron');
+        electron.clipboard.writeImage(electron.nativeImage.createFromDataURL(png));
+        done = true;
+      } catch (e) {}
+      if (!done && navigator.clipboard?.write) {
+        const blob = await (await fetch(png)).blob();
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        done = true;
+      }
+      // Lo último copiado ya no es del tablero: Ctrl+V pegará esta imagen
+      window.__brainboardLastCopySource = 'external';
+      try { localStorage.setItem('brainboard_last_copy_source', 'external'); } catch (e) {}
+      showDevToast(done ? 'Imagen copiada: pégala donde quieras' : 'No se pudo copiar la imagen');
+    } catch (err) {
+      showDevToast('No se pudo copiar la imagen');
+    }
+  }
+
+  function openCanvasContextMenu(item, screenX, screenY) {
+    closeCanvasContextMenu();
+    const menu = document.createElement('div');
+    menu.className = 'canvas-context-menu';
+    menu.innerHTML = `<button type="button" class="canvas-context-item" data-action="copy-image">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        <span>Copiar imagen</span>
+      </button>`;
+    document.body.appendChild(menu);
+    menu.style.left = `${Math.max(8, Math.min(window.innerWidth - menu.offsetWidth - 8, screenX))}px`;
+    menu.style.top = `${Math.max(8, Math.min(window.innerHeight - menu.offsetHeight - 8, screenY))}px`;
+    menu.addEventListener('pointerdown', (e) => e.stopPropagation());
+    menu.addEventListener('click', (e) => {
+      if (!e.target.closest('[data-action="copy-image"]')) return;
+      closeCanvasContextMenu();
+      copyImageItemToClipboard(item);
+    });
+    canvasContextMenu = menu;
+  }
+
+  canvasElement.addEventListener('pointerdown', (e) => {
+    rightClickStart = e.button === 2 ? { x: e.clientX, y: e.clientY } : null;
+  });
+  window.addEventListener('pointerup', (e) => {
+    if (e.button !== 2 || !rightClickStart) return;
+    const moved = Math.hypot(e.clientX - rightClickStart.x, e.clientY - rightClickStart.y) > 5;
+    rightClickStart = null;
+    if (moved) return;
+    const world = engine.screenToWorld(e.clientX, e.clientY);
+    const item = engine.getItemAt(world.x, world.y, true);
+    if (item?.type !== 'image') return;
+    engine.selectedItemIds.clear();
+    engine.selectedItemIds.add(item.id);
+    if (engine.onSelectionChange) engine.onSelectionChange([item.id]);
+    engine.render();
+    // Después del pointerdown de cierre de menús
+    setTimeout(() => openCanvasContextMenu(item, e.clientX, e.clientY), 0);
+  });
+  document.addEventListener('pointerdown', () => closeCanvasContextMenu());
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCanvasContextMenu(); });
+  canvasElement.addEventListener('wheel', () => closeCanvasContextMenu(), { passive: true });
 
   // Menú «Ordenar» de un contenedor de recursos (plantilla Recursos)
   let resourceSortMenu = null;
@@ -2415,6 +2618,97 @@ document.addEventListener('DOMContentLoaded', () => {
   window.triggerImportBoard = triggerImportBoard;
 
   // Lógica de importación para .RTB (desempaquetado y restauración de imágenes) y .JSON
+  // Modal con varias opciones (mismo estilo que el de confirmar). Devuelve el valor elegido o null
+  function openChoiceModal({ title, messageHtml, choices }) {
+    return new Promise(resolve => {
+      const backdrop = document.createElement('div');
+      backdrop.className = 'modal-backdrop choice-modal';
+      backdrop.style.display = 'flex';
+      backdrop.innerHTML = `
+        <div class="modal-dialog" style="width: 440px;">
+          <div class="modal-header">
+            <div class="modal-title-row"><h3>${escapeHtmlText(title)}</h3></div>
+            <button class="btn-mini-close" data-choice="" title="Cerrar">✕</button>
+          </div>
+          <div class="modal-body"><p class="modal-desc" style="font-size: 13.5px; line-height: 1.5;">${messageHtml}</p></div>
+          <div class="modal-footer">
+            ${choices.map(c => `<button class="btn ${c.primary ? 'btn-primary' : ''}" data-choice="${escapeHtmlText(c.value)}">${escapeHtmlText(c.label)}</button>`).join('')}
+          </div>
+        </div>`;
+      const finish = (value) => {
+        window.removeEventListener('keydown', onKey, true);
+        backdrop.remove();
+        resolve(value || null);
+      };
+      const onKey = (e) => {
+        if (e.key === 'Escape') { e.stopPropagation(); finish(null); }
+      };
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) return finish(null);
+        const btn = e.target.closest('[data-choice]');
+        if (btn) finish(btn.getAttribute('data-choice'));
+      });
+      window.addEventListener('keydown', onKey, true);
+      document.body.appendChild(backdrop);
+      backdrop.querySelector('.btn-primary')?.focus();
+    });
+  }
+  window.openChoiceModal = openChoiceModal;
+
+  // Dónde va un tablero importado. Si ya hay uno con el mismo id, se pregunta: reemplazarlo (su versión
+  // actual queda 30 días en la papelera) o importarlo como copia. Antes se sustituía sin avisar.
+  // Devuelve { boardId, asCopy, replacedTitle } o null si se cancela.
+  async function resolveImportTarget(importedData, boardName) {
+    const proposedId = importedData.id;
+    const newId = () => 'board_' + Date.now();
+    if (!proposedId) return { boardId: newId() };
+    const existing = workspaceBoards.find(b => b.id === proposedId);
+    const inTrash = boardsTrash.some(t => t.id === proposedId);
+    if (!existing) return { boardId: inTrash ? newId() : proposedId };
+
+    const sameName = (existing.title || '') === boardName;
+    const choice = await openChoiceModal({
+      title: 'Ya tienes este tablero',
+      messageHtml: `El archivo es el tablero <strong>«${escapeHtmlText(boardName)}»</strong>, que ya existe${sameName ? '' : ` como <strong>«${escapeHtmlText(existing.title)}»</strong>`}.<br><br>
+        <strong>Reemplazar</strong>: el tablero pasa a ser el del archivo y la versión que tienes ahora queda 30 días en la papelera.<br>
+        <strong>Importar como copia</strong>: se añade como un tablero nuevo y el tuyo no se toca.`,
+      choices: [
+        { label: 'Cancelar', value: 'cancel' },
+        { label: 'Importar como copia', value: 'copy' },
+        { label: 'Reemplazar', value: 'replace', primary: true }
+      ]
+    });
+    if (!choice || choice === 'cancel') return null;
+    if (choice === 'copy') return { boardId: newId(), asCopy: true };
+
+    // Reemplazar: la versión actual (la del lienzo si está abierto) va a la papelera
+    clearTimeout(saveTimeout);
+    let current = null;
+    if (currentActiveBoardId === proposedId) {
+      current = { id: proposedId, name: existing.title, items: engine.getCleanItems(), seedVersion: engine.currentSeedVersion, userModified: true };
+    } else {
+      current = await idbLoadBoard(proposedId);
+    }
+    await saveBoardVersionToTrash(proposedId, current, 'antes de importar');
+    return { boardId: proposedId, replacedTitle: existing.title };
+  }
+
+  // Tras reemplazar el tablero abierto: el lienzo pasa a mostrar lo importado (si no, el autoguardado lo pisaría)
+  function showImportedBoardOnCanvas(boardId, data) {
+    if (currentActiveBoardId !== boardId) return;
+    clearTimeout(saveTimeout);
+    engine.items = Array.isArray(data.items) ? data.items : [];
+    engine.selectedItemIds.clear();
+    engine.clearHistory();
+    engine.currentSeedVersion = Math.max(data.seedVersion || 0, 3);
+    if (boardTitleInput) {
+      boardTitleInput.value = data.name || data.title || boardTitleInput.value;
+      fitBoardTitleWidth();
+    }
+    engine.fitView();
+    updateMinimap();
+  }
+
   async function handleImportFile(input) {
     if (!input) return;
     const isPath = typeof input === 'string';
@@ -2509,16 +2803,12 @@ document.addEventListener('DOMContentLoaded', () => {
           fs.rmSync(stagingDir, { recursive: true, force: true });
 
           const baseName = fileName.replace(/\.[^/.]+$/, "");
-          const boardName = boardData.name || boardData.title || baseName;
-          let boardId = boardData.id || ('board_' + Date.now());
-
-          if (Array.isArray(workspaceBoards)) {
-            let collision = workspaceBoards.find(b => b.id === boardId);
-            if (collision && collision.title !== boardName) {
-              boardId = 'board_' + Date.now();
-              boardData.id = boardId;
-            }
-          }
+          let boardName = boardData.name || boardData.title || baseName;
+          const target = await resolveImportTarget(boardData, boardName);
+          if (!target) return;
+          const boardId = target.boardId;
+          if (target.asCopy) boardName = `${boardName} (importado)`;
+          boardData.id = boardId;
 
           boardData.userModified = true;
           boardData.title = boardName;
@@ -2553,15 +2843,16 @@ document.addEventListener('DOMContentLoaded', () => {
             saveWorkspaceBoards();
           }
 
+          showImportedBoardOnCanvas(boardId, boardData);
           await idbSaveBoard(boardId, boardData);
-          localStorage.setItem('brainboard_board_' + boardId, JSON.stringify(boardData));
+          writeLocalBoardCopy(boardId, boardData);
 
           await openBoardTab(boardId);
           if (typeof renderDrawerBoards === 'function') renderDrawerBoards();
           if (typeof renderDrawerCategories === 'function') renderDrawerCategories();
           if (typeof renderHomeScreen === 'function') renderHomeScreen();
 
-          alert(`¡Tablero "${boardName}" importado con éxito!\n\nSe han restaurado ${copiedImagesCount} imágenes en el almacén local.`);
+          showActionToast(`«${boardName}» importado con ${copiedImagesCount} imágenes${target.replacedTitle ? '. La versión anterior queda 30 días en la papelera' : ''}.`, []);
           return;
         } catch (err) {
           console.error('Error al importar archivo RTB:', err);
@@ -2602,15 +2893,14 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (jsonData && (jsonData.items || jsonData.widgets)) {
-      const boardName = jsonData.name || jsonData.title || fallbackName;
-      let boardId = jsonData.id || ('board_' + Date.now());
+      let boardName = jsonData.name || jsonData.title || fallbackName;
+      const target = await resolveImportTarget(jsonData, boardName);
+      if (!target) return;
+      const boardId = target.boardId;
+      if (target.asCopy) boardName = `${boardName} (importado)`;
+      jsonData.id = boardId;
 
       if (Array.isArray(workspaceBoards)) {
-        let collision = workspaceBoards.find(b => b.id === boardId);
-        if (collision && collision.title !== boardName) {
-          boardId = 'board_' + Date.now();
-          jsonData.id = boardId;
-        }
         let existing = workspaceBoards.find(b => b.id === boardId);
         const now = Date.now();
         if (!existing) {
@@ -2642,17 +2932,15 @@ document.addEventListener('DOMContentLoaded', () => {
       jsonData.name = boardName;
 
       saveBoardToDisk(boardId, jsonData);
+      showImportedBoardOnCanvas(boardId, jsonData);
       await idbSaveBoard(boardId, jsonData);
-      localStorage.setItem('brainboard_board_' + boardId, JSON.stringify(jsonData));
+      writeLocalBoardCopy(boardId, jsonData);
 
       await openBoardTab(boardId);
       if (typeof renderDrawerBoards === 'function') renderDrawerBoards();
       if (typeof renderDrawerCategories === 'function') renderDrawerCategories();
       if (typeof renderHomeScreen === 'function') renderHomeScreen();
-
-      if (typeof autoSaveBoardImmediately === 'function') {
-        autoSaveBoardImmediately(boardId);
-      }
+      showActionToast(`«${boardName}» importado${target.replacedTitle ? '. La versión anterior queda 30 días en la papelera' : ''}.`, []);
     } else {
       alert('El archivo no tiene el formato de tablero esperado.');
     }
@@ -3826,7 +4114,7 @@ document.addEventListener('DOMContentLoaded', () => {
         type: 'image',
         createdAt: nowIso,
         updatedAt: nowIso,
-        src: dataUrl,
+        src: saveDataUrlAsImageFile(dataUrl) || dataUrl,
         x: target.x - finalW / 2,
         y: target.y - finalH / 2,
         width: finalW,
@@ -4546,6 +4834,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     inlineEditor.value = getInlineEditValue(item);
+    // Un texto o nota vacíos enseñan una guía que desaparece al escribir
+    inlineEditor.placeholder = (item.type === 'text' || item.type === 'sticky_note') && !inlineEditor.value ? 'Escribe algo…' : '';
 
     // 1. Mostrar primero para que las dimensiones y estilos sean calculables
     inlineEditor.style.display = 'block';
@@ -4644,8 +4934,18 @@ document.addEventListener('DOMContentLoaded', () => {
       inlineEditor.style.borderRadius = '3px';
     }
 
+    // Títulos centrados en vertical: el editor deja el mismo hueco arriba que el lienzo
+    if (engine.isTextVerticallyCentered(activeEditingItem)) {
+      const padX = activeEditingItem.fillColor && activeEditingItem.fillColor !== 'transparent' ? 14 * zoom : 0;
+      inlineEditor.style.padding = `0px ${padX}px`;
+      inlineEditor.style.height = '0px'; // con 'auto' un textarea mide dos filas aunque tenga una
+      const contentH = inlineEditor.scrollHeight;
+      const padTop = Math.max(0, (screenH - contentH) / 2);
+      inlineEditor.style.padding = `${padTop}px ${padX}px 0px`;
+    }
+
     // Auto-ajustar altura al contenido para que nunca se oculte texto
-    inlineEditor.style.height = 'auto';
+    inlineEditor.style.height = '0px';
     const scrollH = inlineEditor.scrollHeight;
     inlineEditor.style.height = `${Math.max(screenH, scrollH)}px`;
   }
@@ -4660,6 +4960,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const session = inlineEditSession;
     inlineEditSession = null;
+
+    // Un texto recién creado que se cierra sin escribir nada no se queda en el tablero (ni en el deshacer)
+    const wasJustCreated = justCreatedItemIds.delete(activeEditingItem.id);
+    if (wasJustCreated && activeEditingItem.type === 'text' && !val.trim()) {
+      const emptyId = activeEditingItem.id;
+      if (session?.pushedSnapshot && engine.undoStack[engine.undoStack.length - 1] === session.pushedSnapshot) engine.undoStack.pop();
+      engine.undoStack.pop();
+      if (session) engine.redoStack = session.redoBackup;
+      engine.items = engine.items.filter(it => it.id !== emptyId);
+      engine.selectedItemIds.delete(emptyId);
+      inlineEditor.style.display = 'none';
+      inlineEditor.style.backgroundColor = 'transparent';
+      inlineEditor.placeholder = '';
+      activeEditingItem = null;
+      activeEditingPart = null;
+      engine.editingItemId = null;
+      engine.editingSpoilerPart = null;
+      if (engine.onSelectionChange) engine.onSelectionChange(Array.from(engine.selectedItemIds));
+      engine.render();
+      autoSaveBoardImmediately();
+      return;
+    }
+    inlineEditor.placeholder = '';
+
     if (session && val !== session.originalValue) {
       // Editar el contenido cuenta como revisión: deja de salir como obsoleto
       const nowIso = new Date().toISOString();
@@ -4926,13 +5250,17 @@ document.addEventListener('DOMContentLoaded', () => {
       const db = await openDatabase();
       const tx = db.transaction(IDB_STORE, 'readwrite');
       const store = tx.objectStore(IDB_STORE);
-      store.put({ id: `board_${boardId}`, data: data, updatedAt: Date.now() });
-      if (boardId === 'dev_ai') {
-        store.put({ id: 'current_board', data: data, updatedAt: Date.now() });
-      }
+      // Sin las imágenes cargadas (no se pueden guardar): se quitan aquí, justo al escribir, porque el
+      // dibujo puede ponérselas a los elementos mientras se esperaba a la base de datos
+      const safeData = Array.isArray(data?.items)
+        ? { ...data, items: data.items.map(it => (it && it.imgElement ? (({ imgElement, ...rest }) => rest)(it) : it)) }
+        : data;
+      store.put({ id: `board_${boardId}`, data: safeData, updatedAt: Date.now() });
+      // (La clave antigua 'current_board' de AI solo se lee si falta la nueva: ya no se duplica cada guardado)
       return new Promise((resolve) => {
         tx.oncomplete = () => resolve(true);
         tx.onerror = () => resolve(false);
+        tx.onabort = () => resolve(false); // p. ej. sin espacio: sin esto el guardado se quedaba esperando
       });
     } catch (e) {
       console.warn('IndexedDB no disponible:', e);
@@ -4972,6 +5300,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const tx = db.transaction(IDB_STORE, 'readwrite');
       const store = tx.objectStore(IDB_STORE);
       store.delete(`board_${boardId}`);
+      // Sus versiones se van con él
+      store.delete(IDBKeyRange.bound(versionKey('version', boardId, ''), versionKey('version', boardId, '\uffff')));
+      store.delete(IDBKeyRange.bound(versionKey('vmeta', boardId, ''), versionKey('vmeta', boardId, '\uffff')));
       if (typeof boardId === 'string' && boardId.startsWith('board_')) {
         store.delete(boardId);
       }
@@ -4986,6 +5317,98 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let saveTimeout = null;
 
+  // ── Historial de versiones por tablero ──
+  // Fotos del contenido guardadas en IndexedDB: automáticas (como mucho una cada 10 minutos de edición y solo
+  // si ha cambiado algo), manuales, y antes de limpiar o de restaurar. Se guardan las 30 últimas por tablero.
+  // Cada versión son dos registros: 'vmeta_<tablero>_<fecha>' (pequeño, para la lista) y 'version_…' (el contenido).
+  const VERSION_KEEP = 30;
+  const VERSION_AUTO_INTERVAL_MS = 10 * 60 * 1000;
+  const lastAutoVersionAt = new Map();
+  const VERSION_REASON_LABELS = { auto: 'Automática', manual: 'Guardada a mano', before_clear: 'Antes de limpiar el tablero', before_restore: 'Antes de restaurar otra versión' };
+
+  function versionKey(kind, boardId, stamp) {
+    return `${kind}_${boardId}_${stamp}`;
+  }
+
+  function hashText(str) {
+    let h = 2166136261;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return (h >>> 0).toString(16);
+  }
+
+  async function idbListVersionMetas(boardId) {
+    try {
+      const db = await openDatabase();
+      return await new Promise((resolve) => {
+        const tx = db.transaction(IDB_STORE, 'readonly');
+        const req = tx.objectStore(IDB_STORE).getAll(IDBKeyRange.bound(versionKey('vmeta', boardId, ''), versionKey('vmeta', boardId, '\uffff')));
+        req.onsuccess = () => resolve((req.result || []).sort((a, b) => b.createdAt - a.createdAt));
+        req.onerror = () => resolve([]);
+      });
+    } catch (e) {
+      return [];
+    }
+  }
+
+  async function idbLoadVersion(boardId, stamp) {
+    try {
+      const db = await openDatabase();
+      return await new Promise((resolve) => {
+        const req = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(versionKey('version', boardId, stamp));
+        req.onsuccess = () => resolve(req.result || null);
+        req.onerror = () => resolve(null);
+      });
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Guarda una versión. Sin force, no repite una idéntica a la última.
+  async function saveBoardVersion(boardId, items, reason = 'auto', force = false) {
+    if (!boardId || !Array.isArray(items) || items.length === 0) return null;
+    try {
+      const json = JSON.stringify(items, (k, v) => (k === 'imgElement' ? undefined : v));
+      const signature = `${items.length}:${json.length}:${hashText(json)}`;
+      const metas = await idbListVersionMetas(boardId);
+      if (!force && metas[0] && metas[0].signature === signature) return null;
+      const createdAt = Date.now();
+      const stamp = String(createdAt).padStart(15, '0');
+      const meta = workspaceBoards.find(b => b.id === boardId) || {};
+      const db = await openDatabase();
+      const tx = db.transaction(IDB_STORE, 'readwrite');
+      const store = tx.objectStore(IDB_STORE);
+      store.put({ id: versionKey('version', boardId, stamp), boardId, createdAt, items: JSON.parse(json) });
+      store.put({ id: versionKey('vmeta', boardId, stamp), boardId, stamp, createdAt, reason, signature, itemCount: items.length, title: meta.title || boardId });
+      // Las más antiguas fuera
+      metas.slice(VERSION_KEEP - 1).forEach(old => {
+        store.delete(versionKey('version', boardId, old.stamp));
+        store.delete(versionKey('vmeta', boardId, old.stamp));
+      });
+      await new Promise((resolve) => { tx.oncomplete = resolve; tx.onerror = resolve; tx.onabort = resolve; });
+      return stamp;
+    } catch (e) {
+      console.warn('No se pudo guardar la versión del tablero:', e);
+      return null;
+    }
+  }
+
+  // Versión automática al guardar: como mucho una cada 10 minutos por tablero (sin esperar: no frena el guardado)
+  async function maybeSaveAutoVersion(boardId, items) {
+    const now = Date.now();
+    if (!lastAutoVersionAt.has(boardId)) {
+      const metas = await idbListVersionMetas(boardId);
+      lastAutoVersionAt.set(boardId, metas[0]?.createdAt || 0);
+    }
+    if (now - lastAutoVersionAt.get(boardId) < VERSION_AUTO_INTERVAL_MS) return;
+    lastAutoVersionAt.set(boardId, now);
+    await saveBoardVersion(boardId, items, 'auto');
+  }
+  // Cambio de tablero en curso: mientras se carga, el lienzo no tiene el contenido de ningún tablero y no
+  // se guarda nada (antes, pulsar otra pestaña durante la carga dejaba un tablero vacío y otro pisado).
+  // Cada cambio lleva un número; si llega otro más nuevo, el anterior se abandona sin tocar nada.
+  let isLoadingBoard = false;
+  let boardSwitchToken = 0;
+
   // Carpeta de imágenes del usuario: <appData>/BrainBoard/extracted_board (misma base que userData en main.js)
   function getUserImagesDir() {
     const path = window.require('path');
@@ -4999,6 +5422,64 @@ document.addEventListener('DOMContentLoaded', () => {
   // Imágenes incluidas en la propia app (tablero Ejemplo): app_bundle/assets
   function getBundledAssetsDir() {
     return window.require('path').join(__dirname, 'assets');
+  }
+
+  // ── Imágenes pegadas como archivos ──
+  // Antes cada imagen pegada iba dentro del tablero como data: (AI llegó a 17 MB): cada guardado, cada copia
+  // y cada paso de deshacer la arrastraba entera. Ahora se escribe una vez en la carpeta de imágenes con un
+  // nombre sacado de su contenido (pegar la misma imagen dos veces no la duplica) y el tablero guarda el nombre.
+  const PASTED_IMAGE_PREFIX = 'pasted_';
+  const IMAGE_MIME_EXT = { png: 'png', jpeg: 'jpg', jpg: 'jpg', pjpeg: 'jpg', webp: 'webp', gif: 'gif', bmp: 'bmp', 'svg+xml': 'svg', avif: 'avif', 'x-icon': 'ico' };
+
+  function saveDataUrlAsImageFile(dataUrl) {
+    if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/') || typeof window.require !== 'function') return null;
+    try {
+      const m = /^data:image\/([a-zA-Z0-9.+-]+)((?:;[^,;]*)*),/.exec(dataUrl);
+      if (!m) return null;
+      const ext = IMAGE_MIME_EXT[m[1].toLowerCase()] || 'png';
+      const { Buffer } = window.require('buffer');
+      const payload = dataUrl.slice(m[0].length);
+      const buf = /;base64/i.test(m[2] || '') ? Buffer.from(payload, 'base64') : Buffer.from(decodeURIComponent(payload), 'utf8');
+      if (!buf.length) return null;
+      const fs = window.require('fs');
+      const path = window.require('path');
+      const hash = window.require('crypto').createHash('sha1').update(buf).digest('hex').slice(0, 24);
+      const name = `${PASTED_IMAGE_PREFIX}${hash}.${ext}`;
+      const dir = getUserImagesDir();
+      fs.mkdirSync(dir, { recursive: true });
+      const file = path.join(dir, name);
+      if (!fs.existsSync(file)) fs.writeFileSync(file, buf);
+      return name;
+    } catch (e) {
+      console.warn('No se pudo guardar la imagen como archivo (se queda dentro del tablero):', e);
+      return null;
+    }
+  }
+
+  // Pasa a archivo las imágenes data: que un tablero ya tenía dentro. Devuelve cuántas ha pasado.
+  function migrateInlineImagesToFiles(items) {
+    if (!Array.isArray(items)) return 0;
+    let moved = 0;
+    items.forEach(it => {
+      if (!it || (it.type !== 'image' && it.type !== 'embed' && it.type !== 'preview')) return;
+      if (typeof it.src !== 'string' || !it.src.startsWith('data:image/') || it.src.length < 4096) return;
+      const name = saveDataUrlAsImageFile(it.src);
+      if (!name) return;
+      it.src = name;
+      delete it.imgElement; // se carga de nuevo desde el archivo
+      moved++;
+    });
+    return moved;
+  }
+
+  // Nombres de las imágenes pegadas que usan unos elementos (para meterlas en las copias)
+  function collectPastedImageNames(items, into = new Set()) {
+    (items || []).forEach(it => {
+      if (typeof it?.src !== 'string') return;
+      const name = it.src.replace(/\\/g, '/').split('/').pop();
+      if (name && name.startsWith(PASTED_IMAGE_PREFIX)) into.add(name);
+    });
+    return into;
   }
 
   function resolveImageSrc(src) {
@@ -5033,11 +5514,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function saveBoardToDisk(targetBoardId, data) {
     if (typeof window === 'undefined' || typeof window.require !== 'function') return false;
+    // En la app instalada estas carpetas están dentro del paquete (solo lectura): no hay nada que escribir,
+    // y preparar el JSON con sangrías de un tablero grande bloqueaba la ventana en cada guardado
+    if (/[\\/]app\.asar([\\/]|$)/.test(__dirname)) return false;
     try {
       const fs = window.require('fs');
       const path = window.require('path');
       const fileBase = targetBoardId === 'dev_ai' ? 'DEV_AI' : targetBoardId;
-      const jsonContent = JSON.stringify(data, null, 2);
+      let jsonContent = null;
 
       const candidatePaths = [
         path.resolve(process.cwd(), `boards/${fileBase}.json`),
@@ -5051,6 +5535,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
           const dir = path.dirname(p);
           if (fs.existsSync(dir)) {
+            if (jsonContent === null) jsonContent = JSON.stringify(data, null, 2);
             fs.writeFileSync(p, jsonContent, 'utf8');
             saved = true;
           }
@@ -5063,8 +5548,51 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // Tamaño aproximado de un tablero en JSON sin generarlo (las imágenes pegadas como data: son casi todo)
+  const LOCAL_COPY_MAX_CHARS = 1500000;
+  function estimateBoardDataSize(items) {
+    let size = 0;
+    for (const it of items || []) {
+      size += 300;
+      for (const key in it) {
+        const v = it[key];
+        if (typeof v === 'string') size += v.length;
+      }
+      if (size > LOCAL_COPY_MAX_CHARS) return size;
+    }
+    return size;
+  }
+
+  // Limpieza única de las copias grandes que quedaron en LocalStorage de versiones anteriores (cada guardado
+  // las reescribía enteras). Solo se quita la copia de un tablero que está bien guardado en IndexedDB.
+  async function cleanupOversizedLocalCopies() {
+    try {
+      const keys = Object.keys(localStorage).filter(k => /^(brainboard|miro)_board_/.test(k) || /^(brainboard|miro)_local_current_board_v3$/.test(k));
+      for (const key of keys) {
+        const value = localStorage.getItem(key);
+        if (!value || value.length <= LOCAL_COPY_MAX_CHARS) continue;
+        const boardId = /_local_current_board_v3$/.test(key) ? 'dev_ai' : key.replace(/^(brainboard|miro)_board_/, '');
+        const stored = await idbLoadBoard(boardId);
+        if (stored && Array.isArray(stored.items) && stored.items.length > 0) localStorage.removeItem(key);
+      }
+    } catch (e) {
+      console.warn('No se pudieron limpiar las copias antiguas de LocalStorage:', e);
+    }
+  }
+
+  // Copia de reserva en LocalStorage con la misma regla que el guardado: solo tableros pequeños
+  function writeLocalBoardCopy(boardId, data) {
+    try {
+      const key = `brainboard_board_${boardId}`;
+      const json = estimateBoardDataSize(data.items) <= LOCAL_COPY_MAX_CHARS ? JSON.stringify(data) : null;
+      if (json && json.length <= LOCAL_COPY_MAX_CHARS) localStorage.setItem(key, json);
+      else localStorage.removeItem(key);
+    } catch (e) { }
+  }
+
   async function autoSaveBoardImmediately(targetBoardId = currentActiveBoardId) {
     if (!targetBoardId) return;
+    if (isLoadingBoard) return;
     clearTimeout(saveTimeout);
     const cleanItems = engine.getCleanItems ? engine.getCleanItems() : engine.items;
 
@@ -5096,17 +5624,22 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // 1. Guardado en IndexedDB indexado por ID de tablero
-    await idbSaveBoard(targetBoardId, data);
+    const savedOk = await idbSaveBoard(targetBoardId, data);
+    if (savedOk) maybeSaveAutoVersion(targetBoardId, cleanItems).catch(() => {});
 
-    // 2. Guardado secundario en LocalStorage
+    // 2. Copia de reserva en LocalStorage, solo para tableros pequeños. Escribir ahí es síncrono: un tablero
+    // con imágenes pegadas (AI, ~17 MB) congelaba la ventana ~0,4 s en cada guardado. A los grandes se les
+    // quita la copia vieja para que nunca se cargue en lugar de la buena (la de IndexedDB).
     try {
-      localStorage.setItem(`brainboard_board_${targetBoardId}`, JSON.stringify(data));
       if (currentActiveBoardId === targetBoardId) {
         localStorage.setItem('brainboard_active_board_id', targetBoardId);
       }
-      if (targetBoardId === 'dev_ai') {
-        localStorage.setItem('brainboard_local_current_board_v3', JSON.stringify(data));
-      }
+      const lsKeys = [`brainboard_board_${targetBoardId}`].concat(targetBoardId === 'dev_ai' ? ['brainboard_local_current_board_v3'] : []);
+      const json = estimateBoardDataSize(cleanItems) <= LOCAL_COPY_MAX_CHARS ? JSON.stringify(data) : null;
+      lsKeys.forEach(key => {
+        if (json && json.length <= LOCAL_COPY_MAX_CHARS) localStorage.setItem(key, json);
+        else localStorage.removeItem(key);
+      });
     } catch (err) {
       console.warn('LocalStorage saturado, guardado seguro en IndexedDB');
     }
@@ -5127,6 +5660,21 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }, 400);
   }
+
+  // Antes de cerrar la app, el proceso principal espera a que el tablero termine de guardarse
+  try {
+    const { ipcRenderer } = window.require('electron');
+    ipcRenderer.on('brainboard-flush-before-close', async () => {
+      try {
+        if (activeEditingItem) closeInlineEditor();
+        clearTimeout(saveTimeout);
+        await autoSaveBoardImmediately();
+      } catch (e) {
+        console.warn('Guardado antes de cerrar:', e);
+      }
+      ipcRenderer.send('brainboard-flush-done');
+    });
+  } catch (e) { }
 
   // Guardado inmediato en cierre de ventana, recarga o pérdida de visibilidad
   window.addEventListener('beforeunload', () => {
@@ -5273,24 +5821,39 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // Corrección y saneamiento proactivo de recursos de enlaces y fechas de colocación
+  // ¿Existe en este ordenador la imagen a la que apunta un src de archivo?
+  function userImageExists(src) {
+    try {
+      const fs = window.require('fs');
+      const path = window.require('path');
+      const name = String(src).replace(/\\/g, '/').split('/').pop();
+      return fs.existsSync(path.join(getUserImagesDir(), name)) || fs.existsSync(path.join(getBundledAssetsDir(), name));
+    } catch (e) {
+      return false;
+    }
+  }
+
   function sanitizeEmbedResources(items, seedItems = null) {
     if (!Array.isArray(items)) return;
     hydrateBoardItemsDates(items, seedItems);
+    // Arreglos de la importación de Miro: solo completan lo que falta, nunca pisan lo que ya tiene la tarjeta
+    // (antes se aplicaban en cada apertura y también por el título: una tarjeta con «database» o «pexels»
+    // en el título perdía su miniatura, su título y su descripción, aunque el usuario los hubiera cambiado)
+    const isPlaceholderSrc = (src) => !!src && (src.includes('3458764518028914135.png') || src.includes('3458764517918099491.png'));
     items.forEach(it => {
       if (it.type === 'embed' || it.type === 'preview') {
         const u = (it.url || '').toLowerCase();
-        const t = (it.title || '').toLowerCase();
         let matched = false;
         for (const rule of embedSanitizeRules) {
-          if (rule.match(u, t)) {
-            if (it.src !== rule.src) it.src = rule.src;
-            if (rule.title && it.title !== rule.title) it.title = rule.title;
-            if (rule.description && it.description !== rule.description) it.description = rule.description;
+          if (u && rule.match(u, '')) {
+            if ((!it.src || isPlaceholderSrc(it.src)) && rule.src && userImageExists(rule.src)) it.src = rule.src;
+            if (rule.title && !it.title) it.title = rule.title;
+            if (rule.description && !it.description) it.description = rule.description;
             matched = true;
             break;
           }
         }
-        if (!matched && it.src && (it.src.includes('3458764518028914135.png') || it.src.includes('3458764517918099491.png'))) {
+        if (isPlaceholderSrc(it.src)) {
           it.src = '';
         }
       } else if (it.type === 'text' || it.type === 'sticky_note') {
@@ -5360,11 +5923,12 @@ document.addEventListener('DOMContentLoaded', () => {
     return Boolean(resetAt && seedVer >= resetAt && savedVer < resetAt);
   }
 
-  async function moveOutdatedGuideBoardToTrash(boardId, saved) {
-    if (!saved || !Array.isArray(saved.items) || saved.items.length === 0) return;
+  // Guarda una versión de un tablero como tablero aparte en la papelera (30 días)
+  async function saveBoardVersionToTrash(boardId, saved, suffix = 'versión anterior') {
+    if (!saved || !Array.isArray(saved.items) || saved.items.length === 0) return null;
     const meta = workspaceBoards.find(b => b.id === boardId) || {};
-    const copyId = 'board_' + Date.now();
-    const title = `${meta.title || saved.name || boardId} (versión anterior)`;
+    const copyId = 'board_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    const title = `${meta.title || saved.name || boardId} (${suffix})`;
     const payload = { ...saved, id: copyId, name: title, seedVersion: 0, updatedAt: new Date().toISOString() };
     await idbSaveBoard(copyId, payload);
     boardsTrash.unshift({
@@ -5373,11 +5937,18 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     saveTrash();
     updateTrashCountBadge();
-    showActionToast(`«${meta.title || boardId}» se ha renovado. La versión anterior queda 30 días en la papelera.`, []);
+    return copyId;
   }
 
-  async function loadSeedBoard(targetBoardId) {
+  async function moveOutdatedGuideBoardToTrash(boardId, saved) {
+    const meta = workspaceBoards.find(b => b.id === boardId) || {};
+    const copyId = await saveBoardVersionToTrash(boardId, saved, 'versión anterior');
+    if (copyId) showActionToast(`«${meta.title || boardId}» se ha renovado. La versión anterior queda 30 días en la papelera.`, []);
+  }
+
+  async function loadSeedBoard(targetBoardId, isStale = () => false) {
     const board = await fetchBoardSeedData(targetBoardId);
+    if (isStale()) return false;
     if (board) {
       const items = (board.items && Array.isArray(board.items)) ? board.items : convertMiroToBrainBoard(board);
       // Fechas de la plantilla relativas al momento en que se carga: ageDays (para enseñar el Mapa de Frescura)
@@ -5394,6 +5965,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
       sanitizeEmbedResources(items);
+      migrateInlineImagesToFiles(items);
       engine.items = items;
       engine.selectedItemIds.clear();
       engine.clearHistory();
@@ -5407,6 +5979,7 @@ document.addEventListener('DOMContentLoaded', () => {
       engine.fitView();
       updateMinimap();
       engine.currentSeedVersion = Math.max(board.seedVersion || 0, 3);
+      isLoadingBoard = false; // ya es el contenido de este tablero: se puede guardar
       await autoSaveBoardImmediately(targetBoardId);
       return true;
     }
@@ -5417,12 +5990,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Carga inicial resiliente
   async function loadInitialBoard() {
+    const token = ++boardSwitchToken;
+    isLoadingBoard = true;
+    try {
+      await loadInitialBoardContent(() => token !== boardSwitchToken);
+    } finally {
+      if (token === boardSwitchToken) isLoadingBoard = false;
+    }
+  }
+
+  async function loadInitialBoardContent(isStale) {
     currentActiveBoardId = localStorage.getItem('brainboard_active_board_id') || localStorage.getItem('miro_active_board_id') || 'ejemplo';
     workspaceBoards.forEach(b => b.active = (b.id === currentActiveBoardId));
     renderDrawerBoards();
     if (typeof renderTabs === 'function') renderTabs();
 
     let savedData = await idbLoadBoard(currentActiveBoardId);
+    if (isStale()) return;
 
     if (!savedData) {
       try {
@@ -5447,11 +6031,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     } catch(e) {}
+    if (isStale()) return;
 
     const hasValidSavedItems = !isOutdatedCache && savedData && Array.isArray(savedData.items) && savedData.items.length > 0;
 
     if (hasValidSavedItems) {
       sanitizeEmbedResources(savedData.items, seedData?.items);
+      const movedImages = migrateInlineImagesToFiles(savedData.items);
+      const loadedBoardId = currentActiveBoardId;
+      if (movedImages) setTimeout(() => { if (currentActiveBoardId === loadedBoardId) autoSaveBoard(); }, 0);
       engine.items = savedData.items;
       engine.items.forEach(it => {
         if (it.imgElement && typeof it.imgElement.getAttribute !== 'function') {
@@ -5469,7 +6057,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    const seeded = await loadSeedBoard(currentActiveBoardId);
+    const seeded = await loadSeedBoard(currentActiveBoardId, isStale);
+    if (isStale()) return;
     if (!seeded) {
       engine.items = [];
       engine.clearHistory();
@@ -5526,7 +6115,7 @@ document.addEventListener('DOMContentLoaded', () => {
       boardThumbnailMini.innerHTML = `<span class="thumb-code-brackets">&lt;/&gt;</span>`;
     } else {
       boardThumbnailMini.className = 'board-thumbnail-mini thumb-emoji';
-      boardThumbnailMini.innerHTML = `<span style="font-size: 15px; line-height: 1;">${b.icon || '📋'}</span>`;
+      boardThumbnailMini.innerHTML = `<span style="font-size: 15px; line-height: 1;">${escapeHtmlText(b.icon || '📋')}</span>`;
     }
   }
   window.updateBoardThumbnailMini = updateBoardThumbnailMini;
@@ -5790,8 +6379,8 @@ document.addEventListener('DOMContentLoaded', () => {
       tabEl.title = title;
 
       tabEl.innerHTML = `
-        <span class="tab-icon">${icon}</span>
-        <span class="tab-title">${title}</span>
+        <span class="tab-icon">${escapeHtmlText(icon)}</span>
+        <span class="tab-title">${escapeHtmlText(title)}</span>
         ${openTabs.length > 1 ? '<button class="tab-close-btn" title="Cerrar pestaña">✕</button>' : ''}
       `;
 
@@ -5858,17 +6447,32 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    const token = ++boardSwitchToken;
+    const isStale = () => token !== boardSwitchToken;
+    if (engine.ratingFilter && typeof applyRatingFilter === 'function') applyRatingFilter(null);
+
     // Cancelar cualquier temporizador pendiente de autoguardado antes de cambiar
     clearTimeout(saveTimeout);
     closeFramesIndex();
 
     // 1. Guardar de forma inmediata el tablero anterior antes de salir de él
+    // (si otro cambio aún lo estaba cargando, el lienzo no tiene su contenido: no se guarda)
     if (activeEditingItem) closeInlineEditor();
     const prevBoardId = currentActiveBoardId;
-    if (prevBoardId && prevBoardId !== targetBoardId) {
+    if (prevBoardId && prevBoardId !== targetBoardId && !isLoadingBoard) {
       await autoSaveBoardImmediately(prevBoardId);
+      if (isStale()) return;
     }
 
+    isLoadingBoard = true;
+    try {
+      await loadBoardIntoCanvas(targetBoardId, isStale);
+    } finally {
+      if (!isStale()) isLoadingBoard = false;
+    }
+  }
+
+  async function loadBoardIntoCanvas(targetBoardId, isStale) {
     // 2. LIMPIEZA INMEDIATA: Vaciar elementos, selección, conectores e historial
     // para evitar cualquier contaminación visual o de estado cruzada
     engine.items = [];
@@ -5910,6 +6514,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // 4. Cargar el estado guardado del tablero objetivo desde IndexedDB
     let saved = await idbLoadBoard(targetBoardId);
+    if (isStale()) return;
     if (!saved) {
       try {
         const ls = localStorage.getItem(`brainboard_board_${targetBoardId}`) || localStorage.getItem(`miro_board_${targetBoardId}`) || (targetBoardId === 'dev_ai' ? (localStorage.getItem('brainboard_local_current_board_v3') || localStorage.getItem('miro_local_current_board_v3')) : null);
@@ -5933,11 +6538,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
     } catch(e) {}
+    if (isStale()) return;
 
     const hasValidSavedItems = !isOutdatedCache && saved && Array.isArray(saved.items) && saved.items.length > 0;
 
     if (hasValidSavedItems) {
       sanitizeEmbedResources(saved.items, seedData?.items);
+      const movedImages = migrateInlineImagesToFiles(saved.items);
+      if (movedImages) setTimeout(() => { if (currentActiveBoardId === targetBoardId) autoSaveBoard(); }, 0);
       engine.items = saved.items;
       engine.items.forEach(it => {
         if (it.imgElement && typeof it.imgElement.getAttribute !== 'function') {
@@ -5958,8 +6566,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // 5. Si no tiene datos guardados todavía (o tenían 0 items), sembrar con archivo de tablero correspondiente
-    const seeded = await loadSeedBoard(targetBoardId);
-    if (seeded) return;
+    const seeded = await loadSeedBoard(targetBoardId, isStale);
+    if (seeded || isStale()) return;
 
     // 6. Para cualquier otro tablero nuevo sin contenido previo, iniciar completamente limpio
     engine.items = [];
@@ -5967,6 +6575,7 @@ document.addEventListener('DOMContentLoaded', () => {
     engine.clearHistory();
     engine.fitView();
     updateMinimap();
+    isLoadingBoard = false; // ya es el contenido de este tablero: se puede guardar
     await autoSaveBoardImmediately(targetBoardId);
   }
 
@@ -6317,6 +6926,19 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       if (data) boards.push({ id, data });
     }
+    // Las imágenes pegadas viven como archivos: van dentro de la copia (antes iban dentro del tablero)
+    const pastedImages = {};
+    try {
+      const fs = window.require('fs');
+      const path = window.require('path');
+      const names = new Set();
+      boards.forEach(b => collectPastedImageNames(b.data?.items, names));
+      for (const name of names) {
+        try {
+          pastedImages[name] = (await fs.promises.readFile(path.join(getUserImagesDir(), name))).toString('base64');
+        } catch (e) { }
+      }
+    } catch (e) { }
     return {
       type: 'brainboard_full_backup',
       formatVersion: 1,
@@ -6325,6 +6947,7 @@ document.addEventListener('DOMContentLoaded', () => {
       workspaceBoards: workspaceBoards.map(({ active, ...b }) => b),
       categories: workspaceCategories.slice(),
       trash: boardsTrash.slice(),
+      pastedImages,
       boards
     };
   }
@@ -6435,14 +7058,46 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   async function applyBackupPayload(payload) {
-    await runAutoBackup({ force: true, reason: 'antes-de-restaurar' });
+    // Primero la copia del estado actual, como promete el aviso. Si hay otra copia en marcha se espera a que
+    // acabe; si aun así no se puede hacer, no se restaura nada (antes seguía adelante sin ella)
+    let safetyCopy = await runAutoBackup({ force: true, reason: 'antes-de-restaurar' });
+    for (let i = 0; !safetyCopy && isAutoBackupRunning && i < 150; i++) {
+      await new Promise(r => setTimeout(r, 200));
+      if (!isAutoBackupRunning) safetyCopy = await runAutoBackup({ force: true, reason: 'antes-de-restaurar' });
+    }
+    const hasCurrentBoards = workspaceBoards.length > 0;
+    if (!safetyCopy && hasCurrentBoards) {
+      showActionToast('No se ha podido guardar la copia del estado actual, así que no se ha restaurado nada. Inténtalo otra vez.', []);
+      return;
+    }
+
+    if (payload.pastedImages && typeof window.require === 'function') {
+      try {
+        const fs = window.require('fs');
+        const path = window.require('path');
+        const { Buffer } = window.require('buffer');
+        const dir = getUserImagesDir();
+        fs.mkdirSync(dir, { recursive: true });
+        for (const [name, b64] of Object.entries(payload.pastedImages)) {
+          if (!/^pasted_[a-f0-9]+\.[a-z0-9]+$/i.test(name)) continue; // solo nombres propios, sin rutas
+          const file = path.join(dir, name);
+          if (!fs.existsSync(file)) fs.writeFileSync(file, Buffer.from(b64, 'base64'));
+        }
+      } catch (e) {
+        console.warn('No se pudieron recuperar las imágenes pegadas de la copia:', e);
+      }
+    }
 
     for (const { id, data } of payload.boards) {
       if (!id || !data) continue;
       const record = { ...data, id, userModified: true };
       await idbSaveBoard(id, record);
       try {
-        localStorage.setItem(`brainboard_board_${id}`, JSON.stringify(record));
+        // Copia de reserva solo para tableros pequeños (como en el guardado normal); la de un tablero grande
+        // se quita para que nunca se cargue una versión anterior a la restaurada
+        const json = estimateBoardDataSize(record.items) <= LOCAL_COPY_MAX_CHARS ? JSON.stringify(record) : null;
+        if (json && json.length <= LOCAL_COPY_MAX_CHARS) localStorage.setItem(`brainboard_board_${id}`, json);
+        else localStorage.removeItem(`brainboard_board_${id}`);
       } catch (e) {}
     }
 
@@ -6561,16 +7216,16 @@ document.addEventListener('DOMContentLoaded', () => {
       let thumbHtml = '';
       const thumbSrc = resolveImageSrc(board.thumbnail || DEFAULT_BOARD_THUMBNAILS[board.id]);
       if (thumbSrc) {
-        thumbHtml = `<div class="drawer-board-thumb"><img src="${thumbSrc}" class="drawer-board-thumb-img" alt="${board.title}" onerror="this.style.display='none'; this.parentElement.innerText='${board.icon || '📋'}';" /></div>`;
+        thumbHtml = `<div class="drawer-board-thumb"><img src="${escapeHtmlText(thumbSrc)}" class="drawer-board-thumb-img" alt="${escapeHtmlText(board.title)}" data-fallback="${escapeHtmlText(board.icon || '📋')}" onerror="this.style.display='none'; this.parentElement.innerText=this.dataset.fallback;" /></div>`;
       } else if (board.icon === 'code' || board.id === 'dev_ai') {
         thumbHtml = `<div class="drawer-board-thumb thumb-code"><span class="thumb-code-brackets" style="font-size: 11px;">&lt;/&gt;</span></div>`;
       } else {
-        thumbHtml = `<div class="drawer-board-icon">${board.icon || '📋'}</div>`;
+        thumbHtml = `<div class="drawer-board-icon">${escapeHtmlText(board.icon || '📋')}</div>`;
       }
 
       item.innerHTML = `
         ${thumbHtml}
-        <span class="drawer-board-title" title="${board.title}">${board.title}</span>
+        <span class="drawer-board-title" title="${escapeHtmlText(board.title)}">${escapeHtmlText(board.title)}</span>
         ${canDelete ? `
           <button class="drawer-board-delete-btn" title="Eliminar tablero" data-id="${board.id}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -6789,9 +7444,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   btnToggleTheme?.addEventListener('click', toggleTheme);
   btnHomeToggleTheme?.addEventListener('click', toggleTheme);
-  menuOptClear?.addEventListener('click', () => {
+  menuOptClear?.addEventListener('click', async () => {
     boardOptionsMenu?.classList.remove('visible');
-    if (confirm('¿Limpiar todo el contenido del tablero actual?')) {
+    if (confirm('¿Limpiar todo el contenido del tablero actual?\n\nAntes se guarda una versión: podrás recuperarlo desde «Historial de versiones».')) {
+      await saveBoardVersion(currentActiveBoardId, engine.getCleanItems(), 'before_clear', true);
       engine.saveSnapshot();
       engine.items = [];
       engine.selectedItemIds.clear();
@@ -6799,6 +7455,344 @@ document.addEventListener('DOMContentLoaded', () => {
       autoSaveBoardImmediately();
     }
   });
+
+  // ── Ventana del historial de versiones ──
+  const menuOptVersions = document.getElementById('menu-opt-versions');
+  menuOptVersions?.addEventListener('click', () => {
+    boardOptionsMenu?.classList.remove('visible');
+    openVersionHistoryModal();
+  });
+
+  async function openVersionHistoryModal() {
+    const boardId = currentActiveBoardId;
+    if (!boardId) return;
+    document.getElementById('version-history-modal')?.remove();
+    const backdrop = document.createElement('div');
+    backdrop.id = 'version-history-modal';
+    backdrop.className = 'modal-backdrop';
+    backdrop.style.display = 'flex';
+    const title = workspaceBoards.find(b => b.id === boardId)?.title || boardId;
+    backdrop.innerHTML = `
+      <div class="modal-dialog version-history-dialog">
+        <div class="modal-header">
+          <div class="modal-title-row"><h3>Historial de versiones</h3></div>
+          <button class="btn-mini-close" data-vh="close" title="Cerrar">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc version-history-intro">Versiones de <strong>«${escapeHtmlText(title)}»</strong>. Se guardan solas mientras trabajas (como mucho una cada 10 minutos) y antes de limpiar o restaurar; quedan las 30 últimas.</p>
+          <div class="version-history-list"><div class="version-history-empty">Cargando…</div></div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" data-vh="save">Guardar versión ahora</button>
+          <button class="btn btn-primary" data-vh="close">Cerrar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    const listEl = backdrop.querySelector('.version-history-list');
+    const close = () => { window.removeEventListener('keydown', onKey, true); backdrop.remove(); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    window.addEventListener('keydown', onKey, true);
+
+    const renderList = async () => {
+      const metas = await idbListVersionMetas(boardId);
+      const current = engine.items.length;
+      if (!metas.length) {
+        listEl.innerHTML = '<div class="version-history-empty">Todavía no hay versiones de este tablero. Se irán guardando solas mientras trabajas.</div>';
+        return;
+      }
+      listEl.innerHTML = metas.map(m => {
+        const d = new Date(m.createdAt);
+        const when = d.toLocaleString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+        const diff = m.itemCount - current;
+        const diffText = diff === 0 ? 'mismo nº de elementos que ahora' : diff > 0 ? `${diff} elemento${diff === 1 ? '' : 's'} más que ahora` : `${-diff} elemento${diff === -1 ? '' : 's'} menos que ahora`;
+        return `<div class="version-row" data-stamp="${escapeHtmlText(m.stamp)}">
+          <div class="version-row-main">
+            <div class="version-row-when">${escapeHtmlText(when)} <span class="version-row-ago">· ${escapeHtmlText(formatLastOpened(m.createdAt))}</span></div>
+            <div class="version-row-meta">${escapeHtmlText(VERSION_REASON_LABELS[m.reason] || m.reason)} · ${m.itemCount} elementos · ${escapeHtmlText(diffText)}</div>
+          </div>
+          <div class="version-row-actions">
+            <button class="btn btn-small" data-vh="copy" title="Abre esta versión como un tablero nuevo, sin tocar el actual">Abrir como copia</button>
+            <button class="btn btn-small btn-primary" data-vh="restore" title="El tablero vuelve a esta versión (se puede deshacer con Ctrl+Z)">Restaurar</button>
+          </div>
+        </div>`;
+      }).join('');
+    };
+
+    backdrop.addEventListener('click', async (e) => {
+      if (e.target === backdrop) return close();
+      const btn = e.target.closest('[data-vh]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-vh');
+      if (action === 'close') return close();
+      if (action === 'save') {
+        const stamp = await saveBoardVersion(boardId, engine.getCleanItems(), 'manual', true);
+        showDevToast(stamp ? 'Versión guardada' : 'No se ha podido guardar la versión');
+        return renderList();
+      }
+      const stamp = btn.closest('.version-row')?.getAttribute('data-stamp');
+      const version = stamp ? await idbLoadVersion(boardId, stamp) : null;
+      if (!version || !Array.isArray(version.items)) { showDevToast('No se encuentra esa versión'); return; }
+      const when = new Date(version.createdAt).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+      if (action === 'restore') {
+        if (currentActiveBoardId !== boardId) return close();
+        await saveBoardVersion(boardId, engine.getCleanItems(), 'before_restore', true);
+        engine.saveSnapshot();
+        engine.items = version.items.map(it => { const c = { ...it }; delete c.imgElement; return c; });
+        engine.selectedItemIds.clear();
+        engine.render();
+        updateMinimap();
+        autoSaveBoardImmediately(boardId);
+        close();
+        showActionToast(`Tablero restaurado a la versión del ${when}. Ctrl+Z lo deshace.`, []);
+      } else if (action === 'copy') {
+        const meta = workspaceBoards.find(b => b.id === boardId) || {};
+        const newId = 'board_' + Date.now();
+        const newTitle = `${meta.title || boardId} (versión del ${when})`;
+        const now = Date.now();
+        workspaceBoards.push({ id: newId, title: newTitle, icon: meta.icon || '📋', category: meta.category || 'General', thumbnail: null, lastOpenedAt: now, lastOpened: formatLastOpened(now), active: false });
+        saveWorkspaceBoards();
+        await idbSaveBoard(newId, { id: newId, name: newTitle, category: meta.category || 'General', icon: meta.icon || '📋', updatedAt: new Date().toISOString(), seedVersion: 3, userModified: true, items: version.items });
+        close();
+        await openBoardTab(newId);
+        if (typeof renderDrawerBoards === 'function') renderDrawerBoards();
+        if (typeof renderHomeScreen === 'function') renderHomeScreen();
+        showActionToast(`Abierta como «${newTitle}»`, []);
+      }
+    });
+    renderList();
+  }
+  window.openVersionHistoryModal = openVersionHistoryModal;
+
+  // ── Filtro por estrellas ──
+  const btnStarFilter = document.getElementById('btn-star-filter');
+  const starFilterMenu = document.getElementById('star-filter-menu');
+
+  function describeRatingFilter(f) {
+    if (!f) return 'Todas';
+    if (f === 'unrated') return 'Sin puntuar';
+    return f.min === 5 ? 'Solo ★★★★★' : `${'★'.repeat(f.min)} o más`;
+  }
+
+  function applyRatingFilter(f) {
+    engine.setRatingFilter(f);
+    btnStarFilter?.classList.toggle('active', !!f);
+    if (btnStarFilter) btnStarFilter.title = f ? `Filtro de estrellas: ${describeRatingFilter(f)} (clic para cambiarlo)` : 'Filtrar tarjetas por estrellas';
+  }
+
+  function renderStarFilterMenu() {
+    if (!starFilterMenu) return;
+    const cards = engine.items.filter(it => engine.isLinkCard(it));
+    const countMin = (n) => cards.filter(c => (Number(c.rating) || 0) >= n).length;
+    const unrated = cards.filter(c => !(Number(c.rating) > 0)).length;
+    const cur = engine.ratingFilter;
+    const isCur = (f) => (!f && !cur) || (f === 'unrated' && cur === 'unrated') || (f && f.min && cur && cur.min === f.min);
+    const options = [
+      { f: null, label: 'Todas las tarjetas', count: cards.length },
+      ...[5, 4, 3, 2, 1].map(n => ({ f: { min: n }, label: n === 5 ? '★★★★★ solo 5' : `${'★'.repeat(n)} o más`, count: countMin(n) })),
+      { f: 'unrated', label: 'Sin puntuar', count: unrated }
+    ];
+    starFilterMenu.innerHTML = `<div class="star-filter-title">Ver tarjetas con…</div>` + options.map((o, i) => `
+      <div class="dropdown-item star-filter-option${isCur(o.f) ? ' is-current' : ''}" data-idx="${i}">
+        <span class="star-filter-label">${escapeHtmlText(o.label)}</span>
+        <span class="star-filter-count">${o.count}</span>
+      </div>`).join('');
+    starFilterMenu.querySelectorAll('.star-filter-option').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const o = options[Number(el.getAttribute('data-idx'))];
+        applyRatingFilter(o.f);
+        starFilterMenu.classList.remove('visible');
+        if (o.f) showDevToast(`${o.count} tarjeta${o.count === 1 ? '' : 's'}: ${describeRatingFilter(o.f)}`);
+      });
+    });
+  }
+
+  btnStarFilter?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const open = !starFilterMenu.classList.contains('visible');
+    if (open) {
+      renderStarFilterMenu();
+      const parentRect = starFilterMenu.parentElement.getBoundingClientRect();
+      const btnRect = btnStarFilter.getBoundingClientRect();
+      starFilterMenu.style.right = `${Math.max(0, parentRect.right - btnRect.right)}px`;
+    }
+    starFilterMenu.classList.toggle('visible', open);
+  });
+  document.addEventListener('click', (e) => {
+    if (starFilterMenu?.classList.contains('visible') && !starFilterMenu.contains(e.target)) starFilterMenu.classList.remove('visible');
+  });
+  window.applyRatingFilter = applyRatingFilter;
+
+  // ── Enlaces repetidos en todos los tableros ──
+  document.getElementById('menu-opt-duplicates')?.addEventListener('click', () => {
+    boardOptionsMenu?.classList.remove('visible');
+    openDuplicateLinksModal();
+  });
+
+  async function collectDuplicateLinks() {
+    const boards = await loadAllBoardsForBrainIndex();
+    const groups = new Map();
+    boards.forEach(b => b.items.forEach(it => {
+      if (!it || !engine.isLinkCard(it) || typeof it.url !== 'string' || !it.url) return;
+      const key = normalizeUrlForCompare(it.url);
+      if (!key) return;
+      if (!groups.has(key)) groups.set(key, { key, url: it.url, occ: [] });
+      groups.get(key).occ.push({ boardId: b.id, boardTitle: b.title, itemId: it.id, title: it.title || '', createdMs: engine.getItemCreatedAtMs(it) || 0 });
+    }));
+    return [...groups.values()]
+      .filter(g => g.occ.length > 1)
+      .map(g => ({ ...g, occ: g.occ.sort((a, b) => a.createdMs - b.createdMs) }))
+      .sort((a, b) => b.occ.length - a.occ.length || a.key.localeCompare(b.key));
+  }
+
+  async function openDuplicateLinksModal() {
+    document.getElementById('duplicate-links-modal')?.remove();
+    const backdrop = document.createElement('div');
+    backdrop.id = 'duplicate-links-modal';
+    backdrop.className = 'modal-backdrop';
+    backdrop.style.display = 'flex';
+    backdrop.innerHTML = `
+      <div class="modal-dialog version-history-dialog">
+        <div class="modal-header">
+          <div class="modal-title-row"><h3>Enlaces repetidos</h3></div>
+          <button class="btn-mini-close" data-dl="close" title="Cerrar">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc version-history-intro">Tarjetas que apuntan a la misma página en todos tus tableros (sin contar www, parámetros de seguimiento ni la barra final).</p>
+          <div class="version-history-list"><div class="version-history-empty">Buscando en todos los tableros…</div></div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-primary" data-dl="close">Cerrar</button></div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    const close = () => { window.removeEventListener('keydown', onKey, true); backdrop.remove(); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    window.addEventListener('keydown', onKey, true);
+    const listEl = backdrop.querySelector('.version-history-list');
+    const introEl = backdrop.querySelector('.version-history-intro');
+    let groups = [];
+    try {
+      groups = await collectDuplicateLinks();
+    } catch (e) {
+      listEl.innerHTML = '<div class="version-history-empty">No se han podido leer los tableros.</div>';
+      return;
+    }
+    if (!groups.length) {
+      listEl.innerHTML = '<div class="version-history-empty">No tienes ningún enlace repetido.</div>';
+    } else {
+      const totalCards = groups.reduce((n, g) => n + g.occ.length, 0);
+      introEl.insertAdjacentHTML('beforeend', ` <strong>${groups.length}</strong> enlace${groups.length === 1 ? '' : 's'} repetido${groups.length === 1 ? '' : 's'} en ${totalCards} tarjetas.`);
+      listEl.innerHTML = groups.map((g, gi) => `
+        <div class="dup-group">
+          <div class="dup-group-url" title="${escapeHtmlText(g.url)}">${escapeHtmlText(g.key)} <span class="dup-group-count">×${g.occ.length}</span></div>
+          ${g.occ.map((o, oi) => `
+            <div class="version-row dup-row">
+              <div class="version-row-main">
+                <div class="version-row-when">«${escapeHtmlText(o.boardTitle)}»</div>
+                <div class="version-row-meta">${escapeHtmlText(o.title || 'Sin título')}${o.createdMs ? ' · ' + escapeHtmlText(engine.formatDateParts(o.createdMs).formattedDate) : ''}</div>
+              </div>
+              <div class="version-row-actions"><button class="btn btn-small" data-dl="go" data-g="${gi}" data-o="${oi}">Ver</button></div>
+            </div>`).join('')}
+        </div>`).join('');
+    }
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) return close();
+      const btn = e.target.closest('[data-dl]');
+      if (!btn) return;
+      if (btn.getAttribute('data-dl') === 'close') return close();
+      const o = groups[Number(btn.getAttribute('data-g'))]?.occ[Number(btn.getAttribute('data-o'))];
+      if (!o) return;
+      close();
+      jumpToBoardAndItemFromAi(o.boardId, o.itemId);
+    });
+  }
+  window.openDuplicateLinksModal = openDuplicateLinksModal;
+
+  // ── Comprobar enlaces rotos (barra del Mapa de Frescura) ──
+  // Pide cada página a su propia web (nada más sale del equipo). Roto: la web responde 404/410 o el dominio ya
+  // no existe. Si la web bloquea la comprobación (401/403/429…) o tarda demasiado, no se marca como rota.
+  const btnCheckLinks = document.getElementById('btn-check-links');
+
+  async function checkLinkStatus(rawUrl) {
+    let url = String(rawUrl || '').trim();
+    if (!/^https?:\/\//i.test(url)) url = 'https://' + url;
+    const ytId = typeof extractYouTubeVideoId === 'function' ? extractYouTubeVideoId(url) : null;
+    // YouTube responde 200 aunque el vídeo ya no exista: su oEmbed sí da 404
+    const probe = ytId ? `https://www.youtube.com/oembed?format=json&url=${encodeURIComponent('https://www.youtube.com/watch?v=' + ytId)}` : url;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 12000);
+    try {
+      const res = await fetch(probe, { method: 'GET', redirect: 'follow', signal: ctrl.signal, cache: 'no-store', credentials: 'omit' });
+      const status = res.status;
+      try { ctrl.abort(); } catch (e) { } // solo hacía falta la respuesta, no la página entera
+      if (status === 404 || status === 410) return 'broken';
+      if (status >= 200 && status < 400) return 'ok';
+      return 'unknown';
+    } catch (e) {
+      return e && e.name === 'AbortError' ? 'unknown' : 'broken';
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  let isCheckingLinks = false;
+  async function checkBoardLinks() {
+    if (isCheckingLinks) return;
+    if (navigator.onLine === false) {
+      showDevToast('Sin conexión a internet: no se pueden comprobar los enlaces');
+      return;
+    }
+    const boardId = currentActiveBoardId;
+    const cards = engine.items.filter(it => engine.isLinkCard(it) && typeof it.url === 'string' && it.url.trim());
+    if (!cards.length) {
+      showDevToast('Este tablero no tiene tarjetas de enlace');
+      return;
+    }
+    isCheckingLinks = true;
+    const label = btnCheckLinks?.querySelector('span');
+    btnCheckLinks?.classList.add('is-busy');
+    let done = 0;
+    const results = { ok: 0, broken: 0, unknown: 0 };
+    const queue = cards.slice();
+    const worker = async () => {
+      while (queue.length) {
+        const card = queue.shift();
+        const status = await checkLinkStatus(card.url);
+        results[status]++;
+        if (currentActiveBoardId === boardId && engine.items.includes(card)) {
+          if (status === 'unknown') {
+            delete card.linkStatus;
+          } else {
+            card.linkStatus = status;
+            card.linkCheckedUrl = card.url;
+          }
+          card.linkCheckedAt = new Date().toISOString();
+        }
+        done++;
+        if (label) label.textContent = `Comprobando ${done}/${cards.length}…`;
+        engine.render();
+      }
+    };
+    try {
+      await Promise.all([worker(), worker(), worker(), worker()]);
+    } finally {
+      isCheckingLinks = false;
+      btnCheckLinks?.classList.remove('is-busy');
+      if (label) label.textContent = 'Comprobar enlaces';
+    }
+    if (currentActiveBoardId !== boardId) return;
+    autoSaveBoard();
+    const unknownText = results.unknown ? ` ${results.unknown} no se han podido comprobar (la web no deja o no responde).` : '';
+    if (results.broken) {
+      const firstBroken = engine.items.find(it => it.linkStatus === 'broken');
+      showActionToast(`${results.broken} enlace${results.broken === 1 ? '' : 's'} roto${results.broken === 1 ? '' : 's'} de ${cards.length}.${unknownText}`, firstBroken ? [
+        { label: 'Ver', onClick: () => { engine.focusOnItem(firstBroken); engine.selectedItemIds.clear(); engine.selectedItemIds.add(firstBroken.id); engine.render(); } }
+      ] : []);
+    } else {
+      showActionToast(`Los ${cards.length - results.unknown} enlaces comprobados funcionan.${unknownText}`, []);
+    }
+  }
+  btnCheckLinks?.addEventListener('click', checkBoardLinks);
+  window.checkBoardLinks = checkBoardLinks;
 
   // =========================================================
   // OPCIONES DE DESARROLLADOR (DEV TOOLS)
@@ -7127,10 +8121,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   let isMinimapPanning = false;
 
+  // El minimapa se repinta como mucho una vez por fotograma (al arrastrar el lienzo llegan muchos eventos)
+  var minimapRafId = 0; // var: updateMinimap puede llamarse antes de llegar a esta línea al arrancar
   function updateMinimap() {
     if (!minimapCanvas || !minimapContainer) return;
     if (minimapContainer.style.display === 'none') return;
-    engine.renderMinimap(minimapCanvas);
+    if (minimapRafId) return;
+    minimapRafId = requestAnimationFrame(() => {
+      minimapRafId = 0;
+      if (minimapContainer.style.display === 'none') return;
+      engine.renderMinimap(minimapCanvas);
+    });
   }
 
   if (minimapCanvas) {
@@ -7323,7 +8324,8 @@ document.addEventListener('DOMContentLoaded', () => {
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 
   // Índice de todos los tableros (el abierto se lee del lienzo para incluir lo último sin guardar)
@@ -8288,13 +9290,13 @@ document.addEventListener('DOMContentLoaded', () => {
       let thumbHtml = '';
       const isWelcome = board.id === 'ejemplo' || board.id === 'bienvenida' || (board.title && (board.title.toLowerCase().includes('bienvenida') || board.title.toLowerCase() === 'ejemplo'));
       if (board.thumbnail) {
-        thumbHtml = `<div class="board-table-thumb"><img src="${resolveImageSrc(board.thumbnail)}" class="board-table-thumb-img" alt="${board.title}" /></div>`;
+        thumbHtml = `<div class="board-table-thumb"><img src="${escapeHtmlText(resolveImageSrc(board.thumbnail))}" class="board-table-thumb-img" alt="${escapeHtmlText(board.title)}" /></div>`;
       } else if (isWelcome) {
         thumbHtml = `<div class="board-table-thumb" style="display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,0.12);padding:4px;">${BRAIN_LOGO_SVG}</div>`;
       } else if (board.icon === 'code' || board.id === 'dev_ai') {
         thumbHtml = `<div class="board-table-thumb thumb-code"><span class="thumb-code-brackets">&lt;/&gt;</span></div>`;
       } else {
-        thumbHtml = `<div class="board-table-thumb thumb-emoji">${board.icon || '📋'}</div>`;
+        thumbHtml = `<div class="board-table-thumb thumb-emoji">${escapeHtmlText(board.icon || '📋')}</div>`;
       }
 
       tr.innerHTML = `
@@ -8302,7 +9304,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="board-cell-name">
             ${thumbHtml}
             <div class="board-table-info">
-              <span class="board-table-title">${board.title}</span>
+              <span class="board-table-title">${escapeHtmlText(board.title)}</span>
             </div>
           </div>
         </td>
@@ -9252,16 +10254,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const BRAIN_AI_SETTINGS_KEY = 'brainboard_ai_settings_v1';
   const BRAIN_AI_HISTORY_KEY = 'brainboard_ai_chat_history_v1';
 
-  // Catálogo de Modelos y Effort por proveedor (Gemini 2.5 Flash y Claude 5.5 Haiku por defecto)
+  // Catálogo de Modelos y Effort por proveedor (el primero es el de por defecto: Claude 5.5 Sonnet y Gemini 2.5 Flash; effort medium)
   const PROVIDER_MODEL_CATALOG = {
     claude_cli: [
-      { value: 'haiku', label: 'Claude 5.5 Haiku' },
       { value: 'sonnet', label: 'Claude 5.5 Sonnet' },
+      { value: 'haiku', label: 'Claude 5.5 Haiku' },
       { value: 'opus', label: 'Claude 5.5 Opus' }
     ],
     claude_api: [
-      { value: 'claude-haiku-5-5', label: 'Claude 5.5 Haiku' },
       { value: 'claude-sonnet-5-5', label: 'Claude 5.5 Sonnet' },
+      { value: 'claude-haiku-5-5', label: 'Claude 5.5 Haiku' },
       { value: 'claude-opus-5-5', label: 'Claude 5.5 Opus' }
     ],
     gemini_cli: [
@@ -9370,7 +10372,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return {
         provider: 'claude_cli',
         cliPath: claudePath,
-        model: 'haiku',
+        model: 'sonnet',
         effort: 'medium',
         detectedSummary: `✓ Claude CLI autodetectado (${claudePath})`
       };
@@ -10946,7 +11948,7 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
         const args = isClaude
           ? [
               '-p',
-              '--model', selectedModel || 'haiku',
+              '--model', selectedModel || 'sonnet',
               '--effort', selectedEffort || 'medium',
               '--tools', ''
             ]
@@ -11031,24 +12033,35 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
     if (provider === 'claude_api') {
       const apiKey = (brainAiSettings.apiKey || '').trim();
       if (!apiKey) throw new Error('Introduce tu API Key de Anthropic Claude en Configurar Brain (⚙️).');
-      const model = selectedModel || 'claude-haiku-5-5';
+      const model = selectedModel || 'claude-sonnet-5-5';
+      // Los modelos 5.5 piensan siempre: el esfuerzo (medium por defecto) es lo que regula cuánto,
+      // y el pensamiento también cuenta en max_tokens. Sonnet y Opus 5.5 pasan a otro modelo si rechazan.
+      const hasServerFallback = /sonnet-5-5|opus-5-5/.test(model);
+      const headers = {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true'
+      };
+      if (hasServerFallback) headers['anthropic-beta'] = 'server-side-fallback-2026-07-01';
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
+        headers,
         body: JSON.stringify({
           model,
-          max_tokens: 2500,
+          max_tokens: 16000,
+          output_config: { effort: selectedEffort || 'medium' },
+          ...(hasServerFallback ? { fallbacks: 'default' } : {}),
           messages: [{ role: 'user', content: fullPrompt }]
         })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error?.message || `Error HTTP ${res.status} en Claude API`);
-      return data?.content?.[0]?.text || '';
+      if (data?.stop_reason === 'refusal') {
+        throw new Error('Claude ha rechazado esta petición por sus filtros de seguridad. Prueba a reformularla.');
+      }
+      // La respuesta empieza con bloques de pensamiento (vacíos): solo interesan los de texto
+      return (data?.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
     }
 
     // 3. GOOGLE GEMINI 2.5 FLASH (GRATIS / API KEY OFICIAL + MODO ZERO-CONFIG)
@@ -11146,10 +12159,14 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
     // Extraer bloques <brainboard_action> para no mostrarlos crudos
     const cleanText = String(rawText).replace(/<brainboard_action>[\s\S]*?<\/brainboard_action>/gi, '').trim();
 
+    // También las comillas: el texto de la IA (que puede venir influido por una web) va dentro de atributos
+    // de las citas, y una comilla sin escapar permitía añadir atributos con código
     const escapeHtml = (s) => s
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
 
     const lines = cleanText.split('\n');
     let html = '';
@@ -11497,6 +12514,155 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
     }
   });
 
+  // ── Dictado por voz (Whisper local) ──
+  // Graba con el micrófono, pasa el audio a 16 kHz mono y lo transcribe en un worker con Whisper
+  // (Transformers.js). El modelo se descarga una vez de Hugging Face; el audio no sale del ordenador.
+  const btnBrainAiMic = document.getElementById('btn-brain-ai-mic');
+  const MIC_IDLE_TITLE = 'Dictar con la voz (se transcribe en tu ordenador)';
+  let whisperWorker = null;
+  let whisperJobId = 0;
+  const whisperJobs = new Map();
+  let micState = 'idle'; // idle | recording | busy
+  let micRecorder = null;
+  let micStream = null;
+  let micChunks = [];
+  let lastMicProgressToast = 0;
+  const whisperFileProgress = new Map();
+
+  function setMicState(state, title) {
+    micState = state;
+    if (!btnBrainAiMic) return;
+    btnBrainAiMic.classList.toggle('is-recording', state === 'recording');
+    btnBrainAiMic.classList.toggle('is-busy', state === 'busy');
+    btnBrainAiMic.title = title || (state === 'recording' ? 'Grabando… pulsa para terminar' : MIC_IDLE_TITLE);
+  }
+
+  function getWhisperWorker() {
+    if (whisperWorker) return whisperWorker;
+    whisperWorker = new Worker(new URL('whiteboard/whisper_worker.js', location.href), { type: 'module' });
+    whisperWorker.onmessage = (e) => {
+      const msg = e.data || {};
+      const job = whisperJobs.get(msg.id);
+      if (msg.type === 'progress') {
+        const p = msg.progress || {};
+        if (p.status === 'progress' && p.file && p.total) {
+          whisperFileProgress.set(p.file, { loaded: p.loaded || 0, total: p.total });
+          let loaded = 0, total = 0;
+          whisperFileProgress.forEach(f => { loaded += f.loaded; total += f.total; });
+          const pct = total ? Math.floor((loaded / total) * 100) : 0;
+          const label = `Descargando el modelo de voz (solo la primera vez)… ${pct} %`;
+          if (btnBrainAiMic) btnBrainAiMic.title = label;
+          const now = Date.now();
+          if (now - lastMicProgressToast > 1500) {
+            lastMicProgressToast = now;
+            showDevToast(label);
+          }
+        }
+        return;
+      }
+      if (!job) return;
+      whisperJobs.delete(msg.id);
+      if (msg.type === 'result' || msg.type === 'ready') job.resolve(msg.text || '');
+      else if (msg.type === 'error') job.reject(new Error(msg.error || 'Error desconocido'));
+    };
+    whisperWorker.onerror = (err) => {
+      err?.preventDefault?.();
+      const error = new Error(err?.message || 'No se pudo cargar el transcriptor');
+      whisperJobs.forEach(job => job.reject(error));
+      whisperJobs.clear();
+      try { whisperWorker.terminate(); } catch (e) { }
+      whisperWorker = null;
+    };
+    return whisperWorker;
+  }
+
+  function transcribeWithWhisper(audio) {
+    const worker = getWhisperWorker();
+    const id = ++whisperJobId;
+    return new Promise((resolve, reject) => {
+      whisperJobs.set(id, { resolve, reject });
+      worker.postMessage({ id, audio }, audio ? [audio.buffer] : []);
+    });
+  }
+
+  // Blob grabado → Float32Array mono a 16 kHz (lo que espera Whisper)
+  async function decodeRecordingTo16kMono(blob) {
+    const arrayBuffer = await blob.arrayBuffer();
+    const ctx = new AudioContext({ sampleRate: 16000 });
+    try {
+      const decoded = await ctx.decodeAudioData(arrayBuffer);
+      const channels = decoded.numberOfChannels;
+      const out = new Float32Array(decoded.length);
+      for (let c = 0; c < channels; c++) {
+        const data = decoded.getChannelData(c);
+        for (let i = 0; i < data.length; i++) out[i] += data[i] / channels;
+      }
+      return out;
+    } finally {
+      ctx.close().catch(() => { });
+    }
+  }
+
+  function insertDictatedText(text) {
+    if (!brainAiInput || !text) return;
+    const current = brainAiInput.value;
+    const needsSpace = current && !/\s$/.test(current);
+    brainAiInput.value = current + (needsSpace ? ' ' : '') + text;
+    brainAiInput.dispatchEvent(new Event('input', { bubbles: true }));
+    brainAiInput.focus();
+    brainAiInput.setSelectionRange(brainAiInput.value.length, brainAiInput.value.length);
+  }
+
+  async function startMicRecording() {
+    try {
+      micStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    } catch (err) {
+      const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+      const missing = err && (err.name === 'NotFoundError' || err.name === 'OverconstrainedError');
+      showDevToast(denied ? 'Windows no deja usar el micrófono: revisa Configuración → Privacidad → Micrófono'
+        : missing ? 'No se encuentra ningún micrófono' : `No se pudo abrir el micrófono: ${err?.message || err}`);
+      return;
+    }
+    micChunks = [];
+    micRecorder = new MediaRecorder(micStream);
+    micRecorder.ondataavailable = (e) => { if (e.data && e.data.size) micChunks.push(e.data); };
+    micRecorder.onstop = () => finishMicRecording();
+    micRecorder.start();
+    setMicState('recording');
+    // Mientras se habla, el modelo se va preparando (y la primera vez, descargando)
+    transcribeWithWhisper(null).catch(() => { });
+  }
+
+  async function finishMicRecording() {
+    const blob = new Blob(micChunks, { type: micRecorder?.mimeType || 'audio/webm' });
+    micStream?.getTracks().forEach(t => t.stop());
+    micStream = null;
+    micRecorder = null;
+    micChunks = [];
+    if (!blob.size) { setMicState('idle'); return; }
+    setMicState('busy', 'Transcribiendo…');
+    try {
+      const audio = await decodeRecordingTo16kMono(blob);
+      if (audio.length < 16000 * 0.3) { setMicState('idle'); return; } // menos de 0,3 s: nada que transcribir
+      const text = await transcribeWithWhisper(audio);
+      if (text) insertDictatedText(text);
+      else showDevToast('No se ha entendido nada: prueba a hablar más cerca del micrófono');
+    } catch (err) {
+      console.error('[Brain] Error al transcribir:', err);
+      showDevToast(`No se pudo transcribir: ${err.message || err}`);
+    } finally {
+      setMicState('idle');
+    }
+  }
+
+  btnBrainAiMic?.addEventListener('click', () => {
+    if (micState === 'recording') {
+      try { micRecorder?.stop(); } catch (e) { setMicState('idle'); }
+    } else if (micState === 'idle') {
+      startMicRecording();
+    }
+  });
+
   // Desplegables de Apunte (Modo de resumen), Botón Añadir recurso y Briefing (7 días, 3 días, 24 horas) + Chips de acción rápida
   const btnBrainAiMakeNote = document.getElementById('btn-brain-ai-make-note');
   const brainAiNoteMenu = document.getElementById('brain-ai-note-menu');
@@ -11827,4 +12993,5 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
   updateAutoBackupStatusUi();
   setTimeout(() => runAutoBackup(), 20000);
   setInterval(() => runAutoBackup(), 60 * 60 * 1000);
+  setTimeout(() => cleanupOversizedLocalCopies(), 30000);
 });

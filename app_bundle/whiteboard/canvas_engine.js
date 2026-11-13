@@ -272,6 +272,34 @@ class CanvasEngine {
     return info.tier === this.freshnessFilterTier;
   }
 
+  // Filtro por estrellas: null (sin filtro), { min: 1..5 } o 'unrated'. Se ven enteras las tarjetas que
+  // cumplen, lo que tienen unido (imagen, texto) y los marcos; el resto se atenúa como en el Mapa de Frescura.
+  setRatingFilter(filter) {
+    this.ratingFilter = filter || null;
+    this.render();
+  }
+
+  cardMatchesRatingFilter(it) {
+    const f = this.ratingFilter;
+    if (!f || !this.isLinkCard(it)) return false;
+    const r = Number(it.rating) || 0;
+    if (f === 'unrated') return r === 0;
+    return r >= (f.min || 1);
+  }
+
+  // Ids que se ven enteros con el filtro de estrellas (null si no hay filtro)
+  getRatingFilterVisibleIds() {
+    if (!this.ratingFilter) return null;
+    const ids = new Set();
+    this.items.forEach(it => {
+      if (it.type === 'frame') ids.add(it.id);
+      if (!this.cardMatchesRatingFilter(it)) return;
+      ids.add(it.id);
+      if (this.isInGroup(it)) this.getGroupMembers(it).forEach(m => ids.add(m.id));
+    });
+    return ids;
+  }
+
   setFreshnessMapMode(enabled, filterTier = 'all') {
     this.freshnessMapMode = Boolean(enabled);
     this.freshnessFilterTier = filterTier || 'all';
@@ -303,9 +331,12 @@ class CanvasEngine {
     };
   }
 
+  // Elementos listos para guardar, sin la imagen cargada (no se puede guardar en IndexedDB). Imágenes y
+  // tarjetas van siempre copiadas: el dibujo (que va por fotogramas) puede ponerles la imagen mientras se
+  // guarda, y si la copia compartiera el objeto el guardado fallaría
   getCleanItems() {
     return this.items.map(it => {
-      if (it.imgElement) {
+      if (it.imgElement || it.type === 'image' || it.type === 'embed' || it.type === 'preview') {
         const copy = { ...it };
         delete copy.imgElement;
         return copy;
@@ -314,8 +345,45 @@ class CanvasEngine {
     });
   }
 
+  // Paso de deshacer en texto. Las imágenes pegadas (data:, de cientos de KB) se guardan una sola vez aparte
+  // y en cada paso solo va una referencia: antes cada paso copiaba el tablero entero (17 MB en AI).
+  serializeForHistory() {
+    if (!this.historyBlobs) { this.historyBlobs = new Map(); this.historyBlobsByRef = new Map(); }
+    return JSON.stringify(this.getCleanItems(), (key, value) => {
+      if (typeof value === 'string' && value.length > 4096 && value.startsWith('data:')) {
+        let ref = this.historyBlobs.get(value);
+        if (!ref) {
+          ref = '@@bb-history-blob:' + (this.historyBlobs.size + 1);
+          this.historyBlobs.set(value, ref);
+          this.historyBlobsByRef.set(ref, value);
+        }
+        return ref;
+      }
+      return value;
+    });
+  }
+
+  // Vuelve a un paso del historial. Los elementos con la misma imagen conservan la ya cargada
+  // (si no, deshacer en un tablero con cientos de imágenes las recargaba todas).
+  restoreFromHistory(json) {
+    const loaded = new Map();
+    this.items.forEach(it => {
+      if (it.imgElement && typeof it.imgElement.getAttribute === 'function') loaded.set(it.id, it.imgElement);
+    });
+    const byRef = this.historyBlobsByRef;
+    const items = JSON.parse(json, (key, value) => (
+      byRef && typeof value === 'string' && value.startsWith('@@bb-history-blob:') && byRef.has(value) ? byRef.get(value) : value
+    ));
+    items.forEach(it => {
+      if (it.imgElement && typeof it.imgElement.getAttribute !== 'function') delete it.imgElement;
+      const img = loaded.get(it.id);
+      if (img && it.src && img.getAttribute('data-src') === it.src) it.imgElement = img;
+    });
+    return items;
+  }
+
   saveSnapshot(precomputed = null) {
-    const snapshot = precomputed || JSON.stringify(this.getCleanItems());
+    const snapshot = precomputed || this.serializeForHistory();
     // Evitar registrar snapshots duplicados consecutivos
     if (this.undoStack.length > 0 && this.undoStack[this.undoStack.length - 1] === snapshot) {
       return;
@@ -328,20 +396,16 @@ class CanvasEngine {
   clearHistory() {
     this.undoStack = [];
     this.redoStack = [];
+    this.historyBlobs = null;
+    this.historyBlobsByRef = null;
   }
 
   undo() {
     if (this.undoStack.length === 0) return;
-    this.redoStack.push(JSON.stringify(this.getCleanItems()));
+    this.redoStack.push(this.serializeForHistory());
     const prev = this.undoStack.pop();
     try {
-      this.items = JSON.parse(prev);
-      // Eliminar referencias imgElement corruptas ({}) procedentes de JSON.parse
-      this.items.forEach(it => {
-        if (it.imgElement && typeof it.imgElement.getAttribute !== 'function') {
-          delete it.imgElement;
-        }
-      });
+      this.items = this.restoreFromHistory(prev);
     } catch (e) {
       console.error('Error al restaurar historial en undo:', e);
     }
@@ -352,15 +416,10 @@ class CanvasEngine {
 
   redo() {
     if (this.redoStack.length === 0) return;
-    this.undoStack.push(JSON.stringify(this.getCleanItems()));
+    this.undoStack.push(this.serializeForHistory());
     const next = this.redoStack.pop();
     try {
-      this.items = JSON.parse(next);
-      this.items.forEach(it => {
-        if (it.imgElement && typeof it.imgElement.getAttribute !== 'function') {
-          delete it.imgElement;
-        }
-      });
+      this.items = this.restoreFromHistory(next);
     } catch (e) {
       console.error('Error al restaurar historial en redo:', e);
     }
@@ -590,7 +649,7 @@ class CanvasEngine {
   stepZOrder(itemIds, dir) {
     const ids = itemIds ? new Set(itemIds) : this.selectedItemIds;
     if (ids.size === 0) return;
-    const before = JSON.stringify(this.getCleanItems());
+    const before = this.serializeForHistory();
     this.normalizeZIndices();
     const sorted = this.getSortedItemsForRender(false);
     const order = dir > 0 ? sorted.map((_, i) => sorted.length - 1 - i) : sorted.map((_, i) => i);
@@ -616,7 +675,7 @@ class CanvasEngine {
   bringToFront(itemIds = null) {
     const ids = itemIds ? new Set(itemIds) : this.selectedItemIds;
     if (ids.size === 0) return;
-    const before = JSON.stringify(this.getCleanItems());
+    const before = this.serializeForHistory();
     this.normalizeZIndices();
     const sorted = this.getSortedItemsForRender(false);
     let maxZ = sorted.length > 0 ? sorted[sorted.length - 1].zIndex : 10;
@@ -639,7 +698,7 @@ class CanvasEngine {
   sendToBack(itemIds = null) {
     const ids = itemIds ? new Set(itemIds) : this.selectedItemIds;
     if (ids.size === 0) return;
-    const before = JSON.stringify(this.getCleanItems());
+    const before = this.serializeForHistory();
     this.normalizeZIndices();
     const sorted = this.getSortedItemsForRender(false);
     let minZ = sorted.length > 0 ? sorted[0].zIndex : 10;
@@ -1799,6 +1858,7 @@ class CanvasEngine {
     const origZoom = this.camera.zoom;
     this.ctx = offCtx;
     this.camera.zoom = 1;
+    this.isExporting = true; // imágenes a resolución completa, sin las versiones reducidas de la vista
 
     const targetSet = new Set(targets.map(t => t.id));
     const isTarget = (it) => targetSet.has(it.id);
@@ -1843,6 +1903,7 @@ class CanvasEngine {
     } finally {
       this.ctx = origCtx;
       this.camera.zoom = origZoom;
+      this.isExporting = false;
     }
 
     try {
@@ -1883,6 +1944,14 @@ class CanvasEngine {
   }
 
   bindEvents() {
+    // Si una fuente termina de cargar, los cortes de línea medidos con la provisional ya no valen
+    try {
+      document.fonts?.addEventListener?.('loadingdone', () => {
+        this.wrapCache?.clear();
+        this.render();
+      });
+    } catch (e) { }
+
     window.addEventListener('resize', () => {
       this.initCanvasSize();
       this.render();
@@ -1892,14 +1961,19 @@ class CanvasEngine {
     this.canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       this.clearHoverDateTooltip();
-      // Zoom directo con rueda centrado en el cursor
-      const factor = e.deltaY < 0 ? 1.12 : 0.88;
+      // Zoom con rueda centrado en el cursor, proporcional al giro: una muesca de ratón (100) sigue siendo
+      // un 12 %, y los touchpads o ruedas de precisión (muchos eventos pequeños) ya no van a saltos
+      const unit = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 800 : 1; // líneas / páginas → píxeles
+      const delta = Math.max(-300, Math.min(300, e.deltaY * unit));
+      if (!delta) return;
+      const factor = Math.pow(1.12, -delta / 100);
       this.zoomAt(e.clientX, e.clientY, factor);
     }, { passive: false });
 
     this.canvas.addEventListener('pointerleave', () => {
       this.clearHoverDateTooltip();
       this.setRatingHover(null, 0);
+      this.setHoveredGroup(null);
     });
 
     // Soporte para desplazar (pan) manteniendo la barra espaciadora pulsada
@@ -1920,6 +1994,13 @@ class CanvasEngine {
           this.render();
         }
       }
+    });
+    // Al cambiar de ventana (Alt+Tab) con la barra espaciadora pulsada, su keyup no llega: sin esto,
+    // cada clic seguía moviendo el lienzo en vez de seleccionar
+    window.addEventListener('blur', () => {
+      if (!this.isSpacePressed) return;
+      this.isSpacePressed = false;
+      if (!this.isPanning) this.canvas.style.cursor = this.activeTool === 'hand' ? 'grab' : 'default';
     });
     window.addEventListener('keyup', (e) => {
       if (e.code === 'Space') {
@@ -2302,84 +2383,15 @@ class CanvasEngine {
       return;
     }
 
-    if (this.activeTool === 'sticky_note') {
-      this.saveSnapshot();
-      const nowIso = new Date().toISOString();
-      const newNote = {
-        id: 'note_' + Date.now(),
-        type: 'sticky_note',
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        x: world.x - 90,
-        y: world.y - 90,
-        width: 180,
-        height: 180,
-        text: 'Nota adhesiva',
-        color: this.activeColor,
-        zIndex: this.getTopZIndex()
-      };
-      this.items.push(newNote);
-      this.selectedItemIds.clear();
-      this.selectedItemIds.add(newNote.id);
-      this.activeTool = 'select';
-      if (this.onSelectionChange) this.onSelectionChange([newNote.id]);
-      if (this.onBoardModified) this.onBoardModified();
-      this.render();
-      return;
-    }
-
-    if (this.activeTool === 'shape') {
-      this.saveSnapshot();
-      const nowIso = new Date().toISOString();
-      const newShape = {
-        id: 'shape_' + Date.now(),
-        type: 'shape',
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        shape: this.selectedShapeType,
-        x: world.x - 80,
-        y: world.y - 50,
-        width: 160,
-        height: 100,
-        text: '',
-        fillColor: '#ffffff',
-        strokeColor: '#1a1a1a',
-        strokeWidth: 2,
-        zIndex: this.getTopZIndex()
-      };
-      this.items.push(newShape);
-      this.selectedItemIds.clear();
-      this.selectedItemIds.add(newShape.id);
-      this.activeTool = 'select';
-      if (this.onSelectionChange) this.onSelectionChange([newShape.id]);
-      if (this.onBoardModified) this.onBoardModified();
-      this.render();
-      return;
-    }
-
-    if (this.activeTool === 'text') {
-      this.saveSnapshot();
-      const nowIso = new Date().toISOString();
-      const newText = {
-        id: 'text_' + Date.now(),
-        type: 'text',
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        x: world.x,
-        y: world.y,
-        width: 160,
-        height: 40,
-        text: 'Escribe algo...',
-        fontSize: 22,
-        color: '#1a1a1a',
-        zIndex: this.getTopZIndex()
-      };
-      this.items.push(newText);
-      this.selectedItemIds.clear();
-      this.selectedItemIds.add(newText.id);
-      this.activeTool = 'select';
-      if (this.onSelectionChange) this.onSelectionChange([newText.id]);
-      if (this.onBoardModified) this.onBoardModified();
+    // Herramientas que crean un elemento: un clic lo crea con el tamaño de siempre y arrastrar,
+    // con el tamaño del recuadro (se crea al soltar, en finishCreationDrag)
+    if (CanvasEngine.DRAG_CREATE_TOOLS.has(this.activeTool)) {
+      this.creationDrag = { tool: this.activeTool, x0: world.x, y0: world.y, x1: world.x, y1: world.y, sx: e.clientX, sy: e.clientY, moved: false };
+      // Lo que estuviera seleccionado deja de estarlo (y su barra de propiedades no tapa el recuadro)
+      if (this.selectedItemIds.size) {
+        this.selectedItemIds.clear();
+        if (this.onSelectionChange) this.onSelectionChange([]);
+      }
       this.render();
       return;
     }
@@ -2422,32 +2434,6 @@ class CanvasEngine {
       return;
     }
 
-    if (this.activeTool === 'frame') {
-      this.saveSnapshot();
-      const nowIso = new Date().toISOString();
-      const newFrame = {
-        id: 'frame_' + Date.now(),
-        type: 'frame',
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        x: world.x - 200,
-        y: world.y - 150,
-        width: 400,
-        height: 300,
-        title: 'Marco 1',
-        zIndex: this.getBottomZIndex()
-      };
-      this.items.unshift(newFrame); // Los marcos van al fondo
-      this.freshFrameIds.add(newFrame.id);
-      this.selectedItemIds.clear();
-      this.selectedItemIds.add(newFrame.id);
-      this.activeTool = 'select';
-      if (this.onSelectionChange) this.onSelectionChange([newFrame.id]);
-      if (this.onBoardModified) this.onBoardModified();
-      this.render();
-      return;
-    }
-
     if (this.activeTool === 'comment') {
       this.saveSnapshot();
       const nowIso = new Date().toISOString();
@@ -2476,19 +2462,145 @@ class CanvasEngine {
       return;
     }
 
-    if (this.activeTool === 'template') {
-      this.saveSnapshot();
-      const templateType = this.selectedTemplateType || 'apuntes';
-      const createdIds = this.insertTemplateAt(world.x, world.y, templateType);
-      this.activeTool = 'select';
-      if (this.onSelectionChange) this.onSelectionChange(createdIds);
-      if (this.onBoardModified) this.onBoardModified();
-      this.render();
-      return;
-    }
   }
 
-  insertTemplateAt(targetCenterX, targetCenterY, templateType = 'apuntes') {
+  static DRAG_CREATE_TOOLS = new Set(['sticky_note', 'shape', 'text', 'frame', 'template']);
+
+  // Rectángulo del recuadro de creación (null si fue un clic sin arrastrar)
+  getCreationRect() {
+    const d = this.creationDrag;
+    if (!d || !d.moved) return null;
+    return { x: Math.min(d.x0, d.x1), y: Math.min(d.y0, d.y1), w: Math.abs(d.x1 - d.x0), h: Math.abs(d.y1 - d.y0) };
+  }
+
+  finishCreationDrag() {
+    const d = this.creationDrag;
+    const rect = this.getCreationRect();
+    this.creationDrag = null;
+    this.createFromTool(d.tool, rect, { x: d.x0, y: d.y0 });
+  }
+
+  // Crea el elemento de la herramienta: en el recuadro o, con un clic, con su tamaño de siempre
+  createFromTool(tool, rect, point) {
+    this.saveSnapshot();
+    const nowIso = new Date().toISOString();
+    const box = (defW, defH, minW, minH, anchor = 'center') => {
+      if (rect) return { x: rect.x, y: rect.y, w: Math.max(minW, rect.w), h: Math.max(minH, rect.h) };
+      if (anchor === 'topleft') return { x: point.x, y: point.y - defH / 2, w: defW, h: defH };
+      return { x: point.x - defW / 2, y: point.y - defH / 2, w: defW, h: defH };
+    };
+    let created = [];
+    let editItem = null;
+
+    if (tool === 'sticky_note') {
+      const b = box(180, 180, 60, 60);
+      const note = {
+        id: 'note_' + Date.now(), type: 'sticky_note', createdAt: nowIso, updatedAt: nowIso,
+        x: b.x, y: b.y, width: b.w, height: b.h, text: '', color: this.activeColor, zIndex: this.getTopZIndex()
+      };
+      this.items.push(note);
+      created = [note];
+      editItem = note;
+    } else if (tool === 'shape') {
+      const b = box(160, 100, 20, 20);
+      const shape = {
+        id: 'shape_' + Date.now(), type: 'shape', createdAt: nowIso, updatedAt: nowIso, shape: this.selectedShapeType,
+        x: b.x, y: b.y, width: b.w, height: b.h, text: '', fillColor: '#ffffff', strokeColor: '#1a1a1a', strokeWidth: 2,
+        zIndex: this.getTopZIndex()
+      };
+      this.items.push(shape);
+      created = [shape];
+    } else if (tool === 'text') {
+      const b = box(240, 40, 60, 30, 'topleft');
+      const text = {
+        id: 'text_' + Date.now(), type: 'text', createdAt: nowIso, updatedAt: nowIso,
+        x: b.x, y: b.y, width: b.w, height: b.h, text: '', fontSize: 22, color: '#1a1a1a', zIndex: this.getTopZIndex()
+      };
+      this.items.push(text);
+      created = [text];
+      editItem = text;
+    } else if (tool === 'frame') {
+      const b = box(400, 300, 80, 60);
+      const frame = {
+        id: 'frame_' + Date.now(), type: 'frame', createdAt: nowIso, updatedAt: nowIso,
+        x: b.x, y: b.y, width: b.w, height: b.h, title: 'Marco 1', zIndex: this.getBottomZIndex()
+      };
+      this.items.unshift(frame); // Los marcos van al fondo
+      this.freshFrameIds.add(frame.id);
+      created = [frame];
+    } else if (tool === 'template') {
+      const templateType = this.selectedTemplateType || 'apuntes';
+      const cx = rect ? rect.x + rect.w / 2 : point.x;
+      const cy = rect ? rect.y + rect.h / 2 : point.y;
+      const ids = this.insertTemplateAt(cx, cy, templateType, rect ? { w: rect.w, h: rect.h } : null);
+      created = this.items.filter(it => ids.includes(it.id));
+    }
+
+    this.activeTool = 'select';
+    this.selectedItemIds.clear();
+    created.forEach(it => this.selectedItemIds.add(it.id));
+    if (this.onToolReset) this.onToolReset();
+    if (this.onSelectionChange) this.onSelectionChange(created.map(it => it.id));
+    if (this.onBoardModified) this.onBoardModified();
+    this.render();
+    // Texto y nota: se abren para escribir directamente
+    if (editItem && this.onItemCreatedForEditing) this.onItemCreatedForEditing(editItem);
+  }
+
+  // Lleva una plantilla ya creada (a su tamaño de siempre) al tamaño del recuadro. Los márgenes se quedan
+  // como en la plantilla normal: el título conserva su separación del borde y su alto y solo se alarga;
+  // el contenido de debajo se estira en el hueco que queda, con los mismos márgenes
+  fitTemplateToSize(createdItems, templateType, centerX, centerY, size) {
+    const frame = createdItems.find(it => it.type === 'frame');
+    if (frame) {
+      const W = Math.round(Math.max(size.w, 260));
+      const H = Math.round(Math.max(size.h, 180));
+      const fw = frame.width, fh = frame.height;
+      const ox = frame.x, oy = frame.y;
+      const nx = Math.round(centerX - W / 2), ny = Math.round(centerY - H / 2);
+      const children = createdItems.filter(it => it !== frame);
+      const isTitle = (it) => it.type === 'text' && (it.fitToFrameWidth || it.isIndexTitle || it.height <= 70) && it.y - oy < 100;
+      const titles = children.filter(isTitle);
+      const content = children.filter(it => !isTitle(it));
+
+      titles.forEach(it => {
+        const left = it.x - ox;
+        const right = ox + fw - (it.x + it.width);
+        it.x = nx + left;
+        it.y = ny + (it.y - oy);
+        it.width = Math.max(60, W - left - right);
+      });
+
+      if (content.length) {
+        // Hueco del contenido en la plantilla original (márgenes simétricos a izquierda y derecha)
+        const left = Math.min(...content.map(it => it.x - ox));
+        const top = Math.min(...content.map(it => it.y - oy));
+        const bottom = fh - Math.max(...content.map(it => it.y - oy + it.height));
+        const srcW = Math.max(1, fw - 2 * left), srcH = Math.max(1, fh - top - bottom);
+        const dstW = Math.max(40, W - 2 * left), dstH = Math.max(40, H - top - bottom);
+        const sx = dstW / srcW, sy = dstH / srcH;
+        content.forEach(it => {
+          it.x = Math.round(nx + left + (it.x - ox - left) * sx);
+          it.y = Math.round(ny + top + (it.y - oy - top) * sy);
+          it.width = Math.round(it.width * sx);
+          it.height = Math.round(it.height * sy);
+        });
+      }
+      frame.x = nx; frame.y = ny; frame.width = W; frame.height = H;
+      return;
+    }
+    // Sin marco (Título para índice, Texto desplegable): el ancho es el del recuadro
+    createdItems.forEach(it => {
+      const w = Math.round(Math.max(size.w, 160));
+      it.x = Math.round(centerX - w / 2);
+      it.width = w;
+      if (it.type === 'spoiler') it.height = this.computeSpoilerHeight(it);
+      if (it.type === 'text') it.height = Math.max(it.height, Math.round(Math.min(size.h, 200)));
+      it.y = Math.round(centerY - it.height / 2);
+    });
+  }
+
+  insertTemplateAt(targetCenterX, targetCenterY, templateType = 'apuntes', size = null) {
     const now = Date.now();
     const nowIso = new Date(now).toISOString();
     const currentMaxZ = this.items.reduce((max, it) => Math.max(max, typeof it.zIndex === 'number' ? it.zIndex : 10), 10);
@@ -2639,6 +2751,9 @@ class CanvasEngine {
       createdItems.push(...this.buildCuratedTemplate(templateType, targetCenterX, targetCenterY, now, currentMaxZ));
     }
 
+    // Hecha con arrastre: al tamaño del recuadro
+    if (size) this.fitTemplateToSize(createdItems, templateType, targetCenterX, targetCenterY, size);
+
     // El marco de la plantilla va al fondo y su primer arrastre solo lleva sus propias piezas
     const bottomZ = this.getBottomZIndex();
     createdItems.forEach(it => {
@@ -2723,6 +2838,13 @@ class CanvasEngine {
   }
 
   onPointerMove(e) {
+    // Botón del ratón soltado fuera de la ventana: el gesto que estaba en marcha se termina al volver
+    // (si no, el lienzo o el elemento seguían pegados al ratón sin ningún botón pulsado)
+    if (e.buttons === 0 && e.pointerType === 'mouse' && (this.isPanning || this.isDraggingItem || this.isResizing ||
+      this.isSelectingMarquee || this.creationDrag || this.currentDrawing || (this.isConnectingFromPort && this.activeConnector))) {
+      this.onPointerUp(e);
+      return;
+    }
     if (this.isPanning) {
       const dx = e.clientX - this.panStart.x;
       const dy = e.clientY - this.panStart.y;
@@ -2737,6 +2859,16 @@ class CanvasEngine {
     const world = this.screenToWorld(e.clientX, e.clientY);
     this.lastPointerWorld = world;
     this.lastPointerScreen = { x: e.clientX, y: e.clientY };
+
+    // Recuadro de creación de una herramienta (texto, nota, forma, marco, plantilla)
+    if (this.creationDrag) {
+      const d = this.creationDrag;
+      d.x1 = world.x;
+      d.y1 = world.y;
+      if (!d.moved && Math.hypot(e.clientX - d.sx, e.clientY - d.sy) >= 6) d.moved = true;
+      this.render();
+      return;
+    }
 
     // 0. Arrastre de conector/flecha desde un puerto circular (Connector Drag)
     if (this.isConnectingFromPort && this.activeConnector) {
@@ -2920,6 +3052,7 @@ class CanvasEngine {
         this.canvas.style.cursor = handleHit.cursor;
         this.clearHoverDateTooltip();
         this.setRatingHover(null, 0);
+        this.setHoveredGroup(null);
       } else {
         const itemUnder = this.getItemAt(world.x, world.y, true);
         const isLinkCard = itemUnder && (itemUnder.type === 'embed' || itemUnder.type === 'preview');
@@ -2931,6 +3064,9 @@ class CanvasEngine {
           this.hoveredSpoilerCopyId = spoilerCopyId;
           this.render();
         }
+        // Grupo bajo el ratón: solo entonces se ven sus cadenitas
+        const groupUnder = [itemUnder, itemUnder ? null : this.getFrameAt(world.x, world.y)].find(it => it && this.isInGroup(it));
+        this.setHoveredGroup(groupUnder ? groupUnder.linkGroup : null);
         if (itemUnder) {
           this.canvas.style.cursor = (ratingStar || onSpoilerCopy) ? 'pointer' : 'move';
           this.scheduleHoverDateTooltip(itemUnder, e.clientX, e.clientY);
@@ -3171,6 +3307,10 @@ class CanvasEngine {
   }
 
   onPointerUp(e) {
+    if (this.creationDrag) {
+      this.finishCreationDrag();
+      return;
+    }
     if (this.isConnectingFromPort && this.activeConnector) {
       if (this.hoveredSnapPort) {
         this.activeConnector.end = {
@@ -3241,6 +3381,19 @@ class CanvasEngine {
         const frame = this.items.find(it => it.id === id);
         if (frame) this.placeFreshFrame(frame);
         else this.freshFrameIds.delete(id);
+      });
+      // Lo que se ha sacado de su marco deja de ser hijo suyo (si no, al mover luego el marco se lo llevaba
+      // aunque estuviera fuera); si se ha soltado dentro de otro marco, pasa a ser de ese
+      const byId = new Map(this.items.map(it => [it.id, it]));
+      (this.dragMoveItemIds || []).forEach(id => {
+        const it = byId.get(id);
+        if (!it || it.type === 'connector' || it.type === 'pen') return;
+        if (!it.parentId && it.type === 'frame') return; // los marcos dentro de marcos van por posición
+        const parent = it.parentId ? byId.get(it.parentId) : null;
+        if (parent && parent.type === 'frame' && this.isItemInsideFrame(it, parent)) return;
+        const newParent = this.getContainingFrame(it);
+        if (newParent) it.parentId = newParent.id;
+        else delete it.parentId;
       });
       if (this.onBoardModified) this.onBoardModified();
     }
@@ -3326,7 +3479,26 @@ class CanvasEngine {
   }
 
   // Renderizado del lienzo
+  // Pide un redibujado: se agrupan todas las peticiones de un mismo fotograma en uno solo (el ratón manda
+  // eventos a 125-1000 Hz y la pantalla pinta a 60-144 Hz). Las cachés se invalidan al momento, como antes.
   render() {
+    this.frameTitleCache = null;
+    this.itemIdIndex = null;
+    this.groupCountCache = null;
+    if (this.renderQueued) return;
+    this.renderQueued = true;
+    this.renderRafId = requestAnimationFrame(() => {
+      this.renderQueued = false;
+      this.renderNow();
+    });
+  }
+
+  // Dibuja ya, sin esperar al fotograma (para capturas y exportaciones)
+  renderNow() {
+    if (this.renderQueued) {
+      cancelAnimationFrame(this.renderRafId);
+      this.renderQueued = false;
+    }
     const dpr = window.devicePixelRatio || 1;
     this.frameTitleCache = null;
     this.itemIdIndex = null;
@@ -3375,12 +3547,16 @@ class CanvasEngine {
 
       // Renderizado dinámico respetando la jerarquía de capas (zIndex)
       const sortedItems = this.getSortedItemsForRender(false);
+      const ratingVisibleIds = this.getRatingFilterVisibleIds();
       sortedItems.forEach(it => {
         if (!isVisible(it)) return;
         const matchesFilter = this.matchesFreshnessFilter(it);
         this.ctx.save();
         if (this.freshnessMapMode && !matchesFilter) {
           this.ctx.globalAlpha = 0.16;
+        }
+        if (ratingVisibleIds && !ratingVisibleIds.has(it.id)) {
+          this.ctx.globalAlpha *= 0.14;
         }
         try {
           switch (it.type) {
@@ -3421,10 +3597,26 @@ class CanvasEngine {
         outlinedGroups.add(it.linkGroup);
         try { this.drawGroupOutline(this.getGroupMembers(it)); } catch (e) { console.error(e); }
       });
-      sortedItems.forEach(it => {
-        if (!it.linkGroup || !isVisible(it) || !this.isInGroup(it)) return;
-        try { this.drawGroupBadge(it); } catch (e) { console.error(e); }
-      });
+      // Recuadro de creación mientras se arrastra con una herramienta
+      const creationRect = this.getCreationRect();
+      if (creationRect) {
+        this.ctx.save();
+        this.ctx.strokeStyle = this.isDarkMode ? '#93c5fd' : '#2563eb';
+        this.ctx.fillStyle = this.isDarkMode ? 'rgba(147, 197, 253, 0.08)' : 'rgba(37, 99, 235, 0.06)';
+        this.ctx.lineWidth = 1.5 / this.camera.zoom;
+        this.ctx.setLineDash([6 / this.camera.zoom, 4 / this.camera.zoom]);
+        this.ctx.fillRect(creationRect.x, creationRect.y, creationRect.w, creationRect.h);
+        this.ctx.strokeRect(creationRect.x, creationRect.y, creationRect.w, creationRect.h);
+        this.ctx.restore();
+      }
+
+      // Las cadenitas solo se ven con el ratón encima de algo del grupo (si no, cargan mucho la vista)
+      if (this.hoveredGroupId) {
+        sortedItems.forEach(it => {
+          if (it.linkGroup !== this.hoveredGroupId || !isVisible(it) || !this.isInGroup(it)) return;
+          try { this.drawGroupBadge(it); } catch (e) { console.error(e); }
+        });
+      }
 
       // 8. Smart Guides magnéticas
       this.drawSmartGuides();
@@ -3548,15 +3740,28 @@ class CanvasEngine {
     return null;
   }
 
+  // Sombra suave a escala del zoom. El desenfoque del canvas no sigue al zoom (antes 8 / zoom: al alejarse
+  // se hacía enorme y era lo más caro de dibujar); alejado del todo no se nota y se omite.
+  setSoftShadow(color, blur, offsetY) {
+    const z = this.camera.zoom;
+    if (z < 0.3) {
+      this.ctx.shadowColor = 'transparent';
+      this.ctx.shadowBlur = 0;
+      return;
+    }
+    const s = Math.min(1, z);
+    this.ctx.shadowColor = color;
+    this.ctx.shadowBlur = blur * s;
+    this.ctx.shadowOffsetY = offsetY * s;
+  }
+
   drawStickyNote(it) {
     const isSelected = this.selectedItemIds.has(it.id);
     this.ctx.save();
 
     // Sombra suave
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.1)';
-    this.ctx.shadowBlur = isSelected ? 12 : 6;
+    this.setSoftShadow('rgba(0, 0, 0, 0.1)', isSelected ? 12 : 6, isSelected ? 6 : 3);
     this.ctx.shadowOffsetX = 0;
-    this.ctx.shadowOffsetY = isSelected ? 6 : 3;
 
     // Cuerpo de la nota
     this.ctx.fillStyle = it.color || '#fff9b0';
@@ -3653,6 +3858,15 @@ class CanvasEngine {
     this.ctx.restore();
   }
 
+  // Los títulos con banda (de índice o que siguen el ancho del marco) llevan el texto en el centro de la banda,
+  // también en vertical, aunque se agranden; el resto de textos empieza arriba
+  isTextVerticallyCentered(it) {
+    if (!it || it.type !== 'text') return false;
+    if (it.textAlignVertical) return it.textAlignVertical === 'middle';
+    const hasFill = Boolean(it.fillColor && it.fillColor !== 'transparent');
+    return hasFill && Boolean(it.isIndexTitle || it.fitToFrameWidth);
+  }
+
   drawText(it) {
     this.ctx.save();
     const hasFill = Boolean(it.fillColor && it.fillColor !== 'transparent');
@@ -3703,7 +3917,7 @@ class CanvasEngine {
     const maxWidth = Math.max(20, (it.width || 400) - padX * 2);
     const lineHeight = Math.round(fontSize * 1.35);
 
-    if (it.textAlignVertical === 'middle') {
+    if (this.isTextVerticallyCentered(it)) {
       this.ctx.textBaseline = 'middle';
       const textY = it.y + (it.height || 40) / 2;
       let textX = it.x + padX;
@@ -4010,9 +4224,7 @@ class CanvasEngine {
     this.ctx.save();
     // Tarjeta con el mismo estilo que las de enlaces
     this.ctx.save();
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
-    this.ctx.shadowBlur = 8 / this.camera.zoom;
-    this.ctx.shadowOffsetY = 3 / this.camera.zoom;
+    this.setSoftShadow('rgba(0, 0, 0, 0.08)', 8, 3);
     this.ctx.fillStyle = dark ? '#1E222B' : '#ffffff';
     this.ctx.beginPath();
     this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
@@ -4218,9 +4430,7 @@ class CanvasEngine {
     this.ctx.save();
     // Tarjeta con el mismo estilo que las de carpeta y enlaces
     this.ctx.save();
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
-    this.ctx.shadowBlur = 8 / this.camera.zoom;
-    this.ctx.shadowOffsetY = 3 / this.camera.zoom;
+    this.setSoftShadow('rgba(0, 0, 0, 0.08)', 8, 3);
     this.ctx.fillStyle = dark ? '#1E222B' : '#ffffff';
     this.ctx.beginPath();
     this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
@@ -4341,9 +4551,7 @@ class CanvasEngine {
 
     // 1. Sombra suave de la tarjeta widget
     this.ctx.save();
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
-    this.ctx.shadowBlur = 8 / this.camera.zoom;
-    this.ctx.shadowOffsetY = 3 / this.camera.zoom;
+    this.setSoftShadow('rgba(0, 0, 0, 0.08)', 8, 3);
     this.ctx.fillStyle = this.isDarkMode ? '#1E222B' : '#ffffff';
     this.ctx.beginPath();
     this.roundRect(this.ctx, it.x, it.y, it.width, it.height, r);
@@ -4393,7 +4601,13 @@ class CanvasEngine {
             sh = sw / targetRatio;
             sy = (img.naturalHeight - sh) / 2;
           }
-          this.ctx.drawImage(img, sx, sy, sw, sh, it.x, it.y, it.width, thumbH);
+          const source = this.getScaledImage(img, sw, sh, it.width, thumbH);
+          if (source) {
+            const f = source === img ? 1 : source.width / img.naturalWidth;
+            this.ctx.drawImage(source, sx * f, sy * f, sw * f, sh * f, it.x, it.y, it.width, thumbH);
+          } else {
+            this.drawImagePlaceholder(it.x, it.y, it.width, thumbH);
+          }
         } else {
           this.ctx.fillStyle = '#0f172a';
           this.ctx.fillRect(it.x, it.y, it.width, thumbH);
@@ -4421,9 +4635,7 @@ class CanvasEngine {
     const badgeY = it.y + 12;
     const badgeSize = isCompact ? 24 : 26;
     this.ctx.save();
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
-    this.ctx.shadowBlur = 4;
-    this.ctx.shadowOffsetY = 1;
+    this.setSoftShadow('rgba(0, 0, 0, 0.08)', 4, 1);
     this.ctx.fillStyle = this.isDarkMode ? '#262A34' : '#ffffff';
     this.ctx.beginPath();
     this.roundRect(this.ctx, badgeX, badgeY, badgeSize, badgeSize, 5);
@@ -4486,8 +4698,7 @@ class CanvasEngine {
     const btnSize = 22;
     this.ctx.save();
     this.ctx.fillStyle = this.isDarkMode ? '#262A34' : 'rgba(255, 255, 255, 0.95)';
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
-    this.ctx.shadowBlur = 3;
+    this.setSoftShadow('rgba(0, 0, 0, 0.08)', 3, 0);
     this.ctx.beginPath();
     this.ctx.arc(btnX + btnSize / 2, btnY + btnSize / 2, btnSize / 2, 0, Math.PI * 2);
     this.ctx.fill();
@@ -4550,6 +4761,34 @@ class CanvasEngine {
     // 6. Puntuación de 1 a 5 estrellas, superpuesta a la tarjeta
     if (ratingLayout) this.drawEmbedRating(it, ratingLayout);
 
+    // 7. Enlace comprobado y roto («Comprobar enlaces» del Mapa de Frescura)
+    if (it.linkStatus === 'broken' && (!it.linkCheckedUrl || it.linkCheckedUrl === it.url)) this.drawBrokenLinkBadge(it);
+
+    this.ctx.restore();
+  }
+
+  drawBrokenLinkBadge(it) {
+    const label = 'Enlace roto';
+    this.ctx.save();
+    this.ctx.font = '700 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    const w = this.ctx.measureText(label).width + 22;
+    const h = 20;
+    const x = it.x + 10;
+    const y = it.y + it.height - h - 10;
+    this.ctx.fillStyle = this.isDarkMode ? 'rgba(127, 29, 29, 0.95)' : '#fee2e2';
+    this.ctx.strokeStyle = this.isDarkMode ? '#f87171' : '#ef4444';
+    this.ctx.lineWidth = 1;
+    this.ctx.beginPath();
+    this.roundRect(this.ctx, x, y, w, h, 10);
+    this.ctx.fill();
+    this.ctx.stroke();
+    this.ctx.fillStyle = this.isDarkMode ? '#fecaca' : '#b91c1c';
+    this.ctx.beginPath();
+    this.ctx.arc(x + 9, y + h / 2, 3, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.textAlign = 'left';
+    this.ctx.textBaseline = 'middle';
+    this.ctx.fillText(label, x + 16, y + h / 2 + 0.5);
     this.ctx.restore();
   }
 
@@ -4595,6 +4834,12 @@ class CanvasEngine {
   }
 
   // Estado de hover de las estrellas; solo repinta si cambia
+  setHoveredGroup(groupId) {
+    if ((this.hoveredGroupId || null) === groupId) return;
+    this.hoveredGroupId = groupId;
+    this.render();
+  }
+
   setRatingHover(cardId, star) {
     if (this.hoveredRatingCardId === cardId && (this.hoveredRatingStar || 0) === star) return;
     this.hoveredRatingCardId = cardId;
@@ -4608,8 +4853,7 @@ class CanvasEngine {
     const hoverStar = this.hoveredRatingCardId === it.id ? (this.hoveredRatingStar || 0) : 0;
     const shown = hoverStar || it.rating || 0;
     this.ctx.save();
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.08)';
-    this.ctx.shadowBlur = 3;
+    this.setSoftShadow('rgba(0, 0, 0, 0.08)', 3, 0);
     this.ctx.fillStyle = dark ? '#262A34' : 'rgba(255, 255, 255, 0.95)';
     this.ctx.beginPath();
     this.roundRect(this.ctx, L.x, L.y, L.w, L.h, L.h / 2);
@@ -4795,6 +5039,116 @@ class CanvasEngine {
     this.ctx.restore();
   }
 
+  // Versión reducida de una imagen para el tamaño con que se ve ahora en pantalla. Dibujar el original
+  // (miles de píxeles) para verlo pequeño obliga a reducirlo, y a veces a descodificarlo, en cada fotograma:
+  // con cientos de imágenes eso da tirones al moverse. Las versiones se preparan aparte (createImageBitmap)
+  // a la mitad, la cuarta parte… del original. Mientras no está lista se usa otra ya hecha o, si no hay
+  // ninguna, null (quien llama pinta un hueco). srcW/srcH: la parte del original que se dibuja.
+  getScaledImage(img, srcW, srcH, destW, destH) {
+    const nw = img.naturalWidth, nh = img.naturalHeight;
+    if (this.isExporting || !nw || !nh || typeof createImageBitmap !== 'function') return img;
+    if (!this.imageLevelCache) this.imageLevelCache = new WeakMap();
+    let levels = this.imageLevelCache.get(img);
+    if (!levels) { levels = new Map(); this.imageLevelCache.set(img, levels); }
+    const dpr = window.devicePixelRatio || 1;
+    const ratio = Math.max((destW * this.camera.zoom * dpr) / srcW, (destH * this.camera.zoom * dpr) / srcH);
+
+    // Se ve a más de la mitad del original: el original, pero solo cuando ya está descodificado aparte
+    // (img.decode); si no, dibujarlo lo descodificaría en el hilo principal y la vista se congelaría
+    if (!(ratio < 0.5)) {
+      if (img.__fullDecoded) return img;
+      if (!img.__decodeRequested) {
+        img.__decodeRequested = true;
+        const done = () => { img.__fullDecoded = true; this.render(); };
+        (img.decode ? img.decode() : Promise.resolve()).then(done, done);
+      }
+      return this.pickReadyImageLevel(levels, 0);
+    }
+
+    const level = Math.min(10, Math.floor(Math.log2(1 / ratio)));
+    const ready = levels.get(level);
+    if (ready && ready !== 'pending') return ready;
+    if (!ready) {
+      levels.set(level, 'pending');
+      this.queueImageLevel(img, levels, level);
+    }
+    return this.pickReadyImageLevel(levels, level);
+  }
+
+  // La versión ya preparada más parecida a la que se quiere (mejor de más calidad que de menos)
+  pickReadyImageLevel(levels, level) {
+    let best = null, bestScore = Infinity;
+    levels.forEach((v, k) => {
+      if (v === 'pending') return;
+      const score = k < level ? (level - k) : (k - level) + 0.5;
+      if (score < bestScore) { best = v; bestScore = score; }
+    });
+    return best;
+  }
+
+  // Cola de versiones reducidas: pocas a la vez y primero las últimas pedidas (lo que está en pantalla)
+  queueImageLevel(img, levels, level) {
+    if (!this.imageLevelQueue) { this.imageLevelQueue = []; this.imageLevelRunning = 0; }
+    this.imageLevelQueue.push({ img, levels, level });
+    this.pumpImageLevelQueue();
+  }
+
+  pumpImageLevelQueue() {
+    while (this.imageLevelRunning < 3 && this.imageLevelQueue.length) {
+      const job = this.imageLevelQueue.pop();
+      this.imageLevelRunning++;
+      this.buildImageLevel(job.img, job.level).then(bmp => {
+        job.levels.set(job.level, bmp);
+        // Como mucho tres versiones por imagen: se suelta la más alejada de la que se acaba de hacer
+        const doneLevels = [...job.levels.entries()].filter(([, v]) => v !== 'pending' && v !== job.img);
+        if (doneLevels.length > 3) {
+          const [farK, farV] = doneLevels.sort((a, b) => Math.abs(b[0] - job.level) - Math.abs(a[0] - job.level))[0];
+          job.levels.delete(farK);
+          try { farV.close(); } catch (e) { }
+        }
+        this.render();
+      }).catch(() => {
+        job.levels.set(job.level, job.img);
+      }).finally(() => {
+        this.imageLevelRunning--;
+        this.pumpImageLevelQueue();
+      });
+    }
+  }
+
+  // Lee el archivo y lo descodifica ya reducido. Con un Blob, el navegador lo hace fuera del hilo principal;
+  // a partir de la imagen ya cargada lo haría en él (era lo que congelaba el zoom con muchas imágenes).
+  async buildImageLevel(img, level) {
+    const w = Math.max(1, Math.round(img.naturalWidth / 2 ** level));
+    const h = Math.max(1, Math.round(img.naturalHeight / 2 ** level));
+    const opts = { resizeWidth: w, resizeHeight: h, resizeQuality: 'medium' };
+    try {
+      const blob = await this.readImageBlob(img.currentSrc || img.src);
+      if (blob) return await createImageBitmap(blob, opts);
+    } catch (e) { }
+    return createImageBitmap(img, opts);
+  }
+
+  async readImageBlob(url) {
+    if (!url) return null;
+    if (url.startsWith('file:')) {
+      const req = window.require;
+      if (typeof req !== 'function') return null;
+      const filePath = req('url').fileURLToPath(url);
+      const buf = await req('fs').promises.readFile(filePath);
+      return new Blob([buf]);
+    }
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return await res.blob();
+  }
+
+  // Hueco discreto mientras se prepara la versión reducida de una imagen
+  drawImagePlaceholder(x, y, w, h) {
+    this.ctx.fillStyle = this.isDarkMode ? '#1a1f27' : '#e9ecf1';
+    this.ctx.fillRect(x, y, w, h);
+  }
+
   drawImage(it) {
     if (!it.src) return;
     if (!it.imgElement || typeof it.imgElement.getAttribute !== 'function' || it.imgElement.getAttribute('data-src') !== it.src) {
@@ -4806,7 +5160,10 @@ class CanvasEngine {
       return;
     }
     if (it.imgElement && it.imgElement.complete && it.imgElement.naturalWidth > 0) {
-      this.ctx.drawImage(it.imgElement, it.x, it.y, it.width, it.height);
+      const img = it.imgElement;
+      const source = this.getScaledImage(img, img.naturalWidth, img.naturalHeight, it.width, it.height);
+      if (source) this.ctx.drawImage(source, it.x, it.y, it.width, it.height);
+      else this.drawImagePlaceholder(it.x, it.y, it.width, it.height);
       if (it.url) {
         this.ctx.save();
         const badgeSize = Math.max(16, Math.min(24, 20 / this.camera.zoom));
@@ -4856,9 +5213,7 @@ class CanvasEngine {
     const isSelected = this.selectedItemIds.has(it.id);
     const bg = isResolved ? '#10b981' : '#f59e0b'; // Verde o Naranja
 
-    this.ctx.shadowColor = 'rgba(0, 0, 0, 0.25)';
-    this.ctx.shadowBlur = 6;
-    this.ctx.shadowOffsetY = 2;
+    this.setSoftShadow('rgba(0, 0, 0, 0.25)', 6, 2);
 
     // Pin circular con cola estilo burbuja de conversación
     this.ctx.fillStyle = bg;
@@ -5163,6 +5518,70 @@ class CanvasEngine {
 
   wrapText(ctx, text, x, y, maxWidth, lineHeight, align = 'center', maxLines = 0) {
     if (!text) return 0;
+    const renderLines = this.getWrappedLines(ctx, text, maxWidth, maxLines);
+
+    let startY = y;
+    if (align === 'center' || align === 'middle') {
+      startY = y - ((renderLines.length - 1) * lineHeight) / 2;
+    }
+
+    // Letra de menos de 4 px en pantalla (vista alejada): nadie la lee y dibujar sus letras es lo más caro
+    // del fotograma. Cada línea se pinta como una barrita del mismo color y largo.
+    const fontPx = this.getContextFontPx(ctx);
+    const screenPx = fontPx * Math.abs(ctx.getTransform().a);
+    if (!this.isExporting && screenPx < 4) {
+      this.drawGreekedLines(ctx, renderLines, x, startY, lineHeight, fontPx);
+      return renderLines.length;
+    }
+
+    renderLines.forEach((line, idx) => {
+      ctx.fillText(line, x, startY + idx * lineHeight);
+    });
+
+    return renderLines.length;
+  }
+
+  getContextFontPx(ctx) {
+    const font = ctx.font;
+    if (this.lastFontString === font) return this.lastFontPx;
+    const m = /(\d+(?:\.\d+)?)px/.exec(font);
+    this.lastFontString = font;
+    this.lastFontPx = m ? parseFloat(m[1]) : 16;
+    return this.lastFontPx;
+  }
+
+  drawGreekedLines(ctx, lines, x, startY, lineHeight, fontPx) {
+    if (!lines.widths) lines.widths = lines.map(l => (l ? ctx.measureText(l).width : 0));
+    const barH = Math.max(fontPx * 0.42, 0.5);
+    // Desplazamiento vertical de la barra según la línea base con que se iba a escribir
+    const base = ctx.textBaseline;
+    const dy = base === 'top' || base === 'hanging' ? fontPx * 0.32 : base === 'middle' ? -barH / 2 : -fontPx * 0.5;
+    const align = ctx.textAlign;
+    ctx.save();
+    ctx.globalAlpha *= 0.55;
+    lines.forEach((line, idx) => {
+      const w = lines.widths[idx];
+      if (!w) return;
+      const left = align === 'center' ? x - w / 2 : (align === 'right' || align === 'end') ? x - w : x;
+      ctx.fillRect(left, startY + idx * lineHeight + dy, w, barH);
+    });
+    ctx.restore();
+  }
+
+  // Cortes de línea de un texto con la fuente actual del contexto. Medir palabra a palabra es caro y se
+  // repetía en cada fotograma para cada texto visible: se guarda por fuente, ancho y texto.
+  getWrappedLines(ctx, text, maxWidth, maxLines = 0) {
+    if (!this.wrapCache) this.wrapCache = new Map();
+    const key = `${ctx.font}|${Math.round(maxWidth * 100)}|${maxLines}|${text}`;
+    const cached = this.wrapCache.get(key);
+    if (cached) return cached;
+    const lines = this.computeWrappedLines(ctx, text, maxWidth, maxLines);
+    if (this.wrapCache.size > 5000) this.wrapCache.clear();
+    this.wrapCache.set(key, lines);
+    return lines;
+  }
+
+  computeWrappedLines(ctx, text, maxWidth, maxLines) {
     const paragraphs = String(text).split('\n');
     const lines = [];
 
@@ -5195,17 +5614,7 @@ class CanvasEngine {
       }
       renderLines[maxLines - 1] = lastLine + '...';
     }
-
-    let startY = y;
-    if (align === 'center' || align === 'middle') {
-      startY = y - ((renderLines.length - 1) * lineHeight) / 2;
-    }
-
-    renderLines.forEach((line, idx) => {
-      ctx.fillText(line, x, startY + idx * lineHeight);
-    });
-
-    return renderLines.length;
+    return renderLines;
   }
 
   drawFreshnessOverlay(it) {

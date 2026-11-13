@@ -136601,7 +136601,15 @@ function createWindow() {
             checkWindowDisplay(win);
         }
     });
-    win.on('close', () => {
+    win.on('close', (event) => {
+        // Brain Board: antes de cerrar, el tablero termina de guardarse (app.exit() cortaba el último guardado)
+        if (brainFlushState !== 'done' && !isUpdateInProgress) {
+            event.preventDefault();
+            brainFlushRendererThen(() => {
+                if (win && !win.isDestroyed()) win.close();
+            });
+            return;
+        }
         win === null || win === void 0 ? void 0 : win.webContents.send('window-closed');
     });
     win.on('closed', () => {
@@ -136901,10 +136909,44 @@ electron_1.app.on('window-all-closed', () => {
             electron_1.app.quit();
         }
         else {
-            electron_1.app.exit();
+            brainQuitGracefully();
         }
     }
 });
+// Brain Board: cierre ordenado. Antes era app.exit(), que mata la app al momento: lo último guardado en
+// IndexedDB y LocalStorage (tableros, lista de tableros, papelera) podía no llegar al disco.
+let brainFlushState = 'idle'; // idle | waiting | done
+const brainFlushCallbacks = [];
+function brainFlushRendererThen(next) {
+    if (brainFlushState === 'done' || isUpdateInProgress || !win || win.isDestroyed()) {
+        next();
+        return;
+    }
+    brainFlushCallbacks.push(next);
+    if (brainFlushState === 'waiting') return;
+    brainFlushState = 'waiting';
+    let timer = null;
+    const finish = () => {
+        if (brainFlushState === 'done') return;
+        brainFlushState = 'done';
+        clearTimeout(timer);
+        electron_1.ipcMain.removeListener('brainboard-flush-done', finish);
+        try { win && !win.isDestroyed() && win.webContents.session.flushStorageData(); } catch (e) { }
+        brainFlushCallbacks.splice(0).forEach(cb => { try { cb(); } catch (e) { } });
+    };
+    timer = setTimeout(finish, 4000); // si la ventana no responde, se cierra igual
+    electron_1.ipcMain.on('brainboard-flush-done', finish);
+    try {
+        win.webContents.send('brainboard-flush-before-close');
+    }
+    catch (e) {
+        finish();
+    }
+}
+function brainQuitGracefully() {
+    setTimeout(() => electron_1.app.exit(), 5000).unref?.();
+    electron_1.app.quit();
+}
 electron_1.app.on('activate', () => {
     if (win === undefined && electron_1.app.isReady()) {
         createWindow();
@@ -137126,7 +137168,8 @@ electron_1.ipcMain.on('will-quit', () => {
     win === null || win === void 0 ? void 0 : win.webContents.send('app-will-be-closed');
 });
 electron_1.ipcMain.on('quit', () => {
-    electron_1.app.exit();
+    // Ctrl+Q y Salir del menú: primero se termina de guardar
+    brainFlushRendererThen(() => brainQuitGracefully());
 });
 electron_1.ipcMain.on('hide', () => {
     electron_1.app.hide();

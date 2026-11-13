@@ -615,6 +615,71 @@ body.dark-theme .change-dates-preview small {
   color: #94a3b8;
 }
 
+/* Guía «Escribe algo…» de un texto o una nota nuevos: del color del texto, más tenue */
+#inline-text-editor::placeholder {
+  color: currentColor;
+  opacity: 0.45;
+}
+
+/* Botón de la barra mientras espera a la IA */
+#properties-bar .btn.is-loading {
+  pointer-events: none;
+  opacity: 0.55;
+  animation: propBtnPulse 1s ease-in-out infinite;
+}
+
+@keyframes propBtnPulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.85; }
+}
+
+/* Menú del clic derecho en el lienzo (p. ej. «Copiar imagen») */
+.canvas-context-menu {
+  position: fixed;
+  z-index: 900;
+  min-width: 170px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.06);
+  padding: 5px;
+  user-select: none;
+}
+
+.canvas-context-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #1e293b;
+  font-size: 13px;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.canvas-context-item:hover {
+  background: #f1f5f9;
+}
+
+body.dark-theme .canvas-context-menu {
+  background: #1e222b;
+  border-color: #2d323b;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-theme .canvas-context-item {
+  color: #e2e8f0;
+}
+
+body.dark-theme .canvas-context-item:hover {
+  background: #262b34;
+}
+
 /* Menú «Ordenar» del contenedor de recursos */
 .resource-sort-menu {
   position: fixed;
@@ -5972,6 +6037,75 @@ body.dark-theme .brain-ai-input::-webkit-scrollbar-thumb:hover {
   cursor: not-allowed;
 }
 
+/* Micrófono del Cerebro: gris en reposo, rojo latiendo mientras graba, girando mientras transcribe */
+.brain-ai-mic-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.brain-ai-mic-btn:hover {
+  background: #eef2ff;
+  border-color: #c7d2fe;
+  color: #2563eb;
+}
+
+.brain-ai-mic-btn.is-recording {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+  animation: micPulse 1.2s ease-in-out infinite;
+}
+
+.brain-ai-mic-btn.is-busy {
+  cursor: progress;
+  color: #2563eb;
+}
+
+.brain-ai-mic-btn.is-busy svg {
+  animation: micSpin 1s linear infinite;
+}
+
+@keyframes micPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+
+@keyframes micSpin {
+  to { transform: rotate(360deg); }
+}
+
+body.dark-theme .brain-ai-mic-btn {
+  background: #14171c;
+  border-color: #2d323b;
+  color: #cbd5e1;
+}
+
+body.dark-theme .brain-ai-mic-btn:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: #3b82f6;
+  color: #93c5fd;
+}
+
+body.dark-theme .brain-ai-mic-btn.is-recording {
+  background: #ef4444;
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+body.dark-theme .brain-ai-mic-btn.is-busy {
+  color: #93c5fd;
+}
+
 /* Modal de Configuración de IA */
 .brain-ai-settings-dialog {
   max-width: 520px;
@@ -7573,3 +7707,316 @@ body:not(.dark-theme) #whats-new-modal .modal-header { border-bottom-color: #e2e
 body:not(.dark-theme) #whats-new-modal .whats-new-feature-list strong { color: #0f172a !important; }
 body:not(.dark-theme) #whats-new-modal .whats-new-feature-list p { color: #475569 !important; }
 body:not(.dark-theme) #whats-new-modal .whats-new-feature-list code { color: #1e293b; }
+/* ── Historial de versiones y modal de elección ── */
+.version-history-dialog {
+  width: 640px;
+  max-width: calc(100vw - 32px);
+}
+
+.version-history-intro {
+  margin-bottom: 12px !important;
+}
+
+.version-history-list {
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.version-history-empty {
+  padding: 22px 16px;
+  font-size: 13px;
+  color: #64748b;
+  text-align: center;
+}
+
+.version-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.version-row:last-child {
+  border-bottom: none;
+}
+
+.version-row:hover {
+  background: #f8fafc;
+}
+
+.version-row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.version-row-when {
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.version-row-ago {
+  font-weight: 400;
+  color: #64748b;
+}
+
+.version-row-meta {
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: #64748b;
+}
+
+.version-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.btn.btn-small {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.btn.btn-small:hover {
+  background: #f1f5f9;
+}
+
+.btn.btn-small.btn-primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+}
+
+.btn.btn-small.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+body.dark-theme .version-history-list {
+  border-color: #2d323b;
+}
+
+body.dark-theme .version-history-empty,
+body.dark-theme .version-row-ago,
+body.dark-theme .version-row-meta {
+  color: #94a3b8;
+}
+
+body.dark-theme .version-row {
+  border-bottom-color: #232831;
+}
+
+body.dark-theme .version-row:hover {
+  background: #1b2029;
+}
+
+body.dark-theme .version-row-when {
+  color: #f1f5f9;
+}
+
+body.dark-theme .btn.btn-small {
+  border-color: #3a404c;
+  background: #1e232c;
+  color: #e2e8f0;
+}
+
+body.dark-theme .btn.btn-small:hover {
+  background: #262b34;
+  color: #ffffff;
+}
+
+body.dark-theme .btn.btn-small.btn-primary,
+body.dark-theme .modal-footer .btn.btn-primary {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: #ffffff;
+}
+
+body.dark-theme .btn.btn-small.btn-primary:hover,
+body.dark-theme .modal-footer .btn.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+/* ── Filtro por estrellas ── */
+#btn-star-filter.active {
+  background: #eff6ff;
+  color: #2563eb;
+  border-color: #93c5fd;
+}
+
+#btn-star-filter.active svg {
+  fill: currentColor;
+}
+
+body.dark-theme #btn-star-filter.active {
+  background: rgba(59, 130, 246, 0.22);
+  color: #60a5fa;
+  border-color: rgba(96, 165, 250, 0.45);
+}
+
+.board-dropdown-menu.star-filter-menu {
+  left: auto;
+  right: 120px;
+  width: 220px;
+}
+
+.star-filter-title {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #64748b;
+}
+
+.star-filter-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.star-filter-label {
+  color: inherit;
+}
+
+.star-filter-count {
+  min-width: 24px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.star-filter-option.is-current {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+body.dark-theme .star-filter-title {
+  color: #94a3b8;
+}
+
+body.dark-theme .star-filter-count {
+  background: #262b34;
+  color: #cbd5e1;
+}
+
+body.dark-theme .star-filter-option.is-current {
+  background: rgba(59, 130, 246, 0.18);
+  color: #93c5fd;
+}
+
+/* ── Comprobar enlaces (barra del Mapa de Frescura) ── */
+.freshness-check-links {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.freshness-check-links:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.freshness-check-links.is-busy {
+  cursor: progress;
+  color: #2563eb;
+  border-color: #93c5fd;
+}
+
+body.dark-theme .freshness-check-links {
+  background: #1e232c;
+  border-color: #3a404c;
+  color: #e2e8f0;
+}
+
+body.dark-theme .freshness-check-links:hover {
+  background: #282e3a;
+  color: #ffffff;
+}
+
+body.dark-theme .freshness-check-links.is-busy {
+  color: #93c5fd;
+  border-color: rgba(96, 165, 250, 0.5);
+}
+
+/* ── Enlaces repetidos ── */
+.dup-group {
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.dup-group:last-child {
+  border-bottom: none;
+}
+
+.dup-group-url {
+  padding: 10px 14px 4px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1d4ed8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dup-group-count {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 11px;
+}
+
+.dup-row {
+  padding-left: 26px;
+  border-bottom: none;
+}
+
+body.dark-theme .dup-group {
+  border-bottom-color: #2d323b;
+}
+
+body.dark-theme .dup-group-url {
+  color: #93c5fd;
+}
+
+body.dark-theme .dup-group-count {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+/* Botones secundarios con borde en las ventanas nuevas (modo claro; el oscuro ya los marca) */
+body:not(.dark-theme) .choice-modal .modal-footer .btn:not(.btn-primary),
+body:not(.dark-theme) #version-history-modal .modal-footer .btn:not(.btn-primary),
+body:not(.dark-theme) #duplicate-links-modal .modal-footer .btn:not(.btn-primary) {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+body:not(.dark-theme) .choice-modal .modal-footer .btn:not(.btn-primary):hover,
+body:not(.dark-theme) #version-history-modal .modal-footer .btn:not(.btn-primary):hover,
+body:not(.dark-theme) #duplicate-links-modal .modal-footer .btn:not(.btn-primary):hover {
+  background: #f1f5f9;
+}
