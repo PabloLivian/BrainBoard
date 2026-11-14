@@ -8020,3 +8020,196 @@ body:not(.dark-theme) #version-history-modal .modal-footer .btn:not(.btn-primary
 body:not(.dark-theme) #duplicate-links-modal .modal-footer .btn:not(.btn-primary):hover {
   background: #f1f5f9;
 }
+
+/* ── Nuevo tablero: personal o de equipo ── */
+.new-board-dialog {
+  width: 480px;
+  max-width: calc(100vw - 32px);
+}
+
+.new-board-label {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.new-board-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0 4px;
+}
+
+.new-board-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.new-board-option:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.new-board-option.is-selected {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  box-shadow: 0 0 0 1px #3b82f6;
+}
+
+.new-board-option input {
+  margin: 3px 0 0;
+  accent-color: #3b82f6;
+  flex-shrink: 0;
+}
+
+.new-board-option-icon {
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.new-board-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.new-board-option-text strong {
+  font-size: 13.5px;
+  color: #0f172a;
+}
+
+.new-board-option-text small {
+  font-size: 12px;
+  line-height: 1.4;
+  color: #64748b;
+}
+
+.new-board-team-extra {
+  margin-top: 12px;
+}
+
+.new-board-hint {
+  margin: 8px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #64748b;
+}
+
+.new-board-join {
+  display: block;
+  margin-top: 14px;
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 12.5px;
+  color: #475569;
+  cursor: pointer;
+  text-align: left;
+}
+
+.new-board-join strong {
+  color: #2563eb;
+}
+
+.new-board-join:hover strong {
+  text-decoration: underline;
+}
+
+.team-members-list {
+  margin-top: 12px;
+}
+
+body.dark-theme .new-board-label {
+  color: #94a3b8;
+}
+
+body.dark-theme .new-board-option {
+  border-color: #2d323b;
+  background: #161a21;
+}
+
+body.dark-theme .new-board-option:hover {
+  border-color: #3a404c;
+  background: #1b2029;
+}
+
+body.dark-theme .new-board-option.is-selected {
+  border-color: #3b82f6;
+  background: rgba(59, 130, 246, 0.14);
+}
+
+body.dark-theme .new-board-option-text strong {
+  color: #f1f5f9;
+}
+
+body.dark-theme .new-board-option-text small,
+body.dark-theme .new-board-hint,
+body.dark-theme .new-board-join {
+  color: #94a3b8;
+}
+
+body.dark-theme .new-board-join strong {
+  color: #93c5fd;
+}
+
+/* ── Indicador de tablero de equipo (junto a «Guardado») ── */
+.team-sync-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  margin-left: 8px;
+  padding: 0 9px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.team-sync-pill:hover {
+  background: #dbeafe;
+}
+
+.team-sync-pill.is-syncing svg {
+  animation: propBtnPulse 1.2s ease-in-out infinite;
+}
+
+.team-sync-pill.is-offline {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #b45309;
+}
+
+body.dark-theme .team-sync-pill {
+  border-color: rgba(96, 165, 250, 0.4);
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
+body.dark-theme .team-sync-pill:hover {
+  background: rgba(59, 130, 246, 0.26);
+}
+
+body.dark-theme .team-sync-pill.is-offline {
+  border-color: rgba(251, 191, 36, 0.45);
+  background: rgba(245, 158, 11, 0.14);
+  color: #fcd34d;
+}
+
+.team-path {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}

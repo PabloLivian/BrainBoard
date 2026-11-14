@@ -2630,7 +2630,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="modal-title-row"><h3>${escapeHtmlText(title)}</h3></div>
             <button class="btn-mini-close" data-choice="" title="Cerrar">✕</button>
           </div>
-          <div class="modal-body"><p class="modal-desc" style="font-size: 13.5px; line-height: 1.5;">${messageHtml}</p></div>
+          <div class="modal-body"><div class="modal-desc" style="font-size: 13.5px; line-height: 1.5;">${messageHtml}</div></div>
           <div class="modal-footer">
             ${choices.map(c => `<button class="btn ${c.primary ? 'btn-primary' : ''}" data-choice="${escapeHtmlText(c.value)}">${escapeHtmlText(c.label)}</button>`).join('')}
           </div>
@@ -5626,6 +5626,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // 1. Guardado en IndexedDB indexado por ID de tablero
     const savedOk = await idbSaveBoard(targetBoardId, data);
     if (savedOk) maybeSaveAutoVersion(targetBoardId, cleanItems).catch(() => {});
+    if (savedOk && typeof teamAfterLocalSave === 'function') teamAfterLocalSave(targetBoardId, cleanItems);
 
     // 2. Copia de reserva en LocalStorage, solo para tableros pequeños. Escribir ahí es síncrono: un tablero
     // con imágenes pegadas (AI, ~17 MB) congelaba la ventana ~0,4 s en cada guardado. A los grandes se les
@@ -5669,6 +5670,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (activeEditingItem) closeInlineEditor();
         clearTimeout(saveTimeout);
         await autoSaveBoardImmediately();
+        if (typeof teamFlushPendingWrite === 'function') await teamFlushPendingWrite();
       } catch (e) {
         console.warn('Guardado antes de cerrar:', e);
       }
@@ -6470,6 +6472,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } finally {
       if (!isStale()) isLoadingBoard = false;
     }
+    if (!isStale()) teamSyncActivate(targetBoardId);
   }
 
   async function loadBoardIntoCanvas(targetBoardId, isStale) {
@@ -7370,12 +7373,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Crear nuevo tablero desde el cajón (+)
   btnDrawerNewBoard?.addEventListener('click', (e) => {
     e.stopPropagation();
-    createNewBoard();
+    openNewBoardModal();
   });
 
   document.getElementById('btn-section-new-board')?.addEventListener('click', (e) => {
     e.stopPropagation();
-    createNewBoard();
+    openNewBoardModal();
   });
 
   // Clic en el logo de Brain Board lleva a la pantalla de Inicio
@@ -7562,6 +7565,667 @@ document.addEventListener('DOMContentLoaded', () => {
     renderList();
   }
   window.openVersionHistoryModal = openVersionHistoryModal;
+
+
+  // =========================================================
+  // TABLEROS DE EQUIPO (carpeta compartida de Google Drive)
+  // =========================================================
+  // Solo los tableros creados con «Trabajar en equipo»: el resto sigue siendo solo local. Un tablero de
+  // equipo se guarda en el ordenador como todos y, además, en una carpeta que Google Drive para escritorio
+  // sincroniza con los compañeros (sin cuentas ni servidores propios):
+  //   <carpeta>/equipo.json          qué tablero es (id y nombre)
+  //   <carpeta>/miembros/<id>.json   el tablero según cada persona; cada una escribe SOLO el suyo, así dos
+  //                                  ordenadores nunca escriben el mismo archivo
+  //   <carpeta>/imagenes/            las imágenes que usa el tablero
+  // Cada elemento lleva la hora de su último cambio (_t). Al juntar los archivos gana, elemento a elemento, el
+  // cambio más reciente; lo borrado se apunta (tombstones) para que no reaparezca.
+  const TEAM_POLL_MS = 4000;
+  const TEAM_FILE = 'equipo.json';
+  const TEAM_MEMBER_KEY = 'brainboard_team_member_v1';
+  var teamSync = null; // var: un guardado al arrancar puede consultarlo antes de llegar aquí
+
+  function getTeamMember() {
+    let me = null;
+    try { me = JSON.parse(localStorage.getItem(TEAM_MEMBER_KEY) || 'null'); } catch (e) { }
+    if (!me || !me.id) {
+      me = { id: 'm_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8), name: '' };
+      localStorage.setItem(TEAM_MEMBER_KEY, JSON.stringify(me));
+    }
+    return me;
+  }
+
+  function setTeamMemberName(name) {
+    const me = getTeamMember();
+    me.name = String(name || '').trim().slice(0, 40);
+    localStorage.setItem(TEAM_MEMBER_KEY, JSON.stringify(me));
+  }
+
+  function defaultTeamMemberName() {
+    const me = getTeamMember();
+    if (me.name) return me.name;
+    try { return window.require('os').userInfo().username || ''; } catch (e) { return ''; }
+  }
+
+  function getBoardTeam(boardId) {
+    return workspaceBoards.find(b => b.id === boardId)?.team || null;
+  }
+
+  function teamStateKey(boardId) {
+    return `brainboard_team_state_${boardId}`;
+  }
+
+  function loadTeamState(boardId) {
+    let st = null;
+    try { st = JSON.parse(localStorage.getItem(teamStateKey(boardId)) || 'null'); } catch (e) { }
+    return st && st.stamps ? st : { stamps: {}, tomb: {}, known: [] };
+  }
+
+  function saveTeamState(boardId, st) {
+    try { localStorage.setItem(teamStateKey(boardId), JSON.stringify(st)); } catch (e) { }
+  }
+
+  function teamItemHash(it) {
+    return hashText(JSON.stringify(it, (k, v) => (k === 'imgElement' || k === '_t' ? undefined : v)));
+  }
+
+  // Carpeta «Mi unidad» de Google Drive para escritorio, si está instalado
+  function findGoogleDriveFolder() {
+    try {
+      const fs = window.require('fs');
+      const path = window.require('path');
+      const os = window.require('os');
+      const names = ['Mi unidad', 'My Drive'];
+      const candidates = [];
+      for (let c = 68; c <= 90; c++) names.forEach(n => candidates.push(String.fromCharCode(c) + ':\\' + n));
+      const home = os.homedir();
+      names.forEach(n => {
+        candidates.push(path.join(home, 'Google Drive', n));
+        candidates.push(path.join(home, n));
+      });
+      candidates.push(path.join(home, 'Google Drive'));
+      return candidates.find(c => { try { return fs.existsSync(c); } catch (e) { return false; } }) || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function safeFolderName(name) {
+    return String(name || 'Tablero').replace(/[<>:"/\\|?*\x00-\x1f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 60) || 'Tablero';
+  }
+
+  function readTeamManifest(folder) {
+    try {
+      const fs = window.require('fs');
+      const path = window.require('path');
+      const data = JSON.parse(fs.readFileSync(path.join(folder, TEAM_FILE), 'utf8'));
+      return data && data.type === 'brainboard_team' && data.id ? data : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Nombre de archivo de una imagen local (no data: ni web)
+  function localImageName(src) {
+    if (typeof src !== 'string' || !src || src.startsWith('data:') || /^https?:/i.test(src)) return null;
+    return src.replace(/\\/g, '/').split('/').pop() || null;
+  }
+
+  async function teamCopyImagesOut(team, items) {
+    const fs = window.require('fs');
+    const path = window.require('path');
+    const dir = path.join(team.folder, 'imagenes');
+    await fs.promises.mkdir(dir, { recursive: true });
+    if (!teamSync.copiedOut) teamSync.copiedOut = new Set();
+    for (const it of items) {
+      const name = localImageName(it.src);
+      if (!name || teamSync.copiedOut.has(name)) continue;
+      const dst = path.join(dir, name);
+      try {
+        if (!fs.existsSync(dst)) {
+          const from = [path.join(getUserImagesDir(), name), path.join(getBundledAssetsDir(), name)].find(f => fs.existsSync(f));
+          if (!from) continue;
+          await fs.promises.copyFile(from, dst);
+        }
+        teamSync.copiedOut.add(name);
+      } catch (e) { }
+    }
+  }
+
+  // Trae de la carpeta del equipo las imágenes que faltan en este ordenador. Devuelve los nombres traídos.
+  function teamCopyImagesIn(team, items) {
+    const fs = window.require('fs');
+    const path = window.require('path');
+    const brought = new Set();
+    const missing = new Set();
+    items.forEach(it => {
+      const name = localImageName(it.src);
+      if (!name) return;
+      if (fs.existsSync(path.join(getUserImagesDir(), name)) || fs.existsSync(path.join(getBundledAssetsDir(), name))) return;
+      const from = path.join(team.folder, 'imagenes', name);
+      try {
+        if (fs.existsSync(from)) {
+          fs.mkdirSync(getUserImagesDir(), { recursive: true });
+          fs.copyFileSync(from, path.join(getUserImagesDir(), name));
+          brought.add(name);
+        } else {
+          missing.add(name); // aún no ha llegado (Drive la está bajando): se reintenta
+        }
+      } catch (e) {
+        missing.add(name);
+      }
+    });
+    if (teamSync) teamSync.missingImages = missing;
+    return brought;
+  }
+
+  // Escribe el archivo propio con lo que hay ahora en el tablero
+  async function teamWriteOwnFile(boardId, items) {
+    const team = getBoardTeam(boardId);
+    if (!team?.folder || !teamSync || teamSync.boardId !== boardId) return;
+    const fs = window.require('fs');
+    const path = window.require('path');
+    const me = getTeamMember();
+    const st = loadTeamState(boardId);
+    const now = Date.now();
+    const ids = new Set();
+    items.forEach(it => {
+      if (!it || !it.id) return;
+      ids.add(it.id);
+      const h = teamItemHash(it);
+      const prev = st.stamps[it.id];
+      if (!prev || prev[0] !== h) {
+        // Un cambio propio siempre va después de la versión que se tenía (aunque los relojes no coincidan)
+        st.stamps[it.id] = [h, Math.max(now, (prev ? prev[1] : 0) + 1, (st.tomb[it.id] || 0) + 1)];
+      }
+    });
+    (st.known || []).forEach(id => {
+      if (ids.has(id)) return;
+      st.tomb[id] = Math.max(st.tomb[id] || 0, now, (st.stamps[id]?.[1] || 0) + 1);
+      delete st.stamps[id];
+    });
+    st.known = [...ids];
+    const out = items.filter(it => it && it.id).map(it => {
+      const { imgElement, _t, ...clean } = it;
+      return { ...clean, _t: st.stamps[it.id][1] };
+    });
+    const payload = {
+      type: 'brainboard_team_member', formatVersion: 1, teamId: team.id, memberId: me.id,
+      name: me.name || defaultTeamMemberName(), writtenAt: now, items: out, tombstones: st.tomb
+    };
+    try {
+      await teamCopyImagesOut(team, out);
+      const dir = path.join(team.folder, 'miembros');
+      await fs.promises.mkdir(dir, { recursive: true });
+      const file = path.join(dir, `${me.id}.json`);
+      const tmp = file + '.tmp';
+      await fs.promises.writeFile(tmp, JSON.stringify(payload), 'utf8');
+      try { await fs.promises.rename(tmp, file); } catch (e) { await fs.promises.writeFile(file, JSON.stringify(payload), 'utf8'); try { await fs.promises.unlink(tmp); } catch (e2) { } }
+      saveTeamState(boardId, st);
+      teamSync.lastWriteAt = Date.now();
+      setTeamStatus('ok');
+    } catch (e) {
+      console.warn('No se pudo escribir en la carpeta del equipo:', e);
+      setTeamStatus('offline');
+    }
+  }
+
+  // Después de cada guardado local de un tablero de equipo, su archivo en la carpeta (agrupando cambios seguidos)
+  function teamAfterLocalSave(boardId, items) {
+    if (!teamSync || teamSync.boardId !== boardId) return;
+    teamSync.pending = { boardId, items };
+    clearTimeout(teamSync.writeTimer);
+    teamSync.writeTimer = setTimeout(() => teamFlushPendingWrite(), 700);
+  }
+
+  async function teamFlushPendingWrite() {
+    if (!teamSync || !teamSync.pending) return;
+    clearTimeout(teamSync.writeTimer);
+    const { boardId, items } = teamSync.pending;
+    teamSync.pending = null;
+    await teamWriteOwnFile(boardId, items);
+  }
+  window.teamFlushPendingWrite = teamFlushPendingWrite;
+
+  function isUserChangingBoard() {
+    return Boolean(engine.isDraggingItem || engine.isResizing || engine.creationDrag || engine.currentDrawing ||
+      engine.isConnectingFromPort || activeEditingItem || isLoadingBoard);
+  }
+
+  // Lee los archivos de los compañeros y junta sus cambios con el tablero abierto
+  async function teamPullAndMerge(force = false) {
+    const sync = teamSync;
+    if (!sync || sync.boardId !== currentActiveBoardId) return 0;
+    const fs = window.require('fs');
+    const path = window.require('path');
+    const team = sync.team;
+    const me = getTeamMember();
+    const dir = path.join(team.folder, 'miembros');
+    let files = [];
+    try { files = (await fs.promises.readdir(dir)).filter(f => f.endsWith('.json') && f !== `${me.id}.json`); } catch (e) { files = []; }
+    const stats = await Promise.all(files.map(async f => { try { return [f, (await fs.promises.stat(path.join(dir, f))).mtimeMs]; } catch (e) { return [f, 0]; } }));
+    const changed = stats.filter(([f, m]) => sync.mtimes.get(f) !== m);
+    if (!force && !changed.length && !(sync.missingImages && sync.missingImages.size)) return 0;
+    if (isUserChangingBoard()) return 0; // se reintenta en la siguiente vuelta
+    const remotes = [];
+    for (const [f, m] of stats) {
+      try {
+        const data = JSON.parse(await fs.promises.readFile(path.join(dir, f), 'utf8'));
+        if (!data || data.type !== 'brainboard_team_member' || data.teamId !== team.id || !Array.isArray(data.items)) continue;
+        remotes.push({ data, file: f, mtime: m });
+        sync.members.set(data.memberId, { name: data.name || 'Compañero', writtenAt: data.writtenAt || m });
+      } catch (e) {
+        // A medio bajar por Drive: se lee en la siguiente vuelta
+        stats.find(x => x[0] === f)[1] = -1;
+      }
+    }
+    if (teamSync !== sync || sync.boardId !== currentActiveBoardId || isUserChangingBoard()) return 0;
+
+    const st = loadTeamState(sync.boardId);
+    const now = Date.now();
+    const tomb = { ...st.tomb };
+    // Borrados propios que aún no se han escrito
+    const localIds = new Set(engine.items.map(it => it.id));
+    (st.known || []).forEach(id => { if (!localIds.has(id)) tomb[id] = Math.max(tomb[id] || 0, now); });
+    const winners = new Map();
+    engine.items.forEach(it => {
+      const stamp = st.stamps[it.id];
+      const h = teamItemHash(it);
+      const t = stamp && stamp[0] === h ? stamp[1] : Math.max(now, (stamp ? stamp[1] : 0) + 1); // cambio propio sin escribir
+      winners.set(it.id, { item: it, t, member: me.id, remote: false, hash: h });
+    });
+    const changedBy = new Set();
+    remotes.forEach(({ data }) => {
+      Object.entries(data.tombstones || {}).forEach(([id, t]) => { if (t > (tomb[id] || 0)) tomb[id] = t; });
+      data.items.forEach(r => {
+        if (!r || !r.id) return;
+        const t = Number(r._t) || 0;
+        const w = winners.get(r.id);
+        if (!w || t > w.t || (t === w.t && data.memberId > w.member)) {
+          winners.set(r.id, { item: r, t, member: data.memberId, remote: true, name: data.name });
+        }
+      });
+    });
+
+    let changes = 0;
+    const result = [];
+    const adopted = [];
+    engine.items.forEach(local => {
+      const w = winners.get(local.id);
+      if ((tomb[local.id] || 0) >= w.t) { changes++; changedBy.add(w.name || ''); return; }
+      if (w.remote && teamItemHash(w.item) !== (winners.get(local.id).hash || teamItemHash(local))) {
+        const { _t, ...clean } = w.item;
+        if (local.imgElement && local.src === clean.src) clean.imgElement = local.imgElement;
+        result.push(clean);
+        adopted.push([clean, w.t]);
+        changes++;
+        changedBy.add(w.name || '');
+      } else {
+        result.push(local);
+        if (w.remote) adopted.push([local, w.t]);
+      }
+    });
+    winners.forEach((w, id) => {
+      if (localIds.has(id) || !w.remote || (tomb[id] || 0) >= w.t) return;
+      const { _t, ...clean } = w.item;
+      result.push(clean);
+      adopted.push([clean, w.t]);
+      changes++;
+      changedBy.add(w.name || '');
+    });
+
+    stats.forEach(([f, m]) => { if (m >= 0) sync.mtimes.set(f, m); });
+    adopted.forEach(([it, t]) => { st.stamps[it.id] = [teamItemHash(it), t]; });
+    st.tomb = tomb;
+    st.known = result.map(it => it.id);
+    saveTeamState(sync.boardId, st);
+
+    const brought = teamCopyImagesIn(team, result);
+    if (brought.size) result.forEach(it => { if (brought.has(localImageName(it.src))) delete it.imgElement; });
+    if (!changes && !brought.size) return 0;
+
+    if (changes) {
+      engine.items = result;
+      const alive = new Set(result.map(it => it.id));
+      [...engine.selectedItemIds].forEach(id => { if (!alive.has(id)) engine.selectedItemIds.delete(id); });
+      engine.clearHistory(); // deshacer después de un cambio ajeno revertiría el del compañero
+      autoSaveBoard();
+      const names = [...changedBy].filter(Boolean);
+      if (!force && Date.now() - (sync.lastToastAt || 0) > 6000) {
+        sync.lastToastAt = Date.now();
+        showDevToast(names.length ? `Cambios de ${names.join(', ')}` : 'Cambios del equipo');
+      }
+    }
+    engine.render();
+    updateMinimap();
+    return changes;
+  }
+
+  async function teamTick(first = false) {
+    const sync = teamSync;
+    if (!sync || sync.ticking) return;
+    sync.ticking = true;
+    try {
+      const fs = window.require('fs');
+      const path = window.require('path');
+      if (!fs.existsSync(path.join(sync.team.folder, TEAM_FILE))) {
+        setTeamStatus('offline');
+        return;
+      }
+      await teamPullAndMerge(first);
+      if (first && teamSync === sync && currentActiveBoardId === sync.boardId) {
+        await teamWriteOwnFile(sync.boardId, engine.getCleanItems());
+      }
+      if (teamSync === sync) {
+        sync.lastSyncAt = Date.now();
+        setTeamStatus('ok');
+      }
+    } catch (e) {
+      console.warn('Sincronización del equipo:', e);
+      setTeamStatus('offline');
+    } finally {
+      sync.ticking = false;
+    }
+  }
+
+  function teamSyncStop() {
+    if (!teamSync) return;
+    clearInterval(teamSync.timer);
+    if (teamSync.pending) teamFlushPendingWrite().catch(() => { });
+    teamSync = null;
+    updateTeamPill();
+  }
+
+  // Al abrir un tablero: si es de equipo, empieza a sincronizarlo; si no, para la sincronización
+  function teamSyncActivate(boardId) {
+    const team = getBoardTeam(boardId);
+    if (teamSync && teamSync.boardId === boardId && team) return;
+    if (teamSync) {
+      const prev = teamSync;
+      clearInterval(prev.timer);
+      if (prev.pending) {
+        const { boardId: pb, items } = prev.pending;
+        prev.pending = null;
+        teamWriteOwnFileDetached(prev, pb, items);
+      }
+      teamSync = null;
+    }
+    if (!team || typeof window.require !== 'function') { updateTeamPill(); return; }
+    teamSync = { boardId, team, mtimes: new Map(), members: new Map(), missingImages: new Set(), status: 'syncing' };
+    updateTeamPill();
+    teamTick(true);
+    teamSync.timer = setInterval(() => teamTick(false), TEAM_POLL_MS);
+  }
+  window.teamSyncActivate = teamSyncActivate;
+
+  // Escribe lo pendiente de un tablero de equipo que se acaba de dejar
+  function teamWriteOwnFileDetached(prevSync, boardId, items) {
+    const keep = teamSync;
+    teamSync = prevSync;
+    const done = teamWriteOwnFile(boardId, items);
+    teamSync = keep;
+    return done;
+  }
+
+  // ── Indicador del equipo (junto a «Guardado») ──
+  function setTeamStatus(status) {
+    if (!teamSync) return;
+    teamSync.status = status;
+    updateTeamPill();
+  }
+
+  function updateTeamPill() {
+    const pill = document.getElementById('team-sync-pill');
+    if (!pill) return;
+    if (!teamSync) { pill.style.display = 'none'; return; }
+    pill.style.display = 'inline-flex';
+    const st = teamSync.status;
+    pill.classList.toggle('is-offline', st === 'offline');
+    pill.classList.toggle('is-syncing', st === 'syncing');
+    const label = pill.querySelector('.team-sync-label');
+    if (label) label.textContent = st === 'offline' ? 'Equipo · sin carpeta' : st === 'syncing' ? 'Equipo · sincronizando…' : 'Equipo';
+    const others = [...teamSync.members.values()].map(m => m.name).filter(Boolean);
+    pill.title = st === 'offline'
+      ? `No se encuentra la carpeta del equipo (${teamSync.team.folder}). ¿Está abierto Google Drive?`
+      : `Tablero de equipo${others.length ? ' con ' + others.join(', ') : ''}. Se sincroniza por la carpeta de Google Drive. Clic para ver más.`;
+  }
+
+  async function openTeamInfoModal() {
+    if (!teamSync) return;
+    const sync = teamSync;
+    const meta = workspaceBoards.find(b => b.id === sync.boardId) || {};
+    const me = getTeamMember();
+    const members = [...sync.members.values()].sort((a, b) => b.writtenAt - a.writtenAt);
+    const rows = [`<div class="version-row"><div class="version-row-main"><div class="version-row-when">${escapeHtmlText(me.name || defaultTeamMemberName() || 'Tú')} <span class="version-row-ago">· tú</span></div><div class="version-row-meta">${sync.lastWriteAt ? 'Último cambio enviado ' + escapeHtmlText(formatLastOpened(sync.lastWriteAt)) : 'Sin cambios enviados todavía'}</div></div></div>`]
+      .concat(members.map(m => `<div class="version-row"><div class="version-row-main"><div class="version-row-when">${escapeHtmlText(m.name)}</div><div class="version-row-meta">Último cambio ${escapeHtmlText(formatLastOpened(m.writtenAt))}</div></div></div>`));
+    const choice = await openChoiceModal({
+      title: `Equipo · ${meta.title || ''}`,
+      messageHtml: `Este tablero se sincroniza por la carpeta <strong class="team-path">${escapeHtmlText(sync.team.folder)}</strong>. Los cambios llegan en unos segundos, cuando Google Drive los sube y los baja.
+        ${sync.status === 'offline' ? '<br><br><strong>Ahora no se encuentra la carpeta.</strong> Comprueba que Google Drive para escritorio esté abierto.' : ''}
+        <div class="version-history-list team-members-list">${rows.join('')}</div>
+        ${members.length ? '' : '<br>Todavía no se ha unido nadie. Comparte la carpeta en Google Drive y tu compañero, en Brain Board: <strong>Nuevo tablero → Unirme a un tablero de equipo</strong>.'}`,
+      choices: [
+        { label: 'Abrir carpeta', value: 'open' },
+        { label: 'Sincronizar ahora', value: 'sync' },
+        { label: 'Cerrar', value: 'close', primary: true }
+      ]
+    });
+    if (choice === 'open') {
+      try { window.require('electron').ipcRenderer.invoke('brainboard-open-path', sync.team.folder); } catch (e) { }
+    } else if (choice === 'sync') {
+      await teamFlushPendingWrite();
+      await teamTick(true);
+      showDevToast('Tablero de equipo sincronizado');
+    }
+  }
+  document.getElementById('team-sync-pill')?.addEventListener('click', openTeamInfoModal);
+
+  // ── Crear un tablero: personal o de equipo, o unirse a uno ──
+  async function pickFolder(title, defaultPath) {
+    try {
+      const res = await window.require('electron').ipcRenderer.invoke('show-open-dialog', {
+        title, defaultPath: defaultPath || undefined, properties: ['openDirectory', 'createDirectory']
+      });
+      if (!res || res.canceled || !res.filePaths?.length) return null;
+      return res.filePaths[0];
+    } catch (e) {
+      showDevToast('No se pudo abrir el selector de carpetas');
+      return null;
+    }
+  }
+
+  function nextBoardName() {
+    const baseName = 'Tablero Nuevo';
+    let candidate = baseName;
+    let counter = 1;
+    while (workspaceBoards.some(b => (b.title || '').trim().toLowerCase() === candidate.toLowerCase())) {
+      counter++;
+      candidate = `${baseName} ${counter}`;
+    }
+    return candidate;
+  }
+
+  async function createPersonalBoardFromHome(name) {
+    const newBoard = await createNewBoard(name);
+    if (!newBoard) return null;
+    newBoard.category = (currentCategoryFilter !== 'all' && currentCategoryFilter !== TRASH_VIEW) ? currentCategoryFilter : 'Random';
+    saveWorkspaceBoards();
+    await openBoardFromHome(newBoard.id);
+    return newBoard;
+  }
+
+  async function createTeamBoard(name, memberName) {
+    const fs = window.require('fs');
+    const path = window.require('path');
+    const drive = findGoogleDriveFolder();
+    const parent = await pickFolder('Elige dónde crear la carpeta del tablero (dentro de Google Drive)', drive);
+    if (!parent) return null;
+    const folder = path.join(parent, `${safeFolderName(name)} (Brain Board)`);
+    if (fs.existsSync(path.join(folder, TEAM_FILE))) {
+      showDevToast('Ahí ya hay un tablero de equipo: usa «Unirme a un tablero de equipo»');
+      return null;
+    }
+    setTeamMemberName(memberName);
+    const newBoard = await createNewBoard(name);
+    if (!newBoard) return null;
+    try {
+      fs.mkdirSync(path.join(folder, 'miembros'), { recursive: true });
+      fs.mkdirSync(path.join(folder, 'imagenes'), { recursive: true });
+      fs.writeFileSync(path.join(folder, TEAM_FILE), JSON.stringify({
+        type: 'brainboard_team', formatVersion: 1, id: newBoard.id, name, createdAt: new Date().toISOString(), createdBy: getTeamMember().name
+      }, null, 2), 'utf8');
+    } catch (e) {
+      showDevToast(`No se pudo crear la carpeta del equipo: ${e.message}`);
+      return newBoard;
+    }
+    newBoard.team = { id: newBoard.id, folder };
+    newBoard.icon = '👥';
+    newBoard.category = (currentCategoryFilter !== 'all' && currentCategoryFilter !== TRASH_VIEW) ? currentCategoryFilter : 'Random';
+    saveWorkspaceBoards();
+    await openBoardFromHome(newBoard.id);
+    teamSyncActivate(newBoard.id);
+    renderTabs();
+    renderDrawerBoards();
+    const choice = await openChoiceModal({
+      title: 'Tablero de equipo creado',
+      messageHtml: `Se guarda también en <strong class="team-path">${escapeHtmlText(folder)}</strong>.${drive && folder.startsWith(drive) ? '' : '<br><br><strong>Ojo:</strong> esa carpeta no parece estar dentro de Google Drive. Para compartirla tiene que estar en «Mi unidad».'}<br><br>
+        Para editarlo con alguien:<br>
+        1. En Google Drive, comparte la carpeta <strong>«${escapeHtmlText(path.basename(folder))}»</strong> con tu compañero (permiso de <strong>Editor</strong>).<br>
+        2. Él, en drive.google.com → <strong>Compartido conmigo</strong>, hace clic derecho en la carpeta → <strong>Organizar → Añadir acceso directo</strong> a «Mi unidad».<br>
+        3. En su Brain Board: <strong>Nuevo tablero → Unirme a un tablero de equipo</strong> y elige esa carpeta.`,
+      choices: [{ label: 'Abrir carpeta', value: 'open' }, { label: 'Entendido', value: 'ok', primary: true }]
+    });
+    if (choice === 'open') {
+      try { window.require('electron').ipcRenderer.invoke('brainboard-open-path', folder); } catch (e) { }
+    }
+    return newBoard;
+  }
+
+  async function joinTeamBoard(memberName, folderArg = null) {
+    const drive = findGoogleDriveFolder();
+    const folder = folderArg || await pickFolder('Elige la carpeta del tablero de equipo que te han compartido', drive);
+    if (!folder) return null;
+    const manifest = readTeamManifest(folder);
+    if (!manifest) {
+      showActionToast('Esa carpeta no es un tablero de equipo de Brain Board (no tiene equipo.json). Elige la carpeta que te compartieron.', []);
+      return null;
+    }
+    setTeamMemberName(memberName);
+    if (activeEditingItem) closeInlineEditor();
+    if (currentActiveBoardId) await autoSaveBoardImmediately(currentActiveBoardId);
+    let meta = workspaceBoards.find(b => b.team && b.team.id === manifest.id);
+    if (meta) {
+      meta.team.folder = folder;
+    } else {
+      const localId = workspaceBoards.some(b => b.id === manifest.id) || boardsTrash.some(t => t.id === manifest.id) ? 'board_' + Date.now() : manifest.id;
+      const now = Date.now();
+      meta = {
+        id: localId, title: manifest.name || 'Tablero de equipo', icon: '👥',
+        category: (currentCategoryFilter !== 'all' && currentCategoryFilter !== TRASH_VIEW) ? currentCategoryFilter : 'Random',
+        lastOpenedAt: now, lastOpened: formatLastOpened(now), active: false, team: { id: manifest.id, folder }
+      };
+      workspaceBoards.push(meta);
+      await idbSaveBoard(localId, { id: localId, name: meta.title, category: meta.category, icon: '👥', updatedAt: new Date().toISOString(), seedVersion: 3, userModified: true, items: [] });
+    }
+    saveWorkspaceBoards();
+    await openBoardFromHome(meta.id);
+    teamSyncActivate(meta.id);
+    renderDrawerBoards();
+    if (typeof renderHomeScreen === 'function') renderHomeScreen();
+    showDevToast(`Te has unido a «${meta.title}»`);
+    return meta;
+  }
+  window.joinTeamBoard = joinTeamBoard;
+
+  function openNewBoardModal() {
+    document.getElementById('new-board-modal')?.remove();
+    const backdrop = document.createElement('div');
+    backdrop.id = 'new-board-modal';
+    backdrop.className = 'modal-backdrop choice-modal';
+    backdrop.style.display = 'flex';
+    const drive = findGoogleDriveFolder();
+    backdrop.innerHTML = `
+      <div class="modal-dialog new-board-dialog">
+        <div class="modal-header">
+          <div class="modal-title-row"><h3>Nuevo tablero</h3></div>
+          <button class="btn-mini-close" data-nb="close" title="Cerrar">✕</button>
+        </div>
+        <div class="modal-body">
+          <label class="new-board-label" for="new-board-name">Nombre</label>
+          <input id="new-board-name" class="home-modal-input" type="text" maxlength="80" value="${escapeHtmlText(nextBoardName())}" />
+          <div class="new-board-options">
+            <label class="new-board-option is-selected">
+              <input type="radio" name="new-board-kind" value="personal" checked />
+              <span class="new-board-option-icon">📋</span>
+              <span class="new-board-option-text"><strong>Tablero personal</strong><small>Se guarda solo en tu ordenador, como hasta ahora.</small></span>
+            </label>
+            <label class="new-board-option">
+              <input type="radio" name="new-board-kind" value="team" />
+              <span class="new-board-option-icon">👥</span>
+              <span class="new-board-option-text"><strong>Trabajar en equipo</strong><small>También se guarda en una carpeta de Google Drive para editarlo con otras personas, cada una desde su casa.</small></span>
+            </label>
+          </div>
+          <div class="new-board-team-extra" style="display: none;">
+            <label class="new-board-label" for="new-board-member">Tu nombre en el equipo</label>
+            <input id="new-board-member" class="home-modal-input" type="text" maxlength="40" value="${escapeHtmlText(defaultTeamMemberName())}" />
+            <p class="new-board-hint">${drive ? `Elegirás una carpeta dentro de Google Drive (<strong>${escapeHtmlText(drive)}</strong>) y la compartirás con tu compañero.` : 'No encuentro <strong>Google Drive para escritorio</strong> en este ordenador. Instálalo (es gratis) para compartir la carpeta; mientras, puedes elegir cualquier carpeta.'}</p>
+          </div>
+          <button class="new-board-join" data-nb="join" type="button">¿Te han compartido un tablero? <strong>Unirme a un tablero de equipo</strong></button>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" data-nb="close">Cancelar</button>
+          <button class="btn btn-primary" data-nb="create">Crear tablero</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    const nameInput = backdrop.querySelector('#new-board-name');
+    const memberInput = backdrop.querySelector('#new-board-member');
+    const extra = backdrop.querySelector('.new-board-team-extra');
+    const kind = () => backdrop.querySelector('input[name="new-board-kind"]:checked')?.value || 'personal';
+    const close = () => { window.removeEventListener('keydown', onKey, true); backdrop.remove(); };
+    const submit = async () => {
+      const name = nameInput.value.trim() || nextBoardName();
+      if (kind() === 'team') {
+        const member = memberInput.value.trim();
+        if (!member) { memberInput.focus(); showDevToast('Pon tu nombre para que tu compañero sepa quién cambia qué'); return; }
+        close();
+        await createTeamBoard(name, member);
+      } else {
+        close();
+        await createPersonalBoardFromHome(name);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.stopPropagation(); close(); }
+      else if (e.key === 'Enter' && (e.target === nameInput || e.target === memberInput)) { e.preventDefault(); e.stopPropagation(); submit(); }
+    };
+    window.addEventListener('keydown', onKey, true);
+    backdrop.querySelectorAll('input[name="new-board-kind"]').forEach(r => r.addEventListener('change', () => {
+      backdrop.querySelectorAll('.new-board-option').forEach(o => o.classList.toggle('is-selected', o.querySelector('input').checked));
+      extra.style.display = kind() === 'team' ? 'block' : 'none';
+      backdrop.querySelector('[data-nb="create"]').textContent = kind() === 'team' ? 'Crear y elegir carpeta' : 'Crear tablero';
+    }));
+    backdrop.addEventListener('click', async (e) => {
+      if (e.target === backdrop) return close();
+      const btn = e.target.closest('[data-nb]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-nb');
+      if (action === 'close') return close();
+      if (action === 'create') return submit();
+      if (action === 'join') {
+        if (kind() !== 'team') {
+          // Para unirse hace falta el nombre: se pide en la misma ventana
+          backdrop.querySelector('input[value="team"]').checked = true;
+          backdrop.querySelector('input[value="team"]').dispatchEvent(new Event('change'));
+        }
+        const member = memberInput.value.trim();
+        if (!member) { memberInput.focus(); showDevToast('Pon tu nombre para unirte al equipo'); return; }
+        close();
+        await joinTeamBoard(member);
+      }
+    });
+    setTimeout(() => { nameInput.focus(); nameInput.select(); }, 30);
+  }
+  window.openNewBoardModal = openNewBoardModal;
 
   // ── Filtro por estrellas ──
   const btnStarFilter = document.getElementById('btn-star-filter');
@@ -9851,31 +10515,9 @@ document.addEventListener('DOMContentLoaded', () => {
     openGlobalSearch(homeSearchQuery || '');
   });
 
-  btnHomeNewBoard?.addEventListener('click', async () => {
-    const newBoard = await createNewBoard();
-    if (newBoard) {
-      if (currentCategoryFilter !== 'all' && currentCategoryFilter !== TRASH_VIEW) {
-        newBoard.category = currentCategoryFilter;
-      } else {
-        newBoard.category = 'Random';
-      }
-      saveWorkspaceBoards();
-      openBoardFromHome(newBoard.id);
-    }
-  });
-
-  btnHomeCreateBoardTop?.addEventListener('click', async () => {
-    const newBoard = await createNewBoard();
-    if (newBoard) {
-      if (currentCategoryFilter !== 'all' && currentCategoryFilter !== TRASH_VIEW) {
-        newBoard.category = currentCategoryFilter;
-      } else {
-        newBoard.category = 'Random';
-      }
-      saveWorkspaceBoards();
-      openBoardFromHome(newBoard.id);
-    }
-  });
+  // «Nuevo tablero»: ventana con nombre y tipo (personal o de equipo) y la opción de unirse a uno
+  btnHomeNewBoard?.addEventListener('click', () => openNewBoardModal());
+  btnHomeCreateBoardTop?.addEventListener('click', () => openNewBoardModal());
 
   btnHomeImport?.addEventListener('click', () => {
     triggerImportBoard();
@@ -12986,6 +13628,7 @@ Responde en español, con formato Markdown claro, directo, estructurado y útil.
   loadInitialBoard().then(() => {
     updateMinimap();
     fitBoardTitleWidth();
+    teamSyncActivate(currentActiveBoardId);
   });
 
   // Papelera caducada y copia automática diaria (con retraso para no estorbar el arranque)
