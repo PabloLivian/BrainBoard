@@ -5662,6 +5662,79 @@ document.addEventListener('DOMContentLoaded', () => {
     }, 400);
   }
 
+  // ── Avisos de actualización con el estilo de Brain Board (los pide main.js) ──
+  function openUpdatePromptModal(data) {
+    return new Promise((resolve) => {
+      document.getElementById('update-prompt-modal')?.remove();
+      const isReady = data.kind === 'downloaded';
+      const notes = Array.isArray(data.notes) ? data.notes.slice(0, 8) : [];
+      let current = '';
+      try { current = String(activeAppVersion || ''); } catch (e) { }
+      const backdrop = document.createElement('div');
+      backdrop.id = 'update-prompt-modal';
+      backdrop.className = 'modal-backdrop';
+      backdrop.style.display = 'flex';
+      backdrop.innerHTML = `
+        <div class="modal-dialog update-prompt-dialog" role="dialog" aria-modal="true">
+          <div class="update-prompt-header">
+            <div class="update-prompt-icon">${isReady
+              ? '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>'
+              : '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><polyline points="7 10 12 15 17 10"/><path d="M5 21h14"/></svg>'}</div>
+            <div class="update-prompt-titles">
+              <h3>${isReady ? 'Actualización lista' : 'Nueva versión de Brain Board'}</h3>
+              <div class="update-prompt-version"><span class="update-prompt-badge">v${escapeHtmlText(data.version || '')}</span>${current && !isReady ? `<span>Tienes la v${escapeHtmlText(current)}</span>` : ''}</div>
+            </div>
+            <button class="btn-mini-close" data-up="later" title="Más tarde">✕</button>
+          </div>
+          <div class="update-prompt-body">
+            ${isReady
+              ? `<p>La versión ${escapeHtmlText(data.version || '')} ya está descargada. Reinicia para usarla: tus tableros se guardan antes. Si lo dejas para más tarde, se instalará cuando cierres Brain Board.</p>`
+              : (notes.length
+                ? `<div class="update-prompt-subtitle">Novedades</div><ul class="update-prompt-notes">${notes.map(n => `<li>${escapeHtmlText(n)}</li>`).join('')}</ul>`
+                : '<p>Incluye mejoras y correcciones. Al terminar verás todas las novedades.</p>')}
+            ${isReady ? '' : '<p class="update-prompt-hint">Se descarga en segundo plano mientras sigues trabajando; luego te pediremos reiniciar.</p>'}
+          </div>
+          <div class="modal-footer">
+            <button class="btn" data-up="later">${isReady ? 'Al cerrar Brain Board' : 'Más tarde'}</button>
+            <button class="btn btn-primary" data-up="accept">${isReady ? 'Reiniciar ahora' : 'Actualizar ahora'}</button>
+          </div>
+        </div>`;
+      const finish = (accept) => {
+        window.removeEventListener('keydown', onKey, true);
+        backdrop.remove();
+        resolve(accept);
+      };
+      const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); finish(false); } };
+      backdrop.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-up]');
+        if (btn) finish(btn.getAttribute('data-up') === 'accept');
+      });
+      window.addEventListener('keydown', onKey, true);
+      document.body.appendChild(backdrop);
+      backdrop.querySelector('[data-up="accept"]')?.focus();
+    });
+  }
+  window.openUpdatePromptModal = openUpdatePromptModal;
+
+  try {
+    const { ipcRenderer } = window.require('electron');
+    ipcRenderer.on('brainboard-update-prompt', async (_e, data) => {
+      if (!data || !data.id) return;
+      ipcRenderer.send('brainboard-update-shown', data.id);
+      const accept = await openUpdatePromptModal(data);
+      if (accept && data.kind === 'downloaded') {
+        // Antes de reiniciar para instalar, todo guardado
+        try {
+          if (activeEditingItem) closeInlineEditor();
+          clearTimeout(saveTimeout);
+          await autoSaveBoardImmediately();
+          if (typeof teamFlushPendingWrite === 'function') await teamFlushPendingWrite();
+        } catch (err) { }
+      }
+      ipcRenderer.send('brainboard-update-answer', data.id, accept);
+    });
+  } catch (e) { }
+
   // Antes de cerrar la app, el proceso principal espera a que el tablero termine de guardarse
   try {
     const { ipcRenderer } = window.require('electron');

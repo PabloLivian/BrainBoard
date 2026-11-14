@@ -137938,6 +137938,44 @@ if (brainAutoUpdater) {
             .join('\n');
     }
 
+    // Avisos de actualización dentro de Brain Board (con su estilo, en claro y oscuro) en vez de la ventana de
+    // Windows. Si la ventana no confirma en 4 s que lo enseña (aún cargando, etc.), sale la ventana de Windows.
+    function brainAskInWindow(targetWin, payload, nativeFallback) {
+        return new Promise((resolve) => {
+            const w = targetWin && !targetWin.isDestroyed() ? targetWin : win;
+            if (!w || w.isDestroyed()) {
+                nativeFallback().then(resolve);
+                return;
+            }
+            const id = 'upd_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+            let shown = false;
+            let done = false;
+            const cleanup = () => {
+                electron_1.ipcMain.removeListener('brainboard-update-shown', onShown);
+                electron_1.ipcMain.removeListener('brainboard-update-answer', onAnswer);
+            };
+            const onShown = (_e, rid) => { if (rid === id) shown = true; };
+            const onAnswer = (_e, rid, accept) => {
+                if (rid !== id || done) return;
+                done = true;
+                cleanup();
+                resolve(Boolean(accept));
+            };
+            electron_1.ipcMain.on('brainboard-update-shown', onShown);
+            electron_1.ipcMain.on('brainboard-update-answer', onAnswer);
+            try {
+                w.webContents.send('brainboard-update-prompt', Object.assign({ id }, payload));
+            }
+            catch (e) { }
+            setTimeout(() => {
+                if (shown || done) return;
+                done = true;
+                cleanup();
+                nativeFallback().then(resolve);
+            }, 4000);
+        });
+    }
+
     brainAutoUpdater.on('update-available', (info) => {
         console.log('[BrainBoard Updater] Nueva versión disponible:', info.version);
         const targetWin = electron_1.BrowserWindow.getFocusedWindow() || win;
@@ -137954,7 +137992,7 @@ if (brainAutoUpdater) {
             ? `\n\nNovedades de la versión:\n${notesText}`
             : '\n\nIncluye mejoras y correcciones. Al terminar verás todas las novedades.';
 
-        electron_1.dialog.showMessageBox(targetWin || win, {
+        const nativeAvailable = () => electron_1.dialog.showMessageBox(targetWin || win, {
             type: 'info',
             title: 'Actualización disponible - Brain Board',
             message: `¡Hay una nueva versión disponible de Brain Board (v${info.version})!${changelog}`,
@@ -137962,8 +138000,14 @@ if (brainAutoUpdater) {
             buttons: ['Descargar y actualizar', 'Más tarde'],
             defaultId: 0,
             cancelId: 1
-        }).then(result => {
-            if (result.response === 0) {
+        }).then(result => result.response === 0);
+
+        brainAskInWindow(targetWin, {
+            kind: 'available',
+            version: info.version,
+            notes: notesText ? notesText.split('\n').map(l => l.replace(/^•\s*/, '')).filter(Boolean) : []
+        }, nativeAvailable).then(accept => {
+            if (accept) {
                 brainAutoUpdater.downloadUpdate();
                 if (targetWin && targetWin.webContents) {
                     targetWin.webContents.send('updater-message', {
@@ -138011,7 +138055,7 @@ if (brainAutoUpdater) {
             });
         }
 
-        electron_1.dialog.showMessageBox(targetWin || win, {
+        const nativeDownloaded = () => electron_1.dialog.showMessageBox(targetWin || win, {
             type: 'info',
             title: 'Actualización lista - Brain Board',
             message: `La versión v${info.version} se ha descargado correctamente.`,
@@ -138019,8 +138063,10 @@ if (brainAutoUpdater) {
             buttons: ['Reiniciar y actualizar ahora', 'Más tarde (al cerrar)'],
             defaultId: 0,
             cancelId: 1
-        }).then(result => {
-            if (result.response === 0) {
+        }).then(result => result.response === 0);
+
+        brainAskInWindow(targetWin, { kind: 'downloaded', version: info.version }, nativeDownloaded).then(accept => {
+            if (accept) {
                 if (targetWin && targetWin.webContents) {
                     targetWin.webContents.send('updater-message', {
                         status: 'applying',

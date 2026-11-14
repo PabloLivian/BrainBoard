@@ -8213,3 +8213,148 @@ body.dark-theme .team-sync-pill.is-offline {
   overflow-wrap: anywhere;
   word-break: break-all;
 }
+
+/* ── Aviso de actualización (sustituye a la ventana de Windows) ── */
+#update-prompt-modal {
+  z-index: 10100;
+}
+
+.update-prompt-dialog {
+  width: 460px;
+  max-width: calc(100vw - 32px);
+}
+
+.update-prompt-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px 20px 4px;
+}
+
+.update-prompt-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.update-prompt-titles {
+  flex: 1;
+  min-width: 0;
+}
+
+.update-prompt-titles h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.update-prompt-version {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.update-prompt-badge {
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-weight: 700;
+}
+
+.update-prompt-body {
+  padding: 12px 20px 18px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #334155;
+}
+
+.update-prompt-body p {
+  margin: 0;
+}
+
+.update-prompt-subtitle {
+  margin: 4px 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.update-prompt-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 44vh;
+  overflow-y: auto;
+}
+
+.update-prompt-notes li {
+  position: relative;
+  padding-left: 18px;
+}
+
+.update-prompt-notes li::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #3b82f6;
+}
+
+.update-prompt-body .update-prompt-hint {
+  margin-top: 12px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+body:not(.dark-theme) #update-prompt-modal .modal-footer .btn:not(.btn-primary) {
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+body:not(.dark-theme) #update-prompt-modal .modal-footer .btn:not(.btn-primary):hover {
+  background: #f1f5f9;
+}
+
+body.dark-theme .update-prompt-icon {
+  background: rgba(59, 130, 246, 0.16);
+  color: #93c5fd;
+}
+
+body.dark-theme .update-prompt-titles h3 {
+  color: #f1f5f9;
+}
+
+body.dark-theme .update-prompt-version,
+body.dark-theme .update-prompt-subtitle,
+body.dark-theme .update-prompt-body .update-prompt-hint {
+  color: #94a3b8;
+}
+
+body.dark-theme .update-prompt-badge {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+}
+
+body.dark-theme .update-prompt-body {
+  color: #cbd5e1;
+}
