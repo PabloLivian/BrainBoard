@@ -605,20 +605,32 @@ class CanvasEngine {
     return best;
   }
 
-  // Al soltar un marco nuevo por primera vez: queda al fondo, salvo dentro de otro marco, donde va justo encima de él
-  placeFreshFrame(frame) {
+  // Al soltar un marco (nuevo o no) dentro de otro marco: va justo encima del contenedor, por debajo de lo demás
+  // que ya hay dentro, y lo suyo (lo que se ha movido con él) queda por encima de él. Sin esto, un marco de
+  // plantilla (que nace al fondo) se quedaba detrás del contenedor y solo se veía su contenido.
+  placeFrameInContainer(frame, movedIds = null) {
     this.freshFrameIds.delete(frame.id);
     const container = this.getContainingFrame(frame);
     if (!container) return;
-    const containerZ = this.getDefaultZIndex(container);
-    if (this.getDefaultZIndex(frame) > containerZ) return;
-    // Por debajo de todo lo demás que hay en el marco contenedor
-    const insideZ = this.items
-      .filter(it => it.id !== frame.id && it.id !== container.id && this.getDefaultZIndex(it) > containerZ &&
-        (it.parentId === container.id || this.isItemInsideFrame(it, container)))
-      .map(it => this.getDefaultZIndex(it));
-    const nextZ = insideZ.length ? Math.min(...insideZ) : containerZ + 2;
-    frame.zIndex = containerZ + (nextZ - containerZ) / 2;
+    const z = (it) => this.getDefaultZIndex(it);
+    const containerZ = z(container);
+    const own = this.items.filter(it => it.id !== frame.id && it.id !== container.id &&
+      (it.parentId === frame.id || (movedIds && movedIds.has(it.id) && this.isItemInsideFrame(it, frame))));
+    const ownIds = new Set(own.map(it => it.id));
+    if (z(frame) <= containerZ) {
+      // Por debajo de todo lo demás que hay en el marco contenedor
+      const insideZ = this.items
+        .filter(it => it.id !== frame.id && it.id !== container.id && !ownIds.has(it.id) && z(it) > containerZ &&
+          (it.parentId === container.id || this.isItemInsideFrame(it, container)))
+        .map(z);
+      const nextZ = insideZ.length ? Math.min(...insideZ) : containerZ + 2;
+      frame.zIndex = containerZ + (nextZ - containerZ) / 2;
+    }
+    // Su contenido, por encima del marco (en el mismo orden que tenía)
+    const below = own.filter(it => z(it) <= z(frame)).sort((a, b) => z(a) - z(b));
+    if (!below.length) return;
+    let top = this.getTopZIndex();
+    below.forEach(it => { it.zIndex = top++; });
   }
 
   // Rectángulo que ocupa un elemento (trazos y flechas por sus puntos)
@@ -2668,13 +2680,14 @@ class CanvasEngine {
       createdItems.push(frame, title, notes);
     } else if (templateType === 'workflow') {
       // Ficha de un workflow (como las del tablero AI): título para índice que sigue al ancho del marco
-      // y debajo la utilidad, los modelos y las claves para rellenar
+      // y debajo la utilidad, los modelos y las claves para rellenar. Marco casi negro fijo (el que eligió el
+      // usuario), así que la cabecera clara y el texto claro también van fijos: se ve igual en los dos temas
       const frameW = 1329;
       const frameH = 672;
       const frameX = Math.round(targetCenterX - frameW / 2);
       const frameY = Math.round(targetCenterY - frameH / 2);
       const frameId = 'frame_' + now + '_' + Math.random().toString(36).substr(2, 5);
-      const bodyColor = this.isDarkMode ? '#eff3f7' : '#1a1a1a';
+      const bodyColor = '#eff3f7';
       createdItems.push({
         id: frameId,
         type: 'frame',
@@ -2685,6 +2698,8 @@ class CanvasEngine {
         width: frameW,
         height: frameH,
         title: 'Workflow',
+        fillColor: '#101114',
+        fillColorFixed: true,
         zIndex: currentMaxZ + 1
       }, {
         id: 'text_' + now + '_' + Math.random().toString(36).substr(2, 5),
@@ -2698,9 +2713,11 @@ class CanvasEngine {
         height: 54,
         text: 'Workflow Name',
         fontSize: 38,
-        color: '#eff3f7',
-        textColor: '#eff3f7',
-        fillColor: '#1a1a1a',
+        color: '#0f172a',
+        textColor: '#0f172a',
+        textColorFixed: true,
+        fillColor: '#eef2f5',
+        fillColorFixed: true,
         isBold: true,
         isIndexTitle: true,
         fitToFrameWidth: true,
@@ -3407,12 +3424,13 @@ class CanvasEngine {
     const wasMoved = this.hasMovedItem;
     if (this.hasMovedItem) {
       this.hasMovedItem = false;
-      // Primer arrastre de un marco nuevo: ya está colocado; desde ahora arrastra lo que tenga encima
-      (this.dragMoveItemIds || []).forEach(id => {
-        if (!this.freshFrameIds.has(id)) return;
+      // Marcos soltados: un marco nuevo ya está colocado (desde ahora arrastra lo que tenga encima) y uno que cae
+      // dentro de otro marco se pone delante de ese contenedor
+      const movedIds = new Set(this.dragMoveItemIds || []);
+      movedIds.forEach(id => {
         const frame = this.items.find(it => it.id === id);
-        if (frame) this.placeFreshFrame(frame);
-        else this.freshFrameIds.delete(id);
+        if (!frame) { this.freshFrameIds.delete(id); return; }
+        if (frame.type === 'frame') this.placeFrameInContainer(frame, movedIds);
       });
       // Lo que se ha sacado de su marco deja de ser hijo suyo (si no, al mover luego el marco se lo llevaba
       // aunque estuviera fuera); si se ha soltado dentro de otro marco, pasa a ser de ese
