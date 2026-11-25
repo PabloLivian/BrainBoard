@@ -5627,6 +5627,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const savedOk = await idbSaveBoard(targetBoardId, data);
     if (savedOk) maybeSaveAutoVersion(targetBoardId, cleanItems).catch(() => {});
     if (savedOk && typeof teamAfterLocalSave === 'function') teamAfterLocalSave(targetBoardId, cleanItems);
+    if (savedOk && typeof claudeExportAfterSave === 'function') claudeExportAfterSave(targetBoardId);
 
     // 2. Copia de reserva en LocalStorage, solo para tableros pequeños. Escribir ahí es síncrono: un tablero
     // con imágenes pegadas (AI, ~17 MB) congelaba la ventana ~0,4 s en cada guardado. A los grandes se les
@@ -8299,6 +8300,291 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => { nameInput.focus(); nameInput.select(); }, 30);
   }
   window.openNewBoardModal = openNewBoardModal;
+
+
+  // =========================================================
+  // EXPORTAR PARA CLAUDE (JSON por secciones)
+  // =========================================================
+  // Un JSON legible por cualquier IA con las secciones que elijas de un tablero: enlaces (título, URL,
+  // descripción, estrellas, frase unida), apuntes y fechas con su frescura. Si «Mantener al día» está activo,
+  // se reescribe cada vez que se guarda el tablero. Va a Documentos\BrainBoard\Para Claude\<tablero>.json.
+  const FRESHNESS_NAMES = { recent: 'reciente', current: 'actual', aging: 'intermedio', obsolete: 'antiguo' };
+  var claudeExportTimer = null; // var: un guardado al arrancar puede llegar antes que esta línea
+
+  async function getClaudeExportDir() {
+    const path = window.require('path');
+    let documentsDir = null;
+    try { documentsDir = await window.require('electron').ipcRenderer.invoke('get-documents-path'); } catch (e) { }
+    if (!documentsDir) documentsDir = path.join(window.require('os').homedir(), 'Documents');
+    return path.join(documentsDir, 'BrainBoard', 'Para Claude');
+  }
+
+  // Lo que pertenece a una sección: el contenido de un marco, o lo que hay debajo de una cabecera dentro de su
+  // ancho hasta la siguiente cabecera de esa columna
+  function getSectionMembers(section, allSections) {
+    const items = engine.items.filter(it => it && it.id !== section.id && typeof it.x === 'number' && it.type !== 'connector' && it.type !== 'frame');
+    if (section.type === 'frame') return items.filter(it => it.parentId === section.id || engine.isItemInsideFrame(it, section));
+    const x0 = section.x, x1 = section.x + (section.width || 0), top = section.y + (section.height || 0);
+    const below = allSections.filter(o => o.id !== section.id && o.y > section.y + 10 && o.x < x1 && o.x + (o.width || 0) > x0).map(o => o.y);
+    const bottom = below.length ? Math.min(...below) : Infinity;
+    return items.filter(it => {
+      const cx = it.x + (it.width || 0) / 2, cy = it.y + (it.height || 0) / 2;
+      return cx >= x0 && cx <= x1 && cy > top && cy < bottom;
+    });
+  }
+
+  function exportItemDates(it) {
+    const out = {};
+    const created = engine.getItemCreatedAtMs(it);
+    const reviewed = engine.getItemReviewedAtMs ? engine.getItemReviewedAtMs(it) : 0;
+    if (created) out.añadido = new Date(created).toISOString().slice(0, 10);
+    if (reviewed) out.revisado = new Date(reviewed).toISOString().slice(0, 10);
+    const tier = engine.getItemFreshnessInfo(it)?.tier;
+    if (tier && FRESHNESS_NAMES[tier]) out.frescura = FRESHNESS_NAMES[tier];
+    return out;
+  }
+
+  function cleanExportText(text) {
+    return String(text || '').replace(/\r/g, '').replace(/[ \t]+\n/g, '\n').trim();
+  }
+
+  // Título de un apunte: una sola línea corta en letra grande o en negrita (como «PROMPTER - TEXT TO TEXT»)
+  function isExportTitleLike(it) {
+    if (!it || (it.type !== 'text' && it.type !== 'sticky_note') || it.url) return false;
+    const text = String(it.text || '').trim();
+    if (!text || text.includes(String.fromCharCode(10)) || text.length > 100) return false;
+    return (it.fontSize || 15) >= 28 || (it.isBold === true && (it.fontSize || 15) >= 18);
+  }
+
+  // Elementos de una sección de arriba abajo (y de izquierda a derecha en la misma altura), en formato para IA.
+  // Un título con su descripción justo debajo va junto: { titulo, texto }
+  const normalizeLabel = (t) => String(t || '').replace(/[\s·]+/g, ' ').trim().toLowerCase();
+
+  function exportSectionItems(members, sectionLabel = '') {
+    const frames = engine.items.filter(f => f.type === 'frame');
+    const labelKey = normalizeLabel(sectionLabel);
+    const ordered = members
+      // Fuera las cabeceras: la que da nombre a la sección (y sus copias) y las sueltas
+      .filter(it => !isSectionHeaderItem(it, frames) && !(labelKey && it.type === 'text' && normalizeLabel(it.text) === labelKey))
+      .sort((a, b) => (Math.round(a.y / 24) - Math.round(b.y / 24)) || (a.x - b.x));
+    const memberIds = new Set(ordered.map(m => m.id));
+    const captionOf = new Map(); // texto unido a una tarjeta → va como «frase» de esa tarjeta
+    ordered.forEach(it => {
+      if (!engine.isLinkCard(it) || !it.linkGroup) return;
+      const cap = engine.items.find(t => t.linkGroup === it.linkGroup && t.type === 'text' && !t.url && String(t.text || '').trim());
+      if (cap) captionOf.set(it.id, cap);
+    });
+    const usedCaptions = new Set([...captionOf.values()].map(c => c.id));
+    const pairedBodies = new Set();
+    const out = [];
+    let images = 0;
+    ordered.forEach(it => {
+      if (usedCaptions.has(it.id)) return;
+      const url = engine.extractUrlFromItem(it);
+      if (engine.isLinkCard(it) || (url && it.type !== 'image')) {
+        const entry = { tipo: 'enlace', titulo: cleanExportText(it.title || it.text || it.domain || url), url: url || '' };
+        if (it.description) entry.descripcion = cleanExportText(it.description);
+        if (Number(it.rating) > 0) entry.estrellas = Number(it.rating);
+        const cap = captionOf.get(it.id);
+        if (cap) entry.frase = cleanExportText(cap.text);
+        if (it.linkStatus === 'broken' && (!it.linkCheckedUrl || it.linkCheckedUrl === it.url)) entry.enlaceRoto = true;
+        out.push(Object.assign(entry, exportItemDates(it)));
+      } else if (it.type === 'image') {
+        images++;
+      } else if (it.type === 'spoiler') {
+        out.push(Object.assign({ tipo: 'apunte', titulo: cleanExportText(it.title), texto: cleanExportText(it.text) }, exportItemDates(it)));
+      } else if (it.type === 'folder') {
+        out.push(Object.assign({ tipo: 'carpeta', ruta: String(it.path || '') }, exportItemDates(it)));
+      } else if ((it.type === 'text' || it.type === 'sticky_note' || it.type === 'shape') && cleanExportText(it.text)) {
+        // ¿Es el cuerpo de un título que va justo encima? Entonces ya va con él
+        if (pairedBodies.has(it.id)) return;
+        if (isExportTitleLike(it)) {
+          const body = ordered.find(o => o !== it && !usedCaptions.has(o.id) && (o.type === 'text' || o.type === 'sticky_note') && !o.url &&
+            !isExportTitleLike(o) && cleanExportText(o.text) && o.y >= it.y + (it.height || 0) - 12 && o.y <= it.y + (it.height || 0) + 70 &&
+            o.x < it.x + Math.max(it.width || 0, 200) && o.x + (o.width || 0) > it.x);
+          if (body) {
+            pairedBodies.add(body.id);
+            out.push(Object.assign({ tipo: 'apunte', titulo: cleanExportText(it.text), texto: cleanExportText(body.text) }, exportItemDates(body)));
+            return;
+          }
+          out.push(Object.assign({ tipo: 'apunte', titulo: cleanExportText(it.text) }, exportItemDates(it)));
+          return;
+        }
+        out.push(Object.assign({ tipo: 'apunte', texto: cleanExportText(it.text) }, exportItemDates(it)));
+      }
+    });
+    return { items: out, images, count: memberIds.size };
+  }
+
+  // Secciones del tablero abierto que se pueden exportar (las del índice), sin repetidas
+  function getExportableSections() {
+    const seen = new Set();
+    return getBoardSectionsTree().map(({ item, depth }) => ({ item, depth, label: getSectionLabel(item) || 'Sin título' }))
+      .filter(s => {
+        const key = `${s.label}|${Math.round(s.item.x)}|${Math.round(s.item.y)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+  }
+
+  function buildClaudeExport(boardId, config) {
+    const meta = workspaceBoards.find(b => b.id === boardId) || {};
+    const all = getExportableSections();
+    const allItems = all.map(s => s.item);
+    const chosen = config.all ? [] : all.filter(s => (config.sections || []).includes(s.item.id));
+    const sections = chosen.map(s => {
+      const members = getSectionMembers(s.item, allItems);
+      const { items, images } = exportSectionItems(members, s.label);
+      // El nombre con sus líneas separadas, como se ve en el tablero («WORKFLOWS · VIDEO»)
+      const header = members.find(m => m.type === 'text' && normalizeLabel(m.text) === normalizeLabel(s.label));
+      const pretty = header ? String(header.text).split(String.fromCharCode(10)).map(l => l.trim()).filter(Boolean).join(' · ') : s.label;
+      const sec = { seccion: pretty, elementos: items };
+      if (images) sec.imagenes = images;
+      return sec;
+    });
+    if (config.all) {
+      const { items, images } = exportSectionItems(engine.items.filter(it => typeof it.x === 'number' && it.type !== 'connector' && it.type !== 'frame'));
+      sections.push(Object.assign({ seccion: 'Todo el tablero', elementos: items }, images ? { imagenes: images } : {}));
+    }
+    // Los límites de frescura que tenga configurados el usuario (engranaje del Mapa de Frescura)
+    const th = engine.freshnessThresholds || { recent: 7, current: 30, aging: 180 };
+    const days = (n) => `${Math.round(n * 10) / 10} día${n === 1 ? '' : 's'}`;
+    return {
+      type: 'brainboard_export',
+      formatVersion: 1,
+      tablero: meta.title || boardId,
+      exportado: new Date().toISOString(),
+      explicacion: `Exportado de Brain Board (pizarra de apuntes). Cada sección agrupa enlaces y apuntes del usuario. «estrellas» es su puntuación de 1 a 5; «frescura» indica si está al día: reciente (${days(th.recent)} o menos), actual (${days(th.current)} o menos), intermedio (${days(th.aging)} o menos) o antiguo (más de ${days(th.aging)} sin revisar). «enlaceRoto» marca enlaces que ya no funcionan.`,
+      secciones: sections
+    };
+  }
+
+  async function writeClaudeExport(boardId) {
+    const meta = workspaceBoards.find(b => b.id === boardId);
+    const config = meta?.claudeExport;
+    if (!config || boardId !== currentActiveBoardId) return null;
+    const fs = window.require('fs');
+    const path = window.require('path');
+    const dir = await getClaudeExportDir();
+    await fs.promises.mkdir(dir, { recursive: true });
+    const file = path.join(dir, `${safeFolderName(meta.title || boardId)}.json`);
+    const data = buildClaudeExport(boardId, config);
+    await fs.promises.writeFile(file, JSON.stringify(data, null, 2), 'utf8');
+    config.file = file;
+    config.lastExportAt = Date.now();
+    return { file, data };
+  }
+
+  // Tras cada guardado del tablero abierto, si tiene «Mantener al día»
+  function claudeExportAfterSave(boardId) {
+    const config = workspaceBoards.find(b => b.id === boardId)?.claudeExport;
+    if (!config || !config.auto || boardId !== currentActiveBoardId) return;
+    clearTimeout(claudeExportTimer);
+    claudeExportTimer = setTimeout(() => {
+      writeClaudeExport(boardId).catch(e => console.warn('Exportar para Claude:', e));
+    }, 2500);
+  }
+
+  async function openClaudeExportModal() {
+    const boardId = currentActiveBoardId;
+    if (!boardId) return;
+    const meta = workspaceBoards.find(b => b.id === boardId) || {};
+    const config = meta.claudeExport || { sections: [], all: false, auto: true };
+    const sections = getExportableSections();
+    const allItems = sections.map(s => s.item);
+    const dir = await getClaudeExportDir();
+    document.getElementById('claude-export-modal')?.remove();
+    const backdrop = document.createElement('div');
+    backdrop.id = 'claude-export-modal';
+    backdrop.className = 'modal-backdrop';
+    backdrop.style.display = 'flex';
+    const rows = sections.map((s, i) => {
+      const n = getSectionMembers(s.item, allItems).length;
+      const checked = (config.sections || []).includes(s.item.id) ? 'checked' : '';
+      return `<label class="claude-export-row" style="padding-left: ${12 + s.depth * 18}px;">
+        <input type="checkbox" data-idx="${i}" ${checked} />
+        <span class="claude-export-row-label">${escapeHtmlText(s.label)}</span>
+        <span class="claude-export-row-count">${n}</span>
+      </label>`;
+    }).join('');
+    backdrop.innerHTML = `
+      <div class="modal-dialog version-history-dialog">
+        <div class="modal-header">
+          <div class="modal-title-row"><h3>Exportar para Claude</h3></div>
+          <button class="btn-mini-close" data-ce="close" title="Cerrar">✕</button>
+        </div>
+        <div class="modal-body">
+          <p class="modal-desc version-history-intro">Crea un archivo JSON con las secciones que elijas de <strong>«${escapeHtmlText(meta.title || boardId)}»</strong>: enlaces con su descripción y estrellas, apuntes y fechas. Súbelo a un Project de Claude o deja que Claude lo lea desde tu ordenador.</p>
+          <div class="claude-export-toolbar">
+            <input type="text" class="home-modal-input claude-export-filter" placeholder="Filtrar secciones (p. ej. workflows)…" />
+            <label class="claude-export-all"><input type="checkbox" data-ce-all ${config.all ? 'checked' : ''} /> Todo el tablero</label>
+          </div>
+          <div class="version-history-list claude-export-list">${rows || '<div class="version-history-empty">Este tablero no tiene secciones. Marca «Todo el tablero».</div>'}</div>
+          <label class="claude-export-auto"><input type="checkbox" data-ce-auto ${config.auto !== false ? 'checked' : ''} /> Mantenerlo al día (se actualiza cada vez que guardas el tablero)</label>
+          <p class="new-board-hint">Se guarda en <strong class="team-path">${escapeHtmlText(window.require('path').join(dir, safeFolderName(meta.title || boardId) + '.json'))}</strong></p>
+        </div>
+        <div class="modal-footer">
+          ${meta.claudeExport ? '<button class="btn" data-ce="off">Dejar de exportar</button>' : ''}
+          <button class="btn" data-ce="close">Cancelar</button>
+          <button class="btn btn-primary" data-ce="export">Exportar</button>
+        </div>
+      </div>`;
+    document.body.appendChild(backdrop);
+    const close = () => { window.removeEventListener('keydown', onKey, true); backdrop.remove(); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    window.addEventListener('keydown', onKey, true);
+    const filter = backdrop.querySelector('.claude-export-filter');
+    filter.addEventListener('input', () => {
+      const q = normalizeSearchText(filter.value);
+      backdrop.querySelectorAll('.claude-export-row').forEach(r => {
+        r.style.display = !q || normalizeSearchText(r.textContent).includes(q) ? '' : 'none';
+      });
+    });
+    backdrop.addEventListener('click', async (e) => {
+      if (e.target === backdrop) return close();
+      const btn = e.target.closest('[data-ce]');
+      if (!btn) return;
+      const action = btn.getAttribute('data-ce');
+      if (action === 'close') return close();
+      if (action === 'off') {
+        delete meta.claudeExport;
+        saveWorkspaceBoards();
+        close();
+        showDevToast('Ya no se exporta este tablero (el archivo que había se queda)');
+        return;
+      }
+      const chosen = [...backdrop.querySelectorAll('.claude-export-row input:checked')].map(c => sections[Number(c.getAttribute('data-idx'))].item.id);
+      const all = backdrop.querySelector('[data-ce-all]').checked;
+      if (!all && !chosen.length) { showDevToast('Elige al menos una sección o «Todo el tablero»'); return; }
+      meta.claudeExport = { sections: chosen, all, auto: backdrop.querySelector('[data-ce-auto]').checked };
+      saveWorkspaceBoards();
+      try {
+        const res = await writeClaudeExport(boardId);
+        saveWorkspaceBoards();
+        close();
+        const total = res.data.secciones.reduce((n, sec) => n + sec.elementos.length, 0);
+        const choice = await openChoiceModal({
+          title: 'Exportado para Claude',
+          messageHtml: `<strong>${res.data.secciones.length}</strong> ${res.data.secciones.length === 1 ? 'sección' : 'secciones'} con <strong>${total}</strong> enlaces y apuntes en <strong class="team-path">${escapeHtmlText(res.file)}</strong>.${meta.claudeExport.auto ? '<br><br>Se mantendrá al día cada vez que guardes el tablero.' : ''}<br><br>
+            <strong>En un Project de claude.ai:</strong> súbelo a sus archivos y en las instrucciones pon, por ejemplo, «Consulta ${escapeHtmlText(window.require('path').basename(res.file))} para conocer mis workflows y recursos». Si el tablero cambia, vuelve a subirlo.<br>
+            <strong>En Claude Code o en Claude para escritorio:</strong> dale acceso a la carpeta y lo leerá siempre al día.`,
+          choices: [{ label: 'Abrir carpeta', value: 'open' }, { label: 'Entendido', value: 'ok', primary: true }]
+        });
+        if (choice === 'open') {
+          try { window.require('electron').ipcRenderer.invoke('brainboard-open-path', window.require('path').dirname(res.file)); } catch (err) { }
+        }
+      } catch (err) {
+        showDevToast(`No se pudo exportar: ${err.message || err}`);
+      }
+    });
+  }
+  window.openClaudeExportModal = openClaudeExportModal;
+  window.buildClaudeExport = buildClaudeExport;
+  document.getElementById('menu-opt-claude-export')?.addEventListener('click', () => {
+    boardOptionsMenu?.classList.remove('visible');
+    openClaudeExportModal();
+  });
 
   // ── Filtro por estrellas ──
   const btnStarFilter = document.getElementById('btn-star-filter');
