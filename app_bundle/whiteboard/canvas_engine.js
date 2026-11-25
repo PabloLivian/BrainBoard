@@ -1286,6 +1286,10 @@ class CanvasEngine {
         child.start.y >= frame.y && child.start.y <= frame.y + frame.height
       );
     }
+    // Un marco nunca está dentro de otro igual o más pequeño. Sin esto, un contenedor grande cuyo centro cae
+    // debajo de un marco pequeño metido en él contaba como «hijo» del pequeño, y arrastrar el pequeño se lo llevaba
+    if (child.type === 'frame' && child !== frame &&
+      (child.width || 0) * (child.height || 0) >= (frame.width || 0) * (frame.height || 0)) return false;
     const cx = (child.x || 0) + (child.width || 0) / 2;
     const cy = (child.y || 0) + (child.height || 0) / 2;
     return (
