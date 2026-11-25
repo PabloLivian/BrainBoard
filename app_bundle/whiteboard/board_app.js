@@ -1594,7 +1594,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (engine.onBoardModified) engine.onBoardModified();
     engine.render();
     autoSaveBoardImmediately();
-    const templateNames = { apuntes: 'Apuntes', recurso_apunte: 'Recurso + apunte', galeria: 'Galería de referencias', titulo_indice: 'Título para índice', desplegable: 'Texto desplegable', recursos: 'Recursos' };
+    const templateNames = { apuntes: 'Apuntes', recurso_apunte: 'Recurso + apunte', workflow: 'Workflow', titulo_indice: 'Título para índice', desplegable: 'Texto desplegable', recursos: 'Recursos' };
     showDevToast(`Plantilla «${templateNames[templateType] || 'Apuntes'}» insertada`);
   }
   window.insertTemplate = insertTemplate;

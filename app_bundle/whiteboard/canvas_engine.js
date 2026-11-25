@@ -2666,6 +2666,63 @@ class CanvasEngine {
       };
 
       createdItems.push(frame, title, notes);
+    } else if (templateType === 'workflow') {
+      // Ficha de un workflow (como las del tablero AI): título para índice que sigue al ancho del marco
+      // y debajo la utilidad, los modelos y las claves para rellenar
+      const frameW = 1329;
+      const frameH = 672;
+      const frameX = Math.round(targetCenterX - frameW / 2);
+      const frameY = Math.round(targetCenterY - frameH / 2);
+      const frameId = 'frame_' + now + '_' + Math.random().toString(36).substr(2, 5);
+      const bodyColor = this.isDarkMode ? '#eff3f7' : '#1a1a1a';
+      createdItems.push({
+        id: frameId,
+        type: 'frame',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        x: frameX,
+        y: frameY,
+        width: frameW,
+        height: frameH,
+        title: 'Workflow',
+        zIndex: currentMaxZ + 1
+      }, {
+        id: 'text_' + now + '_' + Math.random().toString(36).substr(2, 5),
+        type: 'text',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        parentId: frameId,
+        x: frameX + 23,
+        y: frameY + 17,
+        width: frameW - 50,
+        height: 54,
+        text: 'Workflow Name',
+        fontSize: 38,
+        color: '#eff3f7',
+        textColor: '#eff3f7',
+        fillColor: '#1a1a1a',
+        isBold: true,
+        isIndexTitle: true,
+        fitToFrameWidth: true,
+        zIndex: currentMaxZ + 2
+      }, {
+        id: 'text_' + (now + 1) + '_' + Math.random().toString(36).substr(2, 5),
+        type: 'text',
+        createdAt: nowIso,
+        updatedAt: nowIso,
+        parentId: frameId,
+        x: frameX + 47,
+        y: frameY + 97,
+        width: 1014,
+        height: 549,
+        text: 'UTILIDAD\n\n\n\n\nMODELOS\nModelo: \nLora: \nText encoder: \nControlnet de cámara: \nControlnet de ViTPose: \nVAE: \nClip Vision: \n\nCLAVES',
+        fontSize: 24,
+        textAlign: 'left',
+        color: bodyColor,
+        textColor: bodyColor,
+        isBold: false,
+        zIndex: currentMaxZ + 3
+      });
     } else if (templateType === 'recursos') {
       // Contenedor de recursos: título que sigue al ancho del marco y botón «Ordenar» (fecha o estrellas)
       const frameW = 1100;
@@ -2776,11 +2833,8 @@ class CanvasEngine {
     const items = [];
     let z = baseZ;
 
-    const sizes = {
-      recurso_apunte: { w: 820, h: 420, title: 'Recurso + apunte', header: 'NOMBRE DEL RECURSO' },
-      galeria: { w: 1050, h: 600, title: 'Referencias', header: 'REFERENCIAS VISUALES' }
-    };
-    const spec = sizes[templateType] || sizes.recurso_apunte;
+    // Solo queda Recurso + apunte (la Galería de referencias se quitó; sus huecos siguen funcionando en los tableros)
+    const spec = { w: 820, h: 420, title: 'Recurso + apunte', header: 'NOMBRE DEL RECURSO' };
     const fx = Math.round(centerX - spec.w / 2);
     const fy = Math.round(centerY - spec.h / 2);
     const frameId = uid('frame', 0);
@@ -2797,43 +2851,21 @@ class CanvasEngine {
       color: '#f1f5f9', textColor: '#f1f5f9', fillColor: '#161b26', zIndex: ++z
     });
 
-    if (templateType === 'galeria') {
-      // 3 × 2 huecos: al pegar o arrastrar una imagen sobre un hueco, la imagen ocupa su lugar
-      const cols = 3;
-      const slotW = 310;
-      const slotH = 210;
-      const gapX = (spec.w - 60 - cols * slotW) / (cols - 1);
-      for (let i = 0; i < 6; i++) {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        items.push({
-          id: uid('shape', 2 + i), type: 'shape', shape: 'rectangle', parentId: frameId,
-          createdAt: nowIso, updatedAt: nowIso,
-          x: Math.round(fx + 30 + col * (slotW + gapX)), y: fy + 104 + row * (slotH + 24),
-          width: slotW, height: slotH,
-          text: 'Pega o arrastra una imagen aquí', fontSize: 14, isBold: false,
-          fillColor: '#161b26', strokeColor: '#334155', strokeWidth: 1.5,
-          color: '#94a3b8', textColor: '#94a3b8',
-          isImagePlaceholder: true, zIndex: ++z
-        });
-      }
-    } else {
-      // Recurso + apunte: tarjeta de enlace a la izquierda y nota técnica a la derecha
-      items.push({
-        id: uid('embed', 2), type: 'embed', parentId: frameId, createdAt: nowIso, updatedAt: nowIso,
-        x: fx + 30, y: fy + 104, width: 330, height: 260,
-        url: '', domain: 'ENLACE', title: 'Pega aquí el enlace', src: '',
-        description: 'Selecciona la tarjeta y pulsa el botón de enlace (🔗) de la barra para añadir la URL',
-        zIndex: ++z
-      });
-      items.push({
-        id: uid('text', 3), type: 'text', parentId: frameId, createdAt: nowIso, updatedAt: nowIso,
-        x: fx + 390, y: fy + 104, width: 395, height: 260,
-        text: '• Qué es:\n\n• Workflow:\n\n• Integración en el pipeline:',
-        fontSize: 16, textAlign: 'left',
-        color: '#e2e8f0', textColor: '#e2e8f0', fillColor: '#161b26', zIndex: ++z
-      });
-    }
+    // Recurso + apunte: tarjeta de enlace a la izquierda y nota técnica a la derecha
+    items.push({
+      id: uid('embed', 2), type: 'embed', parentId: frameId, createdAt: nowIso, updatedAt: nowIso,
+      x: fx + 30, y: fy + 104, width: 330, height: 260,
+      url: '', domain: 'ENLACE', title: 'Pega aquí el enlace', src: '',
+      description: 'Selecciona la tarjeta y pulsa el botón de enlace (🔗) de la barra para añadir la URL',
+      zIndex: ++z
+    });
+    items.push({
+      id: uid('text', 3), type: 'text', parentId: frameId, createdAt: nowIso, updatedAt: nowIso,
+      x: fx + 390, y: fy + 104, width: 395, height: 260,
+      text: '• Qué es:\n\n• Workflow:\n\n• Integración en el pipeline:',
+      fontSize: 16, textAlign: 'left',
+      color: '#e2e8f0', textColor: '#e2e8f0', fillColor: '#161b26', zIndex: ++z
+    });
     return items;
   }
 
